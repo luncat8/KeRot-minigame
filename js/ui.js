@@ -10,16 +10,19 @@ const UI = (() => {
 	function bind(onReset) {
 		for (const id of ['omega', 'muK', 'muS', 'omegaVal', 'muKVal', 'muSVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'chkRing', 'chkPreview', 'playerType'])
 			els[id] = $(id);
+		// Every physics input invalidates the ghost: it is only valid for the settings
+		// it was simulated with, so a slider move must re-sim it on the next frame.
+		const onPhys = () => Game.invalidateGhost();
 		els.omega.max = String(CFG.omegaMax);
-		els.omega.addEventListener('input', () => { CFG.omega = parseFloat(els.omega.value); sync(); });
+		els.omega.addEventListener('input', () => { CFG.omega = parseFloat(els.omega.value); sync(); onPhys(); });
 		els.muK.addEventListener('input', () => {
 			CFG.muK = parseFloat(els.muK.value);
 			els.muS.min = String(CFG.muK);
 			if (CFG.muS < CFG.muK) { CFG.muS = CFG.muK; els.muS.value = String(CFG.muS); }
-			sync();
+			sync(); onPhys();
 		});
-		els.muS.addEventListener('input', () => { CFG.muS = parseFloat(els.muS.value); sync(); });
-		els.btnAuto.addEventListener('click', () => { CFG.omega = autoOmega(CFG); els.omega.value = String(CFG.omega); sync(); });
+		els.muS.addEventListener('input', () => { CFG.muS = parseFloat(els.muS.value); sync(); onPhys(); });
+		els.btnAuto.addEventListener('click', () => { CFG.omega = autoOmega(CFG); els.omega.value = String(CFG.omega); sync(); onPhys(); });
 		els.btnThrow.addEventListener('click', () => Game.queueThrow(performance.now()));
 		els.btnClear.addEventListener('click', () => { Game.aim.hasStroke = false; });
 		els.btnReset.addEventListener('click', onReset);

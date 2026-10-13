@@ -14,7 +14,7 @@ let fail = 0;
 	while (w.st[i] === cfgm.ST_SLIDE && guard++ < 480 * 30) stepWorld(w, cfg.h);
 	const travelled = w.x[i] - 0.3, expect = 1.0 / (2 * cfg.muK * cfg.g);
 	console.log('stop dist=' + travelled.toFixed(3) + ' expect=' + expect.toFixed(3));
-	if (Math.abs(travelled - expect) / expect > 0.02) { console.log('FAIL stopping distance (wall bounce may interfere)'); }
+	if (Math.abs(travelled - expect) / expect > 0.02) { console.log('FAIL stopping distance'); fail = 1; }
 }
 // Wall bounce energy ratio: head-on into left wall.
 {

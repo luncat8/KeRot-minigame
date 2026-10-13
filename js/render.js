@@ -4,9 +4,11 @@
 const Render = (() => {
 	let cv, ctx, scale = 100, ox = 0, oy = 0, dpr = 1;
 	let texDisk = null, texFloor = null, puckGrad = null, wallPath = null;
-	let zonePath = null, hatchPath = null, behindPath = null, marginArc = null;
+	let zonePath = null, zoneTri = null, zoneHole = null, hatchPath = null, sectorPath = null;
 	const RING_COLORS = ['#e74c3c', '#f39c12', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#fd79a8', '#74b9ff'];
 	const Z_FILL = 'rgba(32,178,170,0.16)', Z_LINE = 'rgba(46,204,196,0.55)', Z_HATCH = 'rgba(46,204,196,0.16)';
+	const SECTOR_SHADE = 'rgba(45,52,54,0.42)'; // 3 of the 6 face sectors
+	let puckFont = '', labelRot = 0;
 	function setup(canvas) {
 		cv = canvas; ctx = cv.getContext('2d');
 		puckGrad = ctx.createRadialGradient(-0.03, -0.03, 0.01, 0, 0, CFG.puckR);
@@ -16,18 +18,27 @@ const Render = (() => {
 	}
 	function buildZonePaths() {
 		const z = RETURN_ZONES;
+		// The eject fan, with the on-disk guard (diskR + puckR) punched out of the
+		// fill, so the exemption is drawn instead of implied.
+		zoneTri = new Path2D();
+		zoneTri.moveTo(z.ax, z.ay); zoneTri.lineTo(z.bx, z.by); zoneTri.lineTo(z.cx, z.cy); zoneTri.closePath();
+		zoneHole = new Path2D();
+		zoneHole.arc(CFG.diskX, CFG.diskY, CFG.diskR + CFG.puckR, 0, Math.PI * 2);
 		zonePath = new Path2D();
-		zonePath.rect(0, 0, z.lagoonW, CFG.boardH);
-		zonePath.rect(0, 0, CFG.boardW, z.stream);
-		zonePath.rect(0, CFG.boardH - z.stream, CFG.boardW, z.stream);
+		zonePath.addPath(zoneTri); zonePath.addPath(zoneHole);
 		hatchPath = new Path2D();
 		for (let s = -CFG.boardH; s < CFG.boardW; s += 0.14) { // 45° stripes across the board
 			hatchPath.moveTo(s, 0); hatchPath.lineTo(s + CFG.boardH, CFG.boardH);
 		}
-		behindPath = new Path2D();
-		behindPath.rect(0, 0, CFG.diskX, CFG.boardH);
-		marginArc = new Path2D();
-		marginArc.arc(CFG.diskX, CFG.diskY, CFG.diskR + CFG.puckR, Math.PI / 2, Math.PI * 1.5);
+		// Puck face: 6 sectors, 3 shaded, unit radius (scaled per puck at draw time).
+		sectorPath = new Path2D();
+		for (let k = 0; k < 3; k++) {
+			const a0 = k * 2 * Math.PI / 3;
+			sectorPath.moveTo(0, 0);
+			sectorPath.arc(0, 0, 1, a0, a0 + Math.PI / 3);
+			sectorPath.closePath();
+		}
+		labelRot = Math.atan2(z.by - z.ay, z.bx - z.ax); // fan edge -> readable label angle
 	}
 	function resize() {
 		dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -44,6 +55,7 @@ const Render = (() => {
 		texFloor = bakeFieldCanvas({ x: 0, y: 0, w: CFG.boardW, h: CFG.boardH }, 40, 0, CFG);
 		wallPath = new Path2D();
 		wallPath.rect(0, 0, CFG.boardW, CFG.boardH);
+		puckFont = 'bold ' + (CFG.puckR * 0.55) + 'px sans-serif';
 	}
 	function toWorld(clientX, clientY) {
 		const r = cv.getBoundingClientRect();
@@ -53,23 +65,14 @@ const Render = (() => {
 		if (mode === 'none') return;
 		ctx.save();
 		ctx.fillStyle = Z_FILL;
-		if (mode === 'behind') {
-			ctx.fill(behindPath);
-			ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = Z_LINE;
-			ctx.beginPath(); ctx.moveTo(CFG.diskX, 0); ctx.lineTo(CFG.diskX, CFG.boardH); ctx.stroke();
-			ctx.stroke(marginArc); // the disk itself is exempt from the rule
-			ctx.setLineDash([]);
-			drawZoneLabel(0.18, 0.20, -Math.PI / 2);
-		} else {
-			ctx.fill(zonePath);
-			ctx.save(); ctx.clip(zonePath);
-			ctx.strokeStyle = Z_HATCH; ctx.lineWidth = 0.012; ctx.stroke(hatchPath);
-			ctx.restore();
-			ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = Z_LINE;
-			ctx.stroke(zonePath); ctx.setLineDash([]);
-			drawZoneLabel(0.16, 1.75, -Math.PI / 2);
-			drawZoneLabel(2.6, 0.075, 0);
-		}
+		ctx.fill(zonePath, 'evenodd');
+		ctx.save(); ctx.clip(zonePath, 'evenodd');
+		ctx.strokeStyle = Z_HATCH; ctx.lineWidth = 0.012; ctx.stroke(hatchPath);
+		ctx.restore();
+		ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = Z_LINE;
+		ctx.stroke(zoneTri); ctx.stroke(zoneHole); ctx.setLineDash([]);
+		drawZoneLabel(2.55, 0.75, labelRot); // inside the fan, along its edges
+		drawZoneLabel(2.55, CFG.boardH - 0.75, -labelRot);
 		ctx.restore();
 	}
 	function drawZoneLabel(x, y, rot) {
@@ -145,9 +148,14 @@ const Render = (() => {
 		ctx.globalAlpha = isPending ? 0.65 : w.st[i] === ST_SLEEP ? 0.85 : 1;
 		ctx.fillStyle = puckGrad;
 		ctx.beginPath(); ctx.arc(0, 0, w.r[i], 0, Math.PI * 2); ctx.fill();
+		// Face sectors turn with the puck's material rotation (w.th).
+		ctx.save();
+		ctx.rotate(w.th[i]); ctx.scale(w.r[i], w.r[i]);
+		ctx.fillStyle = SECTOR_SHADE; ctx.fill(sectorPath);
+		ctx.restore();
 		ctx.lineWidth = 0.014; ctx.strokeStyle = RING_COLORS[i % RING_COLORS.length]; ctx.stroke();
-		ctx.fillStyle = '#2d3436';
-		ctx.font = 'bold ' + (w.r[i] * 0.7) + 'px sans-serif';
+		ctx.globalAlpha *= 0.8;
+		ctx.fillStyle = '#2d3436'; ctx.font = puckFont;
 		ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 		ctx.fillText(String(i + 1), 0, 0.004);
 		ctx.restore();

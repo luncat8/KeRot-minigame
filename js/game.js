@@ -10,36 +10,46 @@ const Game = (() => {
 	let state = 'aim', pending = -1, resolveT = 0, paused = false, finalScore = null;
 	let player = 'human'; // 'human' | 'random' | 'keeper' | 'hunter'
 	let botT = 0, predT = 0, ghostDirty = false, seed = 1, rng = makeRng(seed);
-	const aim = { pending: -1, hasStroke: false, vx: 0, vy: 0, dragging: false };
+	// len/anchor* implement precision mode (shift): the speed mapping is rebased every
+	// time shift flips, so the stroke never jumps when it is pressed or released.
+	const aim = { pending: -1, hasStroke: false, vx: 0, vy: 0, dragging: false, len: 0, anchorLen: 0, anchorSp: CFG.vMin, precise: false };
 	const queue = []; // {type:'throw', timeStamp}
 
 	function isBot() { return player !== 'human'; }
 	function newPending() {
 		pending = spawnPuck(w, CFG.launchX, CFG.launchY);
 		aim.pending = pending; aim.hasStroke = false; aim.vx = 0; aim.vy = 0;
+		rebase(0, CFG.vMin, false);
 		if (isBot()) botPrep();
 	}
 	function botPrep() {
 		const s = chooseStroke(player, w, CFG, pending, pred, rng);
 		aim.vx = s.vx; aim.vy = s.vy; aim.hasStroke = true;
-		botT = 0; ghostDirty = true; predT = 0; // predict at once
+		botT = 0; invalidateGhost();
 	}
 	function reset() {
 		resetWorld(w); state = 'aim'; finalScore = null; resolveT = 0; botT = 0;
 		rng = makeRng(++seed); // fresh seed per board: bot games differ, competitions stay reproducible
 		newPending();
 	}
-	// Drag 0..dragFull maps onto the stroke speed range CFG.vMin..CFG.vMax.
-	function setStroke(dx, dy) {
+	function rebase(len, sp, precise) { aim.anchorLen = len; aim.anchorSp = sp; aim.precise = precise; }
+	function rawSpeed(len) { return clamp(CFG.vMin + len / CFG.dragFull * (CFG.vMax - CFG.vMin), CFG.vMin, CFG.vMax); }
+	// Drag 0..dragFull maps onto the stroke speed range CFG.vMin..CFG.vMax; with shift
+	// held only a preciseGain share of further drag counts (precision mode).
+	function setStroke(dx, dy, precise) {
 		const len = Math.hypot(dx, dy);
 		if (len < 1e-6) { aim.hasStroke = false; return; }
-		const sp = CFG.vMin + Math.min(1, len / CFG.dragFull) * (CFG.vMax - CFG.vMin);
+		if (precise !== aim.precise) rebase(len, aim.hasStroke ? Math.hypot(aim.vx, aim.vy) : rawSpeed(len), precise);
+		const slope = (CFG.vMax - CFG.vMin) / CFG.dragFull * (precise ? CFG.preciseGain : 1);
+		const sp = clamp(aim.anchorSp + (len - aim.anchorLen) * slope, CFG.vMin, CFG.vMax);
+		aim.len = len;
 		setAimVel(dx / len * sp, dy / len * sp);
 	}
 	function setAimVel(vx, vy) {
 		aim.vx = vx; aim.vy = vy; aim.hasStroke = true;
-		ghostDirty = true;
+		invalidateGhost();
 	}
+	function invalidateGhost() { ghostDirty = true; predT = 0; } // re-sim on the next tick
 	function commitThrow() {
 		if (state !== 'aim' || pending < 0 || !aim.hasStroke) return;
 		throwPuck(w, pending, aim.vx, aim.vy);
@@ -83,12 +93,12 @@ const Game = (() => {
 			canvas.setPointerCapture(e.pointerId);
 			const p = Render.toWorld(e.clientX, e.clientY);
 			sx = w.x[pending]; sy = w.y[pending]; aim.dragging = true;
-			setStroke(p.x - sx, p.y - sy);
+			rebase(0, CFG.vMin, e.shiftKey); setStroke(p.x - sx, p.y - sy, e.shiftKey);
 		});
 		canvas.addEventListener('pointermove', e => {
 			if (!aim.dragging || state !== 'aim') return;
 			const p = Render.toWorld(e.clientX, e.clientY);
-			setStroke(p.x - sx, p.y - sy);
+			setStroke(p.x - sx, p.y - sy, e.shiftKey);
 		});
 		canvas.addEventListener('pointerup', () => { aim.dragging = false; });
 		window.addEventListener('keydown', e => {
@@ -96,19 +106,21 @@ const Game = (() => {
 				e.preventDefault();
 				if (!isBot()) queue.push({ type: 'throw', timeStamp: e.timeStamp });
 			}
-			else if (e.key === 'Escape') aim.hasStroke = false;
+			else if (e.key === 'Escape') { aim.hasStroke = false; rebase(0, CFG.vMin, false); }
 			else if (e.key === 'r' || e.key === 'R') reset();
 			else if (state === 'aim' && !isBot() && e.key.startsWith('Arrow')) { e.preventDefault(); nudge(e); }
 		});
 	}
 	function nudge(e) {
-		if (!aim.hasStroke) setStroke(-CFG.dragFull * 0.5, 0);
+		if (!aim.hasStroke) { setStroke(-CFG.dragFull * 0.5, 0, e.shiftKey); rebase(aim.len, Math.hypot(aim.vx, aim.vy), e.shiftKey); }
 		let ang = Math.atan2(aim.vy, aim.vx), sp = Math.hypot(aim.vx, aim.vy);
-		const da = (e.shiftKey ? 0.2 : 1) * Math.PI / 180;
+		const da = (e.shiftKey ? 0.2 : 1) * Math.PI / 180; // shift = fine on both axes
+		const dk = e.shiftKey ? 1.005 : 1.020, ds = e.shiftKey ? 0.002 : 0.010;
 		if (e.key === 'ArrowLeft') ang -= da;
 		if (e.key === 'ArrowRight') ang += da;
-		if (e.key === 'ArrowUp') sp = Math.min(CFG.vMax, sp * 1.02 + 0.005);
-		if (e.key === 'ArrowDown') sp = Math.max(CFG.vMin, sp * 0.98 - 0.005);
+		if (e.key === 'ArrowUp') sp = Math.min(CFG.vMax, sp * dk + ds);
+		if (e.key === 'ArrowDown') sp = Math.max(CFG.vMin, sp / dk - ds);
+		rebase(aim.len, sp, e.shiftKey); // arrows and drag share the same anchor
 		setAimVel(Math.cos(ang) * sp, Math.sin(ang) * sp);
 	}
 	function setPlayer(name) {
@@ -117,7 +129,7 @@ const Game = (() => {
 	}
 	return {
 		world: w, aim, pred, reset, bindInput, beforeSteps, afterSteps, tick,
-		setStroke, setAimVel, commitThrow, setPlayer,
+		setStroke, setAimVel, commitThrow, setPlayer, invalidateGhost,
 		queueThrow: ts => queue.push({ type: 'throw', timeStamp: ts }),
 		get state() { return state; },
 		get pending() { return pending; },

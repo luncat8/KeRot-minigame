@@ -35,3 +35,36 @@
 - Seedable xorshift32 closures (allocated per game, not per throw) make bot
   competitions reproducible; give every bot the same per-game seed stream and the
   comparison is stable across runs (identical JSON).
+- Two-surface drag can *sandwich* a puck: on the rim the disk patch pulls at μk·g·a while
+  the floor patch pulls back at μk·g·(1−a), so for `a <= 1−a` the puck is held at exactly
+  v = 0 — a static equilibrium, not a bug. A sleep gate that only accepts the surface-matched
+  relative velocity (`rv <= epsSleep`) therefore leaves it `SLIDE` forever: every later
+  resolve runs into `maxResolve` and the round crawls. Accept the jam explicitly
+  (`a <= 1 - a`), and prefer a *budget* comparison (which surface wins) over a
+  surface-velocity comparison when deciding "is this puck at rest".
+- Don't put a spin gate in a capture/lock condition. A linearly co-rotating puck drifts
+  out of the hold radius within ~0.1 s (kinetic friction cannot supply ω²d), while the
+  spin ramp needs ω_d/((4/3)μk g/r) ≈ 0.2–1 s: the gate delays capture past the very
+  drift that locking exists to stop and the whole lock band collapses (measured). Snap
+  the spin when locking, exactly like the velocity snap that was already there.
+- Friction "at the contact patch" is *exactly* the field at the patch centroid: the disk's
+  surface velocity is linear in position, so its mean over a patch equals its value at the
+  patch centroid (true for any region and any linear field). The lens centroid is the
+  area-weighted combination of the two circular caps beyond the common chord
+  (`h = (2/3)(R²−a²)^{3/2}/A` from the centre, same formula for both circles). Validate
+  such an identity against a dense grid quadrature of a linear test field — that catches
+  sign/index mistakes that area-only checks miss.
+- The cap area `R²·acos(a/R) − a√(R²−a²)` loses ~3 digits to cancellation for thin caps
+  (a → R), but the loss is only ~1e-13 relative in doubles; the *centroid* stays bounded
+  because it is a convex combination of two cap centroids. Guard the `0/0` (empty cap)
+  case instead of adapting the formula.
+- Node smoke tests for the browser layers: load the classic scripts with
+  `src.replace(/\bconst (Render|Game) =/, 'globalThis.$1 =')`, strip the
+  `if (typeof module !== 'undefined')` guard line (its `require('./cfg.js')` would resolve
+  against the *experiment's* directory), and also alias any plain `function` the browser
+  relies on as a cross-script global (`function bakeFieldCanvas` — `render.js` calls it but
+  it is not in `field.js`'s exports). A stub 2D context that records op names is enough to
+  assert "the frame loop draws the fan with an evenodd hole" without a browser.
+- Off-disk spin decay is independent of the linear slip (the saturated spinning-friction
+  term only uses the spin mismatch), so a spinning puck that is sliding stops *turning*
+  at the same t = ω/((4/3)μk g/r) as one at rest — a cheap, exact invariant to test.

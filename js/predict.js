@@ -19,6 +19,7 @@ function cloneInto(dst, src) {
 	dst.settling = src.settling; dst.settleT = src.settleT; dst.settled = src.settled;
 	dst.x.set(src.x); dst.y.set(src.y); dst.vx.set(src.vx); dst.vy.set(src.vy);
 	dst.r.set(src.r); dst.m.set(src.m); dst.st.set(src.st);
+	dst.th.set(src.th); dst.om.set(src.om);
 }
 // Simulate throwing puck i of src with (vx, vy); results land in pred.
 function predictStroke(pred, src, i, vx, vy, maxT) {

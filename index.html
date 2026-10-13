@@ -29,7 +29,7 @@
 	<div id="boardWrap"><canvas id="c"></canvas></div>
 	<div id="panel">
 		<h1>KeRot — rotating disk curling</h1>
-		<p>Drag on the board to set a stroke (direction + power), then throw with Space. Drag again or press Esc to change your mind. Arrow keys nudge aim, R resets. Pucks the disk can hold (inside the dashed eject ring) ride it around; the rest are flung onto the cold floor. Recycled pucks return to the pool for reuse; parked pucks score at the end.</p>
+		<p>Drag on the board to set a stroke (direction + power, 0–3 m/s), then throw with Space. Hold <b>shift</b> while dragging for fine speed control; arrow keys nudge aim (shift = fine there too), Esc clears the stroke, R resets. Pucks the disk can hold (inside the dashed eject ring) ride it around and pick up its spin — the 6-sector face shows each puck's rotation — the rest are flung onto the cold floor. In the shaded eject fan the disk hands a spent puck back to the pool; everything else stays and scores at the end.</p>
 		<div class="row"><label>player
 			<select id="playerType">
 				<option value="human">human</option>
@@ -39,8 +39,7 @@
 			</select></label></div>
 		<fieldset><legend>return pucks</legend>
 			<label><input type="radio" name="recycle" value="none" id="recNone"> keep all (classic)</label>
-			<label><input type="radio" name="recycle" value="behind" id="recBehind"> behind-disk half</label>
-			<label><input type="radio" name="recycle" value="zones" id="recZones" checked> zones (board gutters)</label>
+			<label><input type="radio" name="recycle" value="zones" id="recZones" checked> eject fan (disk centre → far corners)</label>
 		</fieldset>
 		<div class="row"><label>disk ω <span id="omegaVal"></span></label><input type="range" id="omega" min="0" max="4" step="0.001" value="0.7831"></div>
 		<div class="row"><label>kinetic friction μk <span id="muKVal"></span></label><input type="range" id="muK" min="0.005" max="0.3" step="0.001" value="0.03"></div>
