@@ -169,6 +169,11 @@ function holdable(cfg, a, ov) {
 function applyFriction(w, h) {
 	const cfg = w.cfg, muKg = cfg.muK * cfg.g, R = cfg.diskR, dcx = cfg.diskX, dcy = cfg.diskY;
 	for (let i = 0; i < w.n; i++) {
+		// A sleeping puck is at rest: it is skipped entirely, and only a contact that
+		// can move it brings it back (a puck hit wakes it explicitly). Nothing on the
+		// disk can: the drive a jammed straddler feels is saturated at μk·g·a, so
+		// spinning the disk up changes the *direction* of the slip under it, not the
+		// force the floor's static friction has to hold (see holdable).
 		if (w.st[i] === ST_SLEEP) continue;
 		const a = diskOverlap(w, i, _ov);
 		if (w.st[i] === ST_LOCKED) {

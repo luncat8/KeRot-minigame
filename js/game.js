@@ -136,6 +136,9 @@ const Game = (() => {
 		setStroke, setAimVel, commitThrow, setPlayer, invalidateGhost,
 		queueThrow: ts => queue.push({ type: 'throw', timeStamp: ts }),
 		get state() { return state; },
+		// The round is over (disk spinning down, or scored): the board is spent until
+		// the next reset, so a settings change has to restart it to be seen at all.
+		get roundEnded() { return state === 'settle' || state === 'scored'; },
 		get resolveT() { return resolveT; }, // s into the resolve; the turn hands off at handoffT
 		get pending() { return pending; },
 		get player() { return player; },

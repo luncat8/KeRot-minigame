@@ -12,7 +12,10 @@ const UI = (() => {
 			els[id] = $(id);
 		// Every physics input invalidates the ghost: it is only valid for the settings
 		// it was simulated with, so a slider move must re-sim it on the next frame.
-		const onPhys = () => Game.invalidateGhost();
+		// On a spent board (the disk has spun down after the round) the new setting
+		// would otherwise never be seen — the disk is stopped and only a reset starts
+		// it again — so restart the board as well.
+		const onPhys = () => { if (Game.roundEnded) onReset(); Game.invalidateGhost(); };
 		els.omega.max = String(CFG.omegaMax);
 		els.omega.addEventListener('input', () => { CFG.omega = parseFloat(els.omega.value); sync(); onPhys(); });
 		els.muK.addEventListener('input', () => {
