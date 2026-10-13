@@ -64,7 +64,11 @@ const Game = (() => {
 	function afterSteps(dtSim) {
 		if (state === 'resolve') {
 			resolveT += dtSim;
-			if (isSettled(w) || resolveT >= CFG.maxResolve) {
+			// A turn ends when the board settles, and at handoffT regardless: a puck
+			// the disk keeps nudging can slide for ten seconds, and the next turn must
+			// not wait for it. Whatever is still moving stays on the board and keeps
+			// being simulated while the next player aims.
+			if (isSettled(w) || resolveT >= CFG.handoffT) {
 				recyclePucks(w, CFG.recycleMode);
 				if (roundOver(w, CFG)) { state = 'settle'; beginSettle(w); }
 				else { state = 'aim'; newPending(); }
@@ -132,6 +136,7 @@ const Game = (() => {
 		setStroke, setAimVel, commitThrow, setPlayer, invalidateGhost,
 		queueThrow: ts => queue.push({ type: 'throw', timeStamp: ts }),
 		get state() { return state; },
+		get resolveT() { return resolveT; }, // s into the resolve; the turn hands off at handoffT
 		get pending() { return pending; },
 		get player() { return player; },
 		get pool() { return poolOf(w, CFG); },

@@ -60,8 +60,7 @@ function throwPuck(w, i, vx, vy) {
 // equals its value at the centroid — sampling there is what makes a puck straddling
 // the rim get dragged by the surface it actually touches instead of the one under
 // its centre.
-const _ov = { a: 0, cx: 0, cy: 0, d: 0, qd: 0, qf: 0 };
-const _MIN_AREA = 1e-3; // below this a surface's patch counts as not touching
+const _ov = { a: 0, cx: 0, cy: 0, d: 0, qd: 0, qf: 0, px: 0, py: 0 };
 // Area of the part of a circle of radius R beyond a chord at distance `a` from its
 // centre, and the distance from that centre to the centroid of that part.
 function segArea(R, a) { return R * R * Math.acos(a / R) - a * Math.sqrt(Math.max(0, R * R - a * a)); }
@@ -75,8 +74,8 @@ function segCentroid(R, a, area) {
 // chord misses it) and a = +r is empty. Exact polar integral: the region covers the
 // half-angle acos(a/r), plus (a < 0, the chord past the centre) or minus (a > 0) the
 // wedge {|cos ψ| > |a|/r} whose inner/outer radius is a/cos ψ — ∫sec³ is elementary.
-// This is the patch's drilling capacity: torque = μk·p·∫|ρ|dA, and for the full disc
-// that is (2/3)μk·m·g·r, i.e. ω̇ = (4/3)μk·g/r = CFG.spinDrag·μk·g/r.
+// For the full disc this is (2/3)r³, i.e. ω̇ = (4/3)μk·g/r = CFG.spinDrag·μk·g/r, the
+// rate the ring pattern is built to reproduce exactly.
 function segMoment(r, a) {
 	const s = clamp(a / r, -1, 1);
 	const u = Math.abs(s), t = Math.sqrt(Math.max(0, 1 - u * u)); // tan(psi), psi = acos(u)
@@ -89,6 +88,7 @@ function diskOverlap(w, i, out) {
 	const dx = w.x[i] - cfg.diskX, dy = w.y[i] - cfg.diskY;
 	const d = Math.sqrt(dx * dx + dy * dy);
 	out.a = 0; out.cx = w.x[i]; out.cy = w.y[i]; out.d = d; out.qd = 0; out.qf = 1;
+	out.px = w.x[i]; out.py = w.y[i];
 	if (d >= R + r) return 0;
 	if (d <= Math.abs(R - r)) { out.a = d + r <= R ? 1 : 0; out.qd = out.a; out.qf = 1 - out.a; return out.a; }
 	// Lens = the puck's cap + the disk's cap, split by the common chord.
@@ -100,17 +100,16 @@ function diskOverlap(w, i, out) {
 	const h1 = segCentroid(r, a1, A1), h2 = segCentroid(R, d - a1, A2);
 	out.cx = (A1 * (w.x[i] - h1 * ux) + A2 * (cfg.diskX + h2 * ux)) / A;
 	out.cy = (A1 * (w.y[i] - h1 * uy) + A2 * (cfg.diskY + h2 * uy)) / A;
-	// Torque budget of each patch: μk·p·∫|ρ|dA, in units of the full disc's
-	// (2/3)πr³ = 1. The two patches partition the puck, so they share it exactly.
+	// Each side's share of the puck's first moment ∫|ρ|dA, in units of the full disc's
+	// (2/3)πr³ = 1; the two partition the puck exactly. Only the sleep gate uses it
+	// (holdable): the friction itself is integrated cell by cell and needs no split.
 	out.qd = clamp(drillShare(w, i, A2, a1), 0, 1);
 	out.qf = 1 - out.qd;
 	return out.a;
 }
-// The patch's share of the puck's first moment ∫|ρ|dA — the most torque its friction
-// can exert about the puck centre. Sliding (moment arm) and drilling (couple) both
-// draw on it, so a puck spinning about its own centre is braked at exactly
-// spinDrag·μk·g/r when both patches touch, and the levers cancel when both surfaces
-// move alike — the two limits the split is calibrated on.
+// The disk-covered cap's share of the puck's first moment ∫|ρ|dA — the most torque its
+// friction can exert about the puck centre. Used by the sleep gate as the floor patch's
+// moment capacity; the sliding law does not need it.
 function drillShare(w, i, A2, a1) {
 	const r = w.r[i];
 	// The puck's cap is exact (segMoment); the disk's cap is a sliver (R = 8r) whose
@@ -126,52 +125,49 @@ function surfVelAt(w, x, y, out) {
 	return out;
 }
 const _sv = [0, 0];
-let _stuck = 0; // set by dragPatch: the patch it just handled is gripping (μs)
-// One patch's friction for one step. Slipping, it is Coulomb drag: the puck's
-// *material* velocity at the patch centroid (px, py) — centre velocity plus spin — is
-// pulled toward the surface velocity (sx, sy) by at most muKg*f*h, f being that
-// surface's share of the contact area. The impulse belongs at the centroid, not at the
-// centre, so it carries the moment arm too: Δω = 2(ρ × Δv)/r² (ρ × J / I, I = ½mr²).
-// That is the whole "partially intersected puck" case — the disk drags the cap it
-// touches and the puck spins the other way round the disk, like a roller between the
-// moving surface and the floor. The step is capped by the *effective* mass at the
-// patch, 1 + 2(ρ × û)²/r² — the same moment fed back into the slip, without which the
-// lever reverses the slip along û and the contact injects energy.
-// Barely slipping, the patch *grips* instead: bounded by μs, it holds the puck to this
-// surface (target = the surface's motion under the puck's centre) rather than chasing
-// the slip. That is what settles a puck straddling the rim — once it rolls on the floor
-// patch, where the slip is ~0, the floor grips at μs and the disk's μk drive cannot
-// move it; with μk on both patches the puck rides the rim as a roller bearing, creeping
-// and spinning up for half a minute. A grip is distributed, so it applies no lever and
-// the couple below keeps the whole budget. Returns what the impulse spent of it.
-function dragPatch(w, i, px, py, sx, sy, omS, f, muKg, muSg, h) {
-	const om = w.om[i], r = w.r[i];
-	const rx = px - w.x[i], ry = py - w.y[i]; // patch centroid in the puck's frame
-	const rvx = w.vx[i] - om * ry - sx;
-	const rvy = w.vy[i] + om * rx - sy;
-	const rv = Math.sqrt(rvx * rvx + rvy * rvy);
-	_stuck = rv > w.cfg.epsV && rv <= w.cfg.epsStick;
-	if (rv <= w.cfg.epsV) return 0;
-	if (_stuck) { // target = this surface's motion under the puck's centre
-		const tx = w.vx[i] - (sx + omS * ry), ty = w.vy[i] - (sy - omS * rx);
-		const tv = Math.sqrt(tx * tx + ty * ty);
-		if (tv > w.cfg.epsV) {
-			const dv = Math.min(muSg * f * h, tv);
-			w.vx[i] -= dv * tx / tv; w.vy[i] -= dv * ty / tv;
-		}
-		return 0;
-	}
-	const ux = rvx / rv, uy = rvy / rv;
-	const arm = (rx * uy - ry * ux) / r; // moment arm of the slip, in puck radii
-	const dv = Math.min(muKg * f * h, rv / (1 + 2 * arm * arm));
-	w.vx[i] -= dv * ux; w.vy[i] -= dv * uy;
-	const dom = -2 * dv * arm / r;
-	w.om[i] = om + dom;
-	return dom < 0 ? -dom : dom; // what this impulse spent of the patch's torque budget
+// Friction samples over the puck: 4 rings × 16 rays, equal weights (one area cell each).
+// The ring radii are chosen so the pattern reproduces both moments the model is
+// calibrated on exactly — Σw = πr² (so a translating puck feels exactly μk·m·g) and
+// Σw|ρ| = ∫|ρ|dA = (2/3)r³ (so a pure spin drains at exactly spinDrag·μk·g/r).
+// A patch has to be *integrated*: the disk's surface velocity varies across it, so the
+// friction of a swirling patch partially cancels, and a single sample at the centroid
+// cannot see that cancellation at all. That is what pumped a puck straddling the rim:
+// with the centroid's full-magnitude drag plus a separate saturated couple, the two
+// cross-coupled and drove the puck along the rim, spinning up to |ω| ≈ 9 ω_disk until
+// the resolve cap fired. Integrating the patch is dissipative by construction — every
+// cell's friction opposes its own slip — and matches an independent fine-grid
+// quadrature of the same law.
+const FR_RINGS = 4, FR_RAYS = 16, FR_N = FR_RINGS * FR_RAYS;
+// × puckR: equal-area ring representatives (√((k+½)/n), which is what a fine
+// quadrature gives), rescaled so they sum to 8/3 = 4 × (2/3) and Σw|ρ| = (2/3)r³
+// holds to rounding. A spin on still ice then decays at exactly spinDrag·μk·g/r.
+const FR_RAD = (() => {
+	const a = [];
+	let s = 0;
+	for (let k = 0; k < FR_RINGS; k++) { const v = Math.sqrt((k + 0.5) / FR_RINGS); a.push(v); s += v; }
+	const k = (2 / 3) * FR_RINGS / s;
+	for (let i = 0; i < FR_RINGS; i++) a[i] *= k;
+	return a;
+})();
+const FR_COS = new Float64Array(FR_RAYS), FR_SIN = new Float64Array(FR_RAYS);
+for (let j = 0; j < FR_RAYS; j++) {
+	const ph = (j + 0.5) * 2 * Math.PI / FR_RAYS;
+	FR_COS[j] = Math.cos(ph); FR_SIN[j] = Math.sin(ph);
+}
+// Can the floor patch's static friction hold the disk patch's kinetic drive? Force
+// against μs·(1−a), and the moment of that force about the puck's centre against the
+// floor patch's own moment capacity μs·(1−a)·λ — the same normalisation the sliding law
+// uses. Used only to decide that a stopped puck may sleep: a sliver of overlap is held
+// (and ends the round), while a puck the disk can still torque away is not.
+function holdable(cfg, a, ov) {
+	if (a >= 1) return false;
+	const drive = cfg.muK * a, cap = cfg.muS * (1 - a);
+	const rd = Math.hypot(ov.cx - ov.px, ov.cy - ov.py), lf = (2 / 3) * ov.qf * cfg.puckR;
+	const f = drive / cap, t = lf > 0 ? drive * rd / (cap * lf) : Infinity;
+	return f * f + t * t <= 1;
 }
 function applyFriction(w, h) {
-	const cfg = w.cfg, muKg = cfg.muK * cfg.g, muSg = cfg.muS * cfg.g;
-	const spinK = cfg.spinDrag * muKg, spinSg = cfg.spinDrag * muSg;
+	const cfg = w.cfg, muKg = cfg.muK * cfg.g, R = cfg.diskR, dcx = cfg.diskX, dcy = cfg.diskY;
 	for (let i = 0; i < w.n; i++) {
 		if (w.st[i] === ST_SLEEP) continue;
 		const a = diskOverlap(w, i, _ov);
@@ -185,61 +181,48 @@ function applyFriction(w, h) {
 			}
 			w.st[i] = ST_SLIDE; // freed: it keeps its spin, now on its own
 		}
-		// Disk friction: relative velocity is taken at the patch centroid, so a
-		// partially covered puck is dragged along the surface it really touches.
-		// Each drag returns the angular impulse it spent — it draws on that patch's
-		// torque budget, which the spin term below then shares out.
-		let spentD = 0, spentF = 0, stuckD = 0, stuckF = 0;
-		if (a > 0) {
-			surfVelAt(w, _ov.cx, _ov.cy, _sv);
-			spentD = dragPatch(w, i, _ov.cx, _ov.cy, _sv[0], _sv[1], w.omegaCur, a, muKg, muSg, h);
-			stuckD = _stuck;
+		// Coulomb friction over the whole puck at once: a cell under the disk rubs against
+		// the disk's surface, the rest against the still floor, and the ones the disk
+		// covers are what give a partially-intersected puck its rotation.
+		const r = w.r[i], x = w.x[i], y = w.y[i], vx0 = w.vx[i], vy0 = w.vy[i], om0 = w.om[i];
+		const cell = muKg * h / FR_N; // per unit mass, per sample
+		let fx = 0, fy = 0, tq = 0;
+		for (let k = 0; k < FR_RINGS; k++) {
+			const rad = FR_RAD[k] * r;
+			for (let j = 0; j < FR_RAYS; j++) {
+				const rx = rad * FR_COS[j], ry = rad * FR_SIN[j];
+				let sx = 0, sy = 0;
+				const ex = x + rx - dcx, ey = y + ry - dcy;
+				if (ex * ex + ey * ey <= R * R) { sx = -w.omegaCur * ey; sy = w.omegaCur * ex; }
+				const ux = vx0 - om0 * ry - sx, uy = vy0 + om0 * rx - sy;
+				const rr = Math.sqrt(ux * ux + uy * uy);
+				if (rr <= 1e-9) continue;
+				const gx = -cell * ux / rr, gy = -cell * uy / rr;
+				fx += gx; fy += gy; tq += rx * gy - ry * gx;
+			}
 		}
-		// Floor friction: the exposed patch is the puck minus the overlap, its
-		// centroid at centre − a/(1−a)·(patch centroid − centre).
-		if (1 - a > _MIN_AREA) {
-			const e = a / (1 - a);
-			spentF = dragPatch(w, i, w.x[i] - e * (_ov.cx - w.x[i]), w.y[i] - e * (_ov.cy - w.y[i]), 0, 0, 0, 1 - a, muKg, muSg, h);
-			stuckF = _stuck;
-		}
-		// Spin: the companion of the sliding impulse above, which carries its own
-		// moment arm. A patch sees the spin mismatch as a rotation about its centroid,
-		// so this friction is a saturated couple — but both mechanisms draw on the one
-		// patch (μk·p·∫|ρ|dA), so the couple gets what the lever has not spent this
-		// step. A puck rolling on one patch spends nothing there and keeps the full
-		// couple, which is what stops it rolling away along the rim forever.
-		const rateK = spinK / w.r[i], rateS = spinSg / w.r[i];
-		let om = w.om[i];
-		if (a > 0) {
-			const budget = (stuckD ? rateS : rateK) * h;
-			const c = Math.max(0, _ov.qd * budget - spentD);
-			om += clamp(w.omegaCur - om, -c, c);
-		}
-		if (1 - a > _MIN_AREA) {
-			const budget = (stuckF ? rateS : rateK) * h;
-			const c = Math.max(0, _ov.qf * budget - spentF);
-			om += clamp(-om, -c, c);
-		}
-		w.om[i] = om;
+		w.vx[i] = vx0 + fx; w.vy[i] = vy0 + fy;
+		w.om[i] = om0 + tq * (2 / (r * r)); // Δω = τ/I, I = ½mr²
+		const om = w.om[i];
 		// Lock: fully covered, no slide at the centre, held by μs. Locking snaps the
 		// velocity onto the surface, so it snaps the spin onto ω_disk as well — the
 		// spin ramp only decides how a puck behaves *before* it is captured, and a
 		// spin gate here would just delay the capture past the drift that locking is
 		// supposed to stop (measured: the whole lock band collapses).
-		surfVelAt(w, w.x[i], w.y[i], _sv);
+		surfVelAt(w, x, y, _sv);
 		const rvx = w.vx[i] - _sv[0], rvy = w.vy[i] - _sv[1];
 		const rv = Math.sqrt(rvx * rvx + rvy * rvy);
 		if (a >= 0.999 && rv <= cfg.epsLock && w.omegaCur * w.omegaCur * _ov.d <= cfg.muS * cfg.g) {
 			w.st[i] = ST_LOCKED; w.vx[i] = _sv[0]; w.vy[i] = _sv[1]; w.om[i] = w.omegaCur;
 			continue;
 		}
-		// eps-snap: friction alone would jitter around zero forever. Two ways to be at
-		// rest: riding the surface (relative velocity ~ 0), or jammed on the rim, where
-		// the floor patch's grip μs·(1-a) out-holds the disk patch's drive μk·a (a ≤ 1-a
-		// is that balance, in the floor's favour). The second one would otherwise stay
-		// SLIDE for good, with the surface sliding underneath it.
+		// eps-snap: friction alone would jitter around zero forever. A puck that has
+		// stopped is at rest in the world, so on bare ice that is the whole test. Over
+		// the disk it is at rest only while the floor's static friction can still hold
+		// the disk's drive (see holdable); a puck the disk is dragging must not freeze,
+		// or a partial overlap would end the round with the disk still pulling it.
 		if (Math.sqrt(w.vx[i] * w.vx[i] + w.vy[i] * w.vy[i]) <= cfg.epsSleep && Math.abs(om) <= cfg.epsSpin
-			&& (a <= _MIN_AREA || a <= 1 - a || rv <= cfg.epsSleep)) {
+			&& (a <= 0 || holdable(cfg, a, _ov))) {
 			w.vx[i] = 0; w.vy[i] = 0; w.om[i] = 0; w.st[i] = ST_SLEEP;
 		}
 	}
@@ -385,4 +368,4 @@ function totalScore(w) {
 	return s;
 }
 
-if (typeof module !== 'undefined') module.exports = { createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, fieldValueOf, totalScore, diskOverlap, surfVelAt };
+if (typeof module !== 'undefined') module.exports = { createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, fieldValueOf, totalScore, diskOverlap, surfVelAt, holdable };

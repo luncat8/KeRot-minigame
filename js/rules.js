@@ -2,11 +2,18 @@
 // accounting and puck recycling. Node-safe: no DOM access.
 if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'));
 
-// A puck that still touches the disk is in play there — never recycle it, even if
-// its centre sits in a return zone (the fan contains the disk's right cap).
+// A puck that still touches the disk is in play there — never recycle it.
 function onDisk(cfg, x, y) {
 	const dx = x - cfg.diskX, dy = y - cfg.diskY;
 	return Math.sqrt(dx * dx + dy * dy) <= cfg.diskR + cfg.puckR;
+}
+// The keep-clear disk drawn as a hole in every return zone: diskR + puckR around the
+// disk centre. Inside a wedge that starts at the disk centre it is exactly the circle's
+// sector between the wedge's two sides, which is what the renderer cuts out, so the
+// drawn zone and the rule are the same region.
+function inGuard(cfg, x, y) {
+	const dx = x - cfg.diskX, dy = y - cfg.diskY, Rg = cfg.diskR + cfg.puckR;
+	return dx * dx + dy * dy < Rg * Rg;
 }
 // Inside a wound triangle: all three edge cross products point the same way (the
 // vertex tables are wound so that "inside" is ≥ 0).
@@ -18,13 +25,16 @@ function inTri(z, x, y) {
 }
 // 'zones' is the eject fan: inside the triangle apex→far corners. 'advance' is the
 // wedge behind the disk plus the launch lane: a puck has to get past the disk and
-// out of its own box. Either way the disk itself is never a return zone.
+// out of its own box. Both tables put a vertex on the disk centre and their sides run
+// straight out of it, so 'inside the wedge but within the keep-clear radius' is simply
+// the guard — no second test needed, and no extra exemption the picture does not show.
 function inReturnZone(cfg, mode, x, y) {
-	if (mode === 'none' || onDisk(cfg, x, y)) return false;
-	if (mode === 'zones') return inTri(RETURN_ZONES, x, y);
+	if (mode === 'none') return false;
+	if (mode === 'zones') return inTri(RETURN_ZONES, x, y) && !inGuard(cfg, x, y);
 	if (mode === 'advance') {
 		const v = ADVANCE_ZONES;
-		return inTri(v, x, y) || (x >= v.lx && x <= v.lx + v.lw);
+		if (inTri(v, x, y) && !inGuard(cfg, x, y)) return true;
+		return x >= v.lx && x <= v.lx + v.lw; // launch lane; the guard cannot reach it
 	}
 	return false;
 }
@@ -48,4 +58,4 @@ function recyclePucks(w, mode) {
 function poolOf(w, cfg) { return Math.max(0, cfg.poolSize - w.n); }
 function roundOver(w, cfg) { return poolOf(w, cfg) <= 0 || w.thrown >= cfg.maxThrows; }
 
-if (typeof module !== 'undefined') module.exports = { onDisk, inReturnZone, recyclePucks, poolOf, roundOver };
+if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, inReturnZone, recyclePucks, poolOf, roundOver };

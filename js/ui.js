@@ -56,7 +56,8 @@ const UI = (() => {
 		setText('state', Game.state === 'aim' ? (Game.player === 'human'
 			? 'aim: drag to set the stroke, Space to throw'
 			: 'bot (' + Game.player + ') is aiming…')
-			: Game.state === 'resolve' ? 'resolving…' : Game.state === 'settle' ? 'disk spinning down…' : 'scored — press Reset board');
+			: Game.state === 'resolve' ? 'resolving… next turn in ' + Math.max(0, CFG.handoffT - Game.resolveT).toFixed(1) + ' s'
+			: Game.state === 'settle' ? 'disk spinning down…' : 'scored — press Reset board');
 		if (Game.state === 'scored') {
 			let html = '';
 			for (let i = 0; i < w.n; i++) html += 'puck ' + (i + 1) + ': V = ' + fieldValueOf(w, i).toFixed(2) + '<br>';

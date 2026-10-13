@@ -14,11 +14,11 @@ const CFG = {
 	ePuck: 0.65,
 	h: 1 / 480,
 	epsLock: 0.010, epsSleep: 0.004, epsSpin: 0.050, epsV: 1e-4,
-	epsStick: 0.020, // slip speed below which a contact sticks: its friction is bounded by muS, not muK
 	spinDrag: 4 / 3, // spinning friction: ω̇ = spinDrag*muK*g/r per unit covered area
 	slop: 1e-6,
 	maxSubsteps: 8,
-	maxResolve: 8,
+	maxResolve: 8, // s; ghost re-sim horizon
+	handoffT: 4, // s; hand the turn over even if the board has not settled
 	poolSize: 8, // pucks held in the pool; the round ends when none are left un-parked
 	maxThrows: 48, // hard round cap: a player who only ever recycles can still end
 	recycleMode: 'zones', // 'none' | 'zones' | 'advance' (radio group)

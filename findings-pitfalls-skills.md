@@ -39,9 +39,12 @@
   the floor patch pulls back at μk·g·(1−a), so for `a <= 1−a` the puck is held at exactly
   v = 0 — a static equilibrium, not a bug. A sleep gate that only accepts the surface-matched
   relative velocity (`rv <= epsSleep`) therefore leaves it `SLIDE` forever: every later
-  resolve runs into `maxResolve` and the round crawls. Accept the jam explicitly
-  (`a <= 1 - a`), and prefer a *budget* comparison (which surface wins) over a
-  surface-velocity comparison when deciding "is this puck at rest".
+  resolve runs into `maxResolve` and the round crawls. A **budget** comparison (which
+  surface can hold whom) is the right test — but note the correction in the 0.1.5 round:
+  the area-share form of it, `a <= 1 - a`, freezes a straddler on the spot the frame it
+  is touched, because it is applied at any speed and at rest alike. Compare the drive
+  and the floor's capacity *as forces and moments* (`holdable()`, `js/physics.js`) and
+  apply it only to a puck that has already stopped.
 - Don't put a spin gate in a capture/lock condition. A linearly co-rotating puck drifts
   out of the hold radius within ~0.1 s (kinetic friction cannot supply ω²d), while the
   spin ramp needs ω_d/((4/3)μk g/r) ≈ 0.2–1 s: the gate delays capture past the very
@@ -65,6 +68,32 @@
   relies on as a cross-script global (`function bakeFieldCanvas` — `render.js` calls it but
   it is not in `field.js`'s exports). A stub 2D context that records op names is enough to
   assert "the frame loop draws the fan with an evenodd hole" without a browser.
-- Off-disk spin decay is independent of the linear slip (the saturated spinning-friction
-  term only uses the spin mismatch), so a spinning puck that is sliding stops *turning*
-  at the same t = ω/((4/3)μk g/r) as one at rest — a cheap, exact invariant to test.
+- Off-disk spin decay is **not** independent of the linear slip once the contact is
+  integrated. A quickly sliding puck sees an almost uniform slip under itself, so the
+  torque integrals cancel and it barely turns; a slowly sliding one is close to the pure
+  spin (`|ω̇| = (4/3)μk g/r`). The saturated-couple model this replaced had them equal,
+  which is a nice-looking invariant that was also wrong: check such invariants against
+  an independent quadrature before enshrining them.
+- Don't decompose a partially-covered contact into "a patch per surface, each sampled
+  once" and reconcile them by hand. The disk's surface velocity is *not* constant over a
+  puck, so a single sample cannot see that the drag cancels; adding a lever plus an
+  independently saturated couple to recover the moment makes the pair cross-couple
+  through ρ and pump energy (measured: a puck on the turning disk winding up to
+  |ω| ≈ 9 ω_disk and walking along the rim for 11.75 m). Integrate the contact over a
+  fixed pattern of cells instead — dissipative by construction, and the moment appears
+  without being added. A 4×16 pattern with equal weights and radii `√((k+½)/n)`
+  rescaled so `Σw|ρ| = (2/3)r³` matches a 40×160 quadrature to 0.0 % in force and ~2 %
+  in torque at 9.4 µs/step.
+- Fixed quadratures are worth calibrating against the closed forms they must reproduce:
+  `Σw = 1` makes a translating puck feel exactly μk·g, `Σw|ρ| = (2/3)r³` makes a pure
+  spin decay at exactly `spinDrag·μk·g/r`. Without the Σ|ρ| rescale the spin rate was
+  off by 9 % *and* the "still disk = bare ice" symmetry broke at the 1e-12 level.
+- A hand-written gate can encode the model's own construction rather than the physics
+  (0.1.4's spin gate asserted "the spin ramp on the disk equals spinDrag·μk·g/r", which
+  is only true when the drag is applied at the puck centre). When a gate and a fix come
+  from the same reasoning, get a second, independent opinion on the *result*: here a
+  160²-cell all-kinetic quadrature of the same law, which settled a case the model had
+  been arguing about for two rounds.
+- `spawnPuck()` leaves the puck asleep: a test that only spawns it measures a statue.
+  Call `throwPuck(w, i, 0, 0)` (or set `st[i] = ST_SLIDE`) to wake it — including in
+  the browser, where the exception surfaced as 0 s settle times.

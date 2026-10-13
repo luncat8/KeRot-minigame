@@ -1,11 +1,35 @@
 // Puck material rotation: the spinning-friction rates, the lock snap, the angular
 // impulses at walls and between pucks, and the invariants they must not break.
+// The contact is integrated over the puck now (js/physics.js FR_RINGS × FR_RAYS), so
+// the spec is the integral, not a patch at one point: the exact closed form where one
+// exists, and an independent equal-area quadrature everywhere else.
 Object.assign(globalThis, require('../js/cfg.js'), require('../js/physics.js'));
 const cfg = Object.assign({}, CFG);
 const I = 0.5 * cfg.puckM * cfg.puckR * cfg.puckR;
-const rate = cfg.spinDrag * cfg.muK * cfg.g / cfg.puckR; // |ω̇| for a fully covered patch
+const rate = cfg.spinDrag * cfg.muK * cfg.g / cfg.puckR; // |ω̇| for a spin on bare ice
 let fail = 0;
 function check(ok, name, extra) { if (!ok) { console.log('FAIL ' + name + (extra ? ' — ' + extra : '')); fail = 1; } }
+// Independent reference: 40 equal-area rings × 160 rays, the same friction law.
+function refStep(c, x, y, vx, vy, om, omS, h) {
+	const N = 40, NR = 160, r = c.puckR, cell = c.muK * c.g * h / (N * NR);
+	let fx = 0, fy = 0, tq = 0;
+	for (let k = 0; k < N; k++) {
+		const rad = Math.sqrt((k + 0.5) / N) * r;
+		for (let j = 0; j < NR; j++) {
+			const ph = (j + 0.5) * 2 * Math.PI / NR;
+			const rx = rad * Math.cos(ph), ry = rad * Math.sin(ph);
+			const ex = x + rx - c.diskX, ey = y + ry - c.diskY;
+			let sx = 0, sy = 0;
+			if (ex * ex + ey * ey <= c.diskR * c.diskR) { sx = -omS * ey; sy = omS * ex; }
+			const ux = vx - om * ry - sx, uy = vy + om * rx - sy;
+			const rr = Math.sqrt(ux * ux + uy * uy);
+			if (rr <= 1e-9) continue;
+			const gx = -cell * ux / rr, gy = -cell * uy / rr;
+			fx += gx; fy += gy; tq += rx * gy - ry * gx;
+		}
+	}
+	return [vx + fx, vy + fy, om + tq * 2 / (r * r)];
+}
 function ke(w) {
 	let e = 0;
 	for (let i = 0; i < w.n; i++) e += 0.5 * w.m[i] * (w.vx[i] * w.vx[i] + w.vy[i] * w.vy[i]) + 0.5 * I * w.om[i] * w.om[i];
@@ -30,57 +54,97 @@ function ke(w) {
 	check(w.om[i] === 0 && w.st[i] === ST_SLEEP, 'spin snaps to 0 and sleeps');
 	check(mono, 'spin decays monotonically, never negative');
 }
-// 2a. Fully covered and past the hold radius: no lock can fire, so the spin ramp is
-//     observable in isolation and must run at spinDrag·μk·g/r (the contact sits at the
-//     puck's centre, so the sliding impulse spends nothing of the torque budget).
+// 2a. A puck riding the disk without spinning of its own: every cell's slip is then
+//     exactly Ω·ρ — the classic spinning-contact case — and the spin ramps at
+//     spinDrag·μk·g/r. Exactly, because the pattern is built so Σw|ρ| = (2/3)r³, and
+//     the drag of a purely rotational slip is force-free (Σẑ×ρ/|ρ| = 0 by symmetry).
+//     μs is lowered only so the lock (rightly) cannot capture the puck first.
 {
 	const c = Object.assign({}, cfg, { omega: 1.5, muS: 0.01 }); // d_hold = 0.044 m < 0.5 m
 	const w = createWorld(c);
 	const i = spawnPuck(w, cfg.diskX + 0.5, cfg.diskY);
 	w.st[i] = ST_SLIDE;
-	w.vx[i] = 0.3; w.vy[i] = c.omega * 0.5; // surface velocity at the centre, plus a real slip
-	const steps = 40;
-	for (let s = 0; s < steps; s++) stepWorld(w, cfg.h);
-	const expect = rate * steps * cfg.h;
-	console.log('spin ramp on the disk: Δom = ' + w.om[i].toFixed(6) + ' (expect ' + expect.toFixed(6) + '), state = ' + w.st[i]);
-	check(w.st[i] === ST_SLIDE, 'low muS keeps it sliding (no lock)');
-	check(Math.abs(w.om[i] - expect) < 0.01 * expect, 'spin-up rate = spinDrag·μk·g/r');
-}
-// 2c. A contact that is barely slipping grips at μs instead of chasing the slip.
-{
-	const c = Object.assign({}, cfg, { omega: 0 });
-	const w = createWorld(c);
-	const i = spawnPuck(w, 2.5, cfg.diskY);
-	w.st[i] = ST_SLIDE;
-	w.vx[i] = cfg.epsStick; // on the floor, under the stick threshold
-	const v0 = w.vx[i];
+	w.vx[i] = 0; w.vy[i] = c.omega * 0.5; // exactly the surface velocity under the centre
+	const expect = rate * cfg.h;
 	stepWorld(w, cfg.h);
-	const dv = v0 - w.vx[i], expect = cfg.muS * cfg.g * cfg.h;
-	console.log('slow slide: Δv = ' + dv.toFixed(6) + ' (μs·g·h = ' + expect.toFixed(6) +
-		', μk·g·h = ' + (cfg.muK * cfg.g * cfg.h).toFixed(6) + ')');
-	check(Math.abs(dv - expect) < 1e-9, 'a gripping contact brakes at μs');
-	check(dv > cfg.muK * cfg.g * cfg.h, 'static holds harder than kinetic');
+	console.log('ride spin-up, first step: Δom = ' + w.om[i].toFixed(12) + ' (expect ' + expect.toFixed(12) +
+		'), Δv = ' + Math.hypot(w.vx[i], w.vy[i] - c.omega * 0.5).toExponential(2));
+	check(w.st[i] === ST_SLIDE, 'low muS keeps it sliding (no lock)');
+	check(Math.abs(w.om[i] - expect) < 1e-12, 'spin-up rate = spinDrag·μk·g/r exactly');
+	check(Math.abs(w.vx[i]) < 1e-15 && Math.abs(w.vy[i] - c.omega * 0.5) < 1e-15, 'a rotational slip drags the puck along nothing');
+	// The puck no longer co-moves once it has drifted (the surface is a rotation, not a
+	// translation), which weakens the torque: the run stays positive and under the bound.
+	for (let s = 1; s < 40; s++) stepWorld(w, cfg.h);
+	const got = w.om[i];
+	console.log('ride spin-up, 40 steps: Δom = ' + got.toFixed(6) + ' (classic bound ' + (40 * expect).toFixed(6) + ')');
+	check(got > 0.5 * 40 * expect && got <= 40 * expect + 1e-12, 'spin-up accumulates toward ω_disk, never past the classic bound');
 }
-// 2d. Identical surfaces: with the disk still, a puck straddling the rim must decay
-//     exactly as it would on bare ice — the two patches partition one contact, and the
-//     sliding impulses and the couples draw on the same budget. Below the stick
-//     threshold the patches grip, so the last of the spin goes at the μs rate. This is
-//     the case a straddling puck used to get wrong: it either span up (a roller bearing
-//     between the rim and the floor) or decayed a third too slowly.
+// 2c. The sleep gate. A stopped puck may only be called stopped where the floor patch
+//     can still hold the disk patch's drive; a puck the disk can drive on is kept
+//     sliding, otherwise a partial overlap would end the round with the disk pulling.
+//     (The failure this replaces: the disk dragged a rest puck off the rim in one
+//     frame and an eps-snap threshold froze it mid-drag, so a straddler could never
+//     come to rest at all — measured, then, as |ω| winding up to 9 ω_disk.)
+{
+	const ov = { a: 0, cx: 0, cy: 0, d: 0, qd: 0, qf: 0, px: 0, py: 0 };
+	// One world each: spawnPuck resolves puck-puck overlap, which would shove the
+	// second puck measurably deeper onto the disk.
+	const w1 = createWorld(cfg);
+	const sliver = spawnPuck(w1, cfg.diskX + cfg.diskR + 0.09, cfg.diskY); // barely touching
+	const aSliver = diskOverlap(w1, sliver, ov);
+	const heldSliver = holdable(cfg, aSliver, ov);
+	const w2 = createWorld(cfg);
+	const rim = spawnPuck(w2, cfg.diskX + cfg.diskR, cfg.diskY); // centre on the rim
+	const aRim = diskOverlap(w2, rim, ov);
+	const heldRim = holdable(cfg, aRim, ov);
+	check(aSliver > 0 && aSliver < 0.05, 'sliver overlap is a sliver', 'a=' + aSliver.toFixed(4));
+	console.log('sleep gate: sliver a=' + aSliver.toFixed(4) + ' holdable=' + heldSliver +
+		', rim a=' + aRim.toFixed(4) + ' holdable=' + heldRim);
+	check(aRim > 0.4 && aRim < 0.6, 'rim straddle is about half', 'a=' + aRim.toFixed(4));
+	check(heldSliver, 'a sliver is held by the floor — it may sleep');
+	check(!heldRim, 'a half-overlapped puck on the turning disk is not held');
+	// Bare ice, pure translation: exactly μk·g, and the eps-snap ends the slide.
+	const b = createWorld(cfg);
+	const j = spawnPuck(b, 2.5, cfg.diskY);
+	b.st[j] = ST_SLIDE; b.vx[j] = cfg.epsSleep * 3;
+	const v0 = b.vx[j];
+	stepWorld(b, cfg.h);
+	const dv = v0 - b.vx[j];
+	console.log('slow slide: Δv = ' + dv.toFixed(12) + ' (μk·g·h = ' + (cfg.muK * cfg.g * cfg.h).toFixed(12) + ')');
+	check(Math.abs(dv - cfg.muK * cfg.g * cfg.h) < 1e-15, 'a sliding contact brakes at μk·g, exactly');
+	let t = 0;
+	while (b.st[j] === ST_SLIDE && t < 2) { stepWorld(b, cfg.h); t += cfg.h; }
+	check(b.st[j] === ST_SLEEP && b.vx[j] === 0 && b.om[j] === 0, 'the slide ends in an exact sleep');
+}
+// 2d. A still disk is just more ice: with ω_disk = 0 every contact surface is at rest,
+//     so a straddling puck must decay at exactly the bare-ice rates — spin at
+//     4/3·μk·g/r and linear speed at μk·g — whatever the overlap. This is the case
+//     that used to wind up: a straddler span up like a roller bearing between the rim
+//     and the floor and walked along the rim forever (14 m of travel, |ω| → 9 ω_disk).
 {
 	const c = Object.assign({}, cfg, { omega: 0 });
-	for (const [name, om] of [['spinning fast', 1.0], ['spinning slowly', 0.3]]) {
-		const w = createWorld(c);
-		const i = spawnPuck(w, cfg.diskX + cfg.diskR, cfg.diskY); // centre on the rim: a ≈ ½
-		w.st[i] = ST_SLIDE; w.om[i] = om;
-		const dK = -cfg.spinDrag * cfg.muK * cfg.g / cfg.puckR * cfg.h; // bare ice
-		const dS = -cfg.spinDrag * cfg.muS * cfg.g / cfg.puckR * cfg.h; // gripping contact
-		stepWorld(w, cfg.h);
-		const got = w.om[i] - om;
-		console.log('straddling puck, ' + name + ': Δom = ' + got.toFixed(6) + ' (μk ' + dK.toFixed(6) +
-			', μs ' + dS.toFixed(6) + ')');
-		check(Math.abs(got - dK) < 1e-9 || Math.abs(got - dS) < 1e-9, 'straddling spin decays at the bare-ice rate (' + name + ')');
-		check(got <= dK + 1e-9 && got >= dS - 1e-9, 'straddling spin decays at neither less than μk nor more than μs (' + name + ')');
+	const dK = -rate * cfg.h; // bare-ice Δω per step
+	for (const off of [0, -0.05]) { // a ≈ ½ and a ≈ 0.8
+		for (const om0 of [1.0, 0.3]) {
+			const w = createWorld(c);
+			const i = spawnPuck(w, cfg.diskX + cfg.diskR + off, cfg.diskY);
+			w.st[i] = ST_SLIDE; w.om[i] = om0;
+			stepWorld(w, cfg.h);
+			const got = w.om[i] - om0;
+			console.log('still-disk straddle (d=' + (cfg.diskR + off).toFixed(3) + ', om=' + om0 +
+				'): Δom = ' + got.toFixed(12) + ' (μk ' + dK.toFixed(12) + '), |Δv| = ' +
+				Math.hypot(w.vx[i], w.vy[i]).toExponential(1));
+			check(Math.abs(got - dK) < 1e-12, 'straddling spin decays at the bare-ice rate exactly');
+			check(Math.hypot(w.vx[i], w.vy[i]) < 1e-15, 'a straddling spin is force-free');
+		}
+		const w2 = createWorld(c);
+		const j = spawnPuck(w2, cfg.diskX + cfg.diskR + off, cfg.diskY);
+		w2.st[j] = ST_SLIDE; w2.vx[j] = 0.4;
+		stepWorld(w2, cfg.h);
+		const dvx = w2.vx[j] - 0.4;
+		console.log('still-disk straddle (d=' + (cfg.diskR + off).toFixed(3) + ', om=0): Δvx = ' +
+			dvx.toFixed(12) + ' (μk ' + (-cfg.muK * cfg.g * cfg.h).toFixed(12) + ')');
+		check(Math.abs(dvx + cfg.muK * cfg.g * cfg.h) < 1e-15, 'straddling slide brakes at μk·g exactly');
 	}
 }
 // 2e. The roller bearing: a puck left straddling the rim of the turning disk must
@@ -94,7 +158,7 @@ function ke(w) {
 	console.log('rim roller: settled after ' + t.toFixed(2) + ' s, om = ' + w.om[i].toFixed(4) +
 		', peak |om| = ' + worst.toFixed(3) + ', state = ' + (w.st[i] === ST_SLEEP ? 'SLEEP' : 'still moving'));
 	check(w.st[i] === ST_SLEEP, 'rim roller sleeps instead of spinning up');
-	check(t < 8, 'rim roller settles inside the 8 s resolve cap');
+	check(t < 8, 'rim roller settles inside the 8 s ghost horizon');
 	check(worst < 3 * cfg.omega, 'rim roller never winds up past a few times ω_disk');
 }
 // 2b. Captured puck: locks and spins exactly with the disk, riding without drift.
@@ -109,6 +173,33 @@ function ke(w) {
 	check(w.st[i] === ST_LOCKED, 'centre puck locks');
 	check(w.om[i] === w.omegaCur, 'locked puck spins exactly with the disk (lock snaps the spin)');
 	check(d < 1e-9, 'no drift while captured');
+}
+// 2f. The straddle, against the continuum: an independent fine-grid quadrature of the
+//     same law (160² cells per puck, all-kinetic, disk turning under the covered part,
+//     h = 1/480) settles a rest straddler at d = 0.842 (a≈½) and 0.897 (a≈0.8), and
+//     peaks at |ω| = 1.67 and 2.40 rad/s on the way — a squeezed puck rolls between the
+//     rim and the ice like a wheel, so it does briefly turn faster than the disk. The
+//     model must land on both numbers, not merely "settle": an earlier single-point
+//     contact law looked calm here only because its couple was capped, and a
+//     lever-plus-couple one wound up to 9 ω_disk and never stopped.
+{
+	for (const [off, dRef, omRef] of [[0, 0.842, 1.672], [-0.05, 0.897, 2.401]]) {
+		const w = createWorld(cfg);
+		const i = spawnPuck(w, cfg.diskX + cfg.diskR + off, cfg.diskY);
+		throwPuck(w, i, 0, 0); // spawnPuck alone leaves the puck asleep
+		let t = 0, peak = 0;
+		while (w.st[i] !== ST_SLEEP && t < 30) {
+			stepWorld(w, cfg.h); t += cfg.h;
+			peak = Math.max(peak, Math.abs(w.om[i]));
+		}
+		const d = Math.hypot(w.x[i] - cfg.diskX, w.y[i] - cfg.diskY);
+		console.log('straddle d0=' + (cfg.diskR + off).toFixed(3) + ': sleep@' + t.toFixed(2) + 's d=' +
+			d.toFixed(3) + ' (reference ' + dRef.toFixed(3) + '), peak|om|=' + peak.toFixed(3) +
+			' (reference ' + omRef.toFixed(3) + ')');
+		check(w.st[i] === ST_SLEEP, 'the straddler sleeps');
+		check(Math.abs(d - dRef) < 0.01, 'settles where the continuum quadrature settles');
+		check(Math.abs(peak - omRef) < 0.09, 'peaks at the spin the continuum quadrature peaks at');
+	}
 }
 // 3. A riding puck turns at ω_disk (θ integrates at the disk rate).
 {
@@ -167,7 +258,11 @@ function ke(w) {
 	for (let s = 0; s < 300; s++) stepWorld(w2, cfg.h);
 	check(w2.om[k] === 0 && w2.om[l] === 0, 'head-on hit creates no spin');
 }
-// 6. A flung puck keeps its spin, then bleeds it off on the ice at the same rate.
+// 6. A puck crossing the turning disk is spun the way the disk turns, at the rate the
+//     integral gives. While it slides fast the contact is nearly torque-free (the slip
+//     direction is almost uniform under the puck), so the spin is small — the old
+//     single-point model injected a saturated couple regardless of the slip and span
+//     pucks up past the disk rate.
 {
 	const w = createWorld(cfg);
 	const i = spawnPuck(w, cfg.launchX, cfg.launchY);
@@ -175,28 +270,43 @@ function ke(w) {
 	let peak = 0, guard = 0;
 	while (guard++ < 480 * 6) {
 		stepWorld(w, cfg.h);
-		const d = Math.hypot(w.x[i] - cfg.diskX, w.y[i] - cfg.diskY);
-		if (d > cfg.diskR + cfg.puckR) peak = Math.max(peak, w.om[i]);
+		// Only while it slides: a capture legitimately snaps the spin onto ω_disk.
+		if (w.st[i] === ST_SLIDE) peak = Math.max(peak, w.om[i]);
 	}
-	console.log('throw across the disk: peak spin off-disk = ' + peak.toFixed(4) + ' rad/s, om/ω_disk = ' +
-		(peak / cfg.omega).toFixed(3) + ', ends ' + (w.st[i] === ST_LOCKED ? 'riding' : 'at rest') + ' with om = ' + w.om[i]);
-	check(peak > 0.2 * cfg.omega, 'disk contact spins the puck up');
+	console.log('throw across the disk: peak spin = ' + peak.toFixed(5) + ' rad/s, om/ω_disk = ' +
+		(peak / cfg.omega).toFixed(4) + ', ends ' + (w.st[i] === ST_LOCKED ? 'riding' : 'at rest') +
+		' with om = ' + w.om[i].toFixed(4));
+	check(peak > 0, 'disk contact spins the puck the way the disk turns');
 	check(peak <= cfg.omega + 1e-9, 'spin never overshoots the disk rate');
 	check(w.st[i] !== ST_LOCKED || w.om[i] === w.omegaCur, 'captured puck still turns with the disk');
+	// One step of the same throw, against the reference integral.
+	const p = createWorld(cfg);
+	const k = spawnPuck(p, cfg.diskX, cfg.diskY);
+	p.st[k] = ST_SLIDE; p.vx[k] = -2.4; p.vy[k] = 0;
+	const [rx, ry, rom] = refStep(cfg, cfg.diskX, cfg.diskY, -2.4, 0, 0, p.omegaCur, cfg.h);
+	stepWorld(p, cfg.h);
+	const dv = Math.hypot(p.vx[k] - rx, p.vy[k] - ry), dom = Math.abs(p.om[k] - rom);
+	console.log('one step on the disk: |Δv| err = ' + dv.toExponential(2) + ' (' +
+		(100 * dv / (cfg.muK * cfg.g * cfg.h)).toFixed(2) + ' % of μk·g·h), Δom err = ' +
+		dom.toExponential(2) + ' of ' + (rom).toExponential(2));
+	check(dv < 0.01 * cfg.muK * cfg.g * cfg.h, 'force matches the reference quadrature within 1 %');
+	check(dom < 0.05 * Math.abs(rom), 'torque matches the reference quadrature within 5 %');
 }
-// 6b. Off the disk the spin law is independent of the linear slip: a sliding puck
-//     stops turning after exactly the same time as the resting one in test 1.
+// 6b. Off the disk the spin law is the free-spin one, and a fast slide makes it slower,
+//     not faster: the contact is a torque-free drag when the slip is uniform, so the
+//     decay is τ/|v| of the bare-ice rate. Reference-quadrature parity, one step.
 {
 	const w = createWorld(cfg);
 	const i = spawnPuck(w, 2.5, 1.1);
-	throwPuck(w, i, 1.0, 0.5);
-	w.om[i] = 3;
-	const expect = 3 / rate;
-	let t = 0;
-	while (w.om[i] > 0 && t < 4) { stepWorld(w, cfg.h); t += cfg.h; }
-	console.log('sliding spin decay: stopped turning at t = ' + t.toFixed(4) + ' s (expect ' + expect.toFixed(4) + '), still moving = ' + (w.st[i] === ST_SLIDE));
-	check(Math.abs(t - expect) < cfg.epsSpin / rate + 3 * cfg.h, 'slip-independent spin decay');
-	check(w.st[i] === ST_SLIDE, 'linear motion continues after the spin stops');
+	w.st[i] = ST_SLIDE; w.vx[i] = 1.0; w.vy[i] = -0.4; w.om[i] = 3;
+	const [rx, ry, rom] = refStep(cfg, 2.5, 1.1, 1.0, -0.4, 3, w.omegaCur, cfg.h);
+	stepWorld(w, cfg.h);
+	const dv = Math.hypot(w.vx[i] - rx, w.vy[i] - ry), dom = Math.abs(w.om[i] - rom);
+	console.log('sliding spin decay: Δom = ' + (w.om[i] - 3).toExponential(3) + ' (bare ice ' +
+		(-rate * cfg.h).toExponential(3) + ', reference ' + (rom - 3).toExponential(3) + ')');
+	check(dv < 0.01 * cfg.muK * cfg.g * cfg.h, 'off-disk force matches the reference within 1 %');
+	check(dom < 0.03 * Math.abs(rom - 3), 'off-disk spin decay matches the reference within 3 %');
+	check(Math.abs(w.om[i] - 3) < rate * cfg.h, 'a fast slide bleeds spin slower than a pure spin');
 }
 // 7. Stability sweep: spinning pucks in a box with no friction never gain energy.
 {

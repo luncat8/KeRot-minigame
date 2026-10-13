@@ -37,16 +37,54 @@ const Render = (() => {
 		}
 		labelRot = Math.atan2(z.by - z.ay, z.bx - z.ax); // fan edge -> readable label angle
 	}
+	// The zone is the triangle (plus the launch lane, in 'advance') minus the on-disk
+	// guard — a disk of diskR + puckR around the disk centre, the same guard the rule
+	// exempts. Only the part of that disk inside the wedge exists as a hole: each rule
+	// table gives the wedge a vertex on the disk centre, so the wedge's interior angle
+	// is exactly the sector to cut. Cutting the full circle leaked instead — evenodd
+	// fills a region covered by an odd number of subpaths, and the circle's part
+	// outside the triangle is covered once, so it drew as a strange teal halo hugging
+	// the disk. The outline strokes the wedge's true boundary: its two sides, cut where
+	// they enter the guard, then the arc that closes the fill on the interior side.
 	function bakeZone(t, rect) {
+		const Rg = CFG.diskR + CFG.puckR;
+		// The apex is the table vertex that sits on the disk centre; the other two give
+		// the wedge's two edge directions.
+		const dx = t.ax - CFG.diskX, dy = t.ay - CFG.diskY;
+		const dd = dx * dx + dy * dy;
+		const ex = t.bx - CFG.diskX, ey = t.by - CFG.diskY, ee = ex * ex + ey * ey;
+		const fx = t.cx - CFG.diskX, fy = t.cy - CFG.diskY, ff = fx * fx + fy * fy;
+		let v1x, v1y, v2x, v2y, d1x, d1y, d2x, d2y;
+		if (dd <= ee && dd <= ff) { v1x = t.bx; v1y = t.by; v2x = t.cx; v2y = t.cy; }
+		else if (ee <= ff) { v1x = t.ax; v1y = t.ay; v2x = t.cx; v2y = t.cy; }
+		else { v1x = t.ax; v1y = t.ay; v2x = t.bx; v2y = t.by; }
+		d1x = v1x - CFG.diskX; d1y = v1y - CFG.diskY;
+		d2x = v2x - CFG.diskX; d2y = v2y - CFG.diskY;
+		l1 = Math.hypot(d1x, d1y); l2 = Math.hypot(d2x, d2y);
+		a0 = Math.atan2(d1y, d1x); a1 = Math.atan2(d2y, d2x);
+		const TAU = 2 * Math.PI;
+		const sweep = (a1 - a0 + TAU) % TAU; // arc a0 -> a1 the +angle way
+		const am = Math.atan2(d1y / l1 + d2y / l2, d1x / l1 + d2x / l2);
+		const ccw = (am - a0 + TAU) % TAU > sweep; // interior lies off the +angle way
+		const p1x = CFG.diskX + Rg * d1x / l1, p1y = CFG.diskY + Rg * d1y / l1;
+		const p2x = CFG.diskX + Rg * d2x / l2, p2y = CFG.diskY + Rg * d2y / l2;
 		const fill = new Path2D(), line = new Path2D();
 		fill.moveTo(t.ax, t.ay); fill.lineTo(t.bx, t.by); fill.lineTo(t.cx, t.cy); fill.closePath();
-		line.moveTo(t.ax, t.ay); line.lineTo(t.bx, t.by); line.lineTo(t.cx, t.cy); line.closePath();
+		// Outline: the wedge's true boundary — out along the first side to its vertex, the
+		// edge between the two vertices, back along the second side, then the guard arc
+		// closing the fill. Must be one subpath built in order: a rect()/closePath() in the
+		// middle makes canvas continue from *its* corner, which drew long stray diagonals.
+		line.moveTo(p1x, p1y); line.lineTo(v1x, v1y); line.lineTo(v2x, v2y); line.lineTo(p2x, p2y);
+		line.arc(CFG.diskX, CFG.diskY, Rg, a1, a0, !ccw);
+		line.closePath();
 		if (rect) { fill.rect(rect[0], rect[1], rect[2], rect[3]); line.rect(rect[0], rect[1], rect[2], rect[3]); }
 		const hole = new Path2D();
-		hole.arc(CFG.diskX, CFG.diskY, CFG.diskR + CFG.puckR, 0, Math.PI * 2);
+		hole.moveTo(CFG.diskX, CFG.diskY);
+		hole.lineTo(p1x, p1y);
+		hole.arc(CFG.diskX, CFG.diskY, Rg, a0, a1, ccw);
+		hole.closePath();
 		const path = new Path2D();
 		path.addPath(fill); path.addPath(hole);
-		line.addPath(hole);
 		return { path: path, line: line };
 	}
 	function resize() {
