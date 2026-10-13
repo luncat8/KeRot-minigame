@@ -1,7 +1,8 @@
 // Gates the return rules: shape/area, the on-disk exemption, and what each rule does
 // to a headless round (random bot, fixed seeds). 'zones' is the eject fan, 'advance'
 // the wedge behind the disk plus the launch lane.
-Object.assign(globalThis, require('../js/physics.js'), require('../js/rules.js'), require('../js/predict.js'), require('../js/bots.js'));
+Object.assign(globalThis, require('../js/physics.js'), require('../js/score.js'), require('../js/players.js'),
+	require('../js/rules.js'), require('../js/predict.js'), require('../js/bots.js'));
 const fs = require('fs');
 let fail = 0;
 function check(ok, name, extra) { if (!ok) { console.log('FAIL ' + name + (extra ? ' — ' + extra : '')); fail = 1; } }
@@ -62,14 +63,20 @@ function check(ok, name, extra) { if (!ok) { console.log('FAIL ' + name + (extra
 
 // Round effect: same seeds, same bot, fan on/off. `none` also gives the a-priori
 // death map — with nothing ever removed, every throw dies exactly once and stays.
+// One seat plays alone here: what is being measured is the return rule, not the game.
 function playGame(seed, mode, deaths) {
 	const w = createWorld(CFG);
 	const pred = createPredictor(CFG);
 	const rng = makeRng(seed);
+	const roster = createRoster(['random'], CFG.ballsPerPlayer);
 	const seen = new Uint8Array(MAX_PUCKS);
 	let recycled = 0;
 	for (;;) {
-		const i = spawnPuck(w, CFG.launchX, CFG.launchY);
+		const seat = nextSeat(roster, 0);
+		if (seat < 0) break;
+		roster[seat].balls--;
+		const i = spawnPuck(w, CFG.launchX, CFG.launchY, seat);
+		if (i < 0) { roster[seat].balls = 0; continue; }
 		seen[i] = 0; // the pending puck is sleeping on purpose: not a death yet
 		const s = chooseStroke('random', w, CFG, i, pred, rng);
 		throwPuck(w, i, s.vx, s.vy);
@@ -79,13 +86,13 @@ function playGame(seed, mode, deaths) {
 			if (w.st[k] === ST_SLEEP && !seen[k]) { seen[k] = 1; deaths.push({ x: w.x[k], y: w.y[k] }); }
 			else if (w.st[k] === ST_SLIDE) seen[k] = 0;
 		}
-		recycled += recyclePucks(w, mode);
-		if (roundOver(w, CFG)) break;
+		recycled += recyclePucks(w, mode, owner => roster[owner].balls++);
+		if (w.thrown >= CFG.maxThrows) break;
 	}
 	beginSettle(w);
 	while (!w.settled) stepWorld(w, CFG.h);
-	recycled += recyclePucks(w, mode);
-	return { score: totalScore(w), thrown: w.thrown, board: w.n, recycled };
+	recycled += recyclePucks(w, mode, owner => roster[owner].balls++);
+	return { thrown: w.thrown, board: w.n, recycled };
 }
 const GAMES = 40, SEED0 = 20261013;
 const agg = { none: { r: 0, b: 0, t: 0 }, zones: { r: 0, b: 0, t: 0 }, advance: { r: 0, b: 0, t: 0 } };
@@ -107,16 +114,16 @@ for (const p of dead) {
 for (const mode of ['none', 'zones', 'advance']) {
 	const a = agg[mode];
 	console.log(mode.padEnd(6) + ' mean throws ' + (a.t / GAMES).toFixed(1) + ', recycled ' + (a.r / GAMES).toFixed(1) +
-		' (' + (100 * a.r / a.t).toFixed(0) + ' % of throws), board at the end ' + (a.b / GAMES).toFixed(1) + '/' + CFG.poolSize);
+		' (' + (100 * a.r / a.t).toFixed(0) + ' % of throws), board at the end ' + (a.b / GAMES).toFixed(1) + '/' + CFG.ballsPerPlayer);
 }
 console.log('a-priori death map (' + dead.length + ' deaths over ' + GAMES + ' games): fan ' + (100 * caught / dead.length).toFixed(0) +
 	' %, left shelf ' + (100 * shelf / dead.length).toFixed(0) + ' %, other lanes ' + (100 * lane / dead.length).toFixed(0) + ' %');
 console.log('same deaths under wedge+lane: wedge ' + (100 * wedge / dead.length).toFixed(0) +
 	' %, launch lane ' + (100 * home / dead.length).toFixed(0) + ' %');
-check(agg.none.t / GAMES === CFG.poolSize, 'mode none: fixed 8-throw rounds');
+check(agg.none.t / GAMES === CFG.ballsPerPlayer, 'mode none: one throw per ball, no more');
 check(agg.zones.r > 0 && agg.advance.r > 0 && agg.none.r === 0, 'only the return rules recycle');
 check(agg.zones.t / GAMES > agg.none.t / GAMES && agg.advance.t / GAMES > agg.none.t / GAMES, 'return modes refund throws (rounds run longer)');
-check(agg.zones.b / GAMES <= CFG.poolSize + 0.001 && agg.advance.b / GAMES <= CFG.poolSize + 0.001, 'the round still ends with a full board');
+check(agg.zones.b / GAMES <= CFG.ballsPerPlayer + 0.001 && agg.advance.b / GAMES <= CFG.ballsPerPlayer + 0.001, 'the game still ends with every ball on the board');
 check(wedge > 0 && home > 0, 'both halves of wedge+lane catch something');
 console.log(fail ? 'FAIL' : 'OK (fan + wedge/lane shape, guards and round effect)');
 process.exit(fail);

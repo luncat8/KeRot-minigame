@@ -20,6 +20,15 @@
 	button:hover { background: #74b9ff; color: #2d3436; }
 	.readout { font-variant-numeric: tabular-nums; font-size: 13px; line-height: 1.5; }
 	#breakdown { font-size: 13px; margin-top: 6px; }
+	.dim { color: #7f8c8d; }
+	#roster { margin: 6px 0; }
+	.prow { display: flex; align-items: center; gap: 6px; margin: 4px 0; padding: 2px 4px; border-radius: 6px; font-size: 13px; }
+	.prow.on { background: rgba(255,255,255,0.10); }
+	.prow .sw { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
+	.prow select { flex: 1 1 auto; min-width: 0; padding: 3px; }
+	.pballs { letter-spacing: 2px; color: #dfe6e9; }
+	.pscore { font-variant-numeric: tabular-nums; min-width: 3em; text-align: right; }
+	button.px { padding: 3px 7px; margin: 0; }
 	fieldset { border: 1px solid #2d4a5c; border-radius: 6px; margin: 10px 0; }
 	fieldset label { display: flex; justify-content: flex-start; gap: 6px; margin: 3px 0; }
 </style>
@@ -29,14 +38,11 @@
 	<div id="boardWrap"><canvas id="c"></canvas></div>
 	<div id="panel">
 		<h1>KeRot — rotating disk curling</h1>
-		<p>Drag on the board to set a stroke (direction + power, 0–3 m/s), then throw with Space. Hold <b>shift</b> while dragging for fine speed control; arrow keys nudge aim (shift = fine there too), Esc clears the stroke, R resets. Pucks the disk can hold (inside the dashed eject ring) ride it around and pick up its spin — the 6-sector face shows each puck's rotation — the rest are flung onto the cold floor. In the shaded eject fan the disk hands a spent puck back to the pool; the <b>wedge + lane</b> rule instead returns pucks that stop behind the disk or never leave the launch strip. Everything else stays and scores at the end.</p>
-		<div class="row"><label>player
-			<select id="playerType">
-				<option value="human">human</option>
-				<option value="random">bot — random</option>
-				<option value="keeper">bot — keeper</option>
-				<option value="hunter">bot — hunter</option>
-			</select></label></div>
+		<p>Drag on the board to set a stroke (direction + power, 0–3 m/s), then throw with Space. Hold <b>shift</b> while dragging for fine speed control; arrow keys nudge aim (shift = fine there too), Esc clears the stroke, R resets. Pucks the disk can hold (inside the dashed eject ring) ride it around and pick up its spin — the 6-sector face shows each puck's rotation — the rest are flung onto the cold floor. Every seat gets 4 pucks and pushes one per turn; the turn then passes to the next seat. From the push, the board pays for 4 seconds: each seat earns <i>dt × the red area of the big disk his pucks cover</i>, so what matters is holding the red while the others try to knock you off it. Scores are shown on 0–999. In the shaded eject fan the disk hands a spent puck back to its owner's stock; the <b>wedge + lane</b> rule instead returns pucks that stop behind the disk or never leave the launch strip.</p>
+		<fieldset><legend>players — 4 balls each, one push per turn</legend>
+			<div id="roster"></div>
+			<div class="row"><button id="btnAdd">+ add player</button><span class="dim">remove with × — both take effect at once, no restart</span></div>
+		</fieldset>
 		<fieldset><legend>return pucks</legend>
 			<label><input type="radio" name="recycle" value="none" id="recNone"> keep all (classic)</label>
 			<label><input type="radio" name="recycle" value="zones" id="recZones" checked> eject fan (disk centre → far corners)</label>
@@ -61,6 +67,8 @@
 <script src="js/cfg.js"></script>
 <script src="js/field.js"></script>
 <script src="js/physics.js"></script>
+<script src="js/score.js"></script>
+<script src="js/players.js"></script>
 <script src="js/rules.js"></script>
 <script src="js/predict.js"></script>
 <script src="js/bots.js"></script>

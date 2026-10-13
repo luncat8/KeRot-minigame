@@ -1,7 +1,7 @@
 // Stroke prediction: clone a world, throw one puck, simulate to rest. Shared by
 // the ghost-trajectory preview and the sampling bots. Node-safe; everything is
 // allocated once in createPredictor and mutated in place.
-if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'), require('./physics.js'));
+if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'), require('./physics.js'), require('./score.js'));
 
 const PRED_SAMPLES = 640; // path points; 8 s of 60 Hz samples fits in 480
 
@@ -20,11 +20,15 @@ function cloneInto(dst, src) {
 	dst.x.set(src.x); dst.y.set(src.y); dst.vx.set(src.vx); dst.vy.set(src.vy);
 	dst.r.set(src.r); dst.m.set(src.m); dst.st.set(src.st);
 	dst.th.set(src.th); dst.om.set(src.om);
+	dst.own.set(src.own);
 }
 // Simulate throwing puck i of src with (vx, vy); results land in pred.
 function predictStroke(pred, src, i, vx, vy, maxT) {
 	const cfg = src.cfg, w = pred.world;
-	const score0 = totalScore(src);
+	const owner = src.own[i];
+	// What a stroke is worth is the red area it adds to its own seat's rate — the
+	// same quantity the scoreboard integrates, so the bots aim at what pays.
+	const rate0 = scoreRate(src, owner);
 	cloneInto(w, src);
 	throwPuck(w, i, vx, vy);
 	const path = pred.path, cap = PRED_SAMPLES;
@@ -47,7 +51,7 @@ function predictStroke(pred, src, i, vx, vy, maxT) {
 	pred.endV = Math.sqrt(w.vx[i] * w.vx[i] + w.vy[i] * w.vy[i]);
 	pred.locked = w.st[i] === ST_LOCKED;
 	pred.t = w.t - src.t;
-	pred.dScore = totalScore(w) - score0;
+	pred.dScore = scoreRate(w, owner) - rate0;
 	return pred;
 }
 

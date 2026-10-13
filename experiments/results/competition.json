@@ -1,5 +1,5 @@
 {
-	"date": "2026-10-13T19:04:17.527Z",
+	"date": "2026-10-13T23:22:26.069Z",
 	"config": {
 		"omega": 0.7831,
 		"muK": 0.03,
@@ -7,51 +7,53 @@
 		"vMin": 0,
 		"vMax": 3,
 		"recycleMode": "zones",
-		"poolSize": 8,
-		"maxThrows": 48,
+		"ballsPerPlayer": 4,
+		"seats": 3,
+		"maxThrows": 96,
 		"h": 0.0020833333333333333,
 		"games": 40,
-		"seed0": 20261013
+		"seed0": 20261013,
+		"note": "score = displayed 0..999 (red area x time); seats rotate every game"
 	},
 	"bots": [
 		{
 			"name": "random",
 			"games": 40,
-			"scoreMean": -2.23735192787111,
-			"scoreStd": 0.558897784481571,
-			"scoreMin": -3.4510155705657044,
-			"scoreMax": -1.1649887985692877,
-			"msMean": 24.792018574999993,
-			"throwsMean": 12.625,
-			"recycledMean": 4.625,
-			"boardMean": 8,
-			"timeMean": 50.47052083332839
+			"scoreMean": 109.425,
+			"scoreStd": 92.31031564781912,
+			"scoreMin": 10,
+			"scoreMax": 336,
+			"rawMean": 91.16784803511925,
+			"winPct": 0,
+			"msMean": 209.31550662500004
 		},
 		{
 			"name": "keeper",
 			"games": 40,
-			"scoreMean": -1.5436523240764537,
-			"scoreStd": 0.5174663115417029,
-			"scoreMin": -2.6932441468616335,
-			"scoreMax": -0.47293138447664207,
-			"msMean": 23.594181874999997,
-			"throwsMean": 8.475,
-			"recycledMean": 0.5,
-			"boardMean": 7.975,
-			"timeMean": 58.64536458332117
+			"scoreMean": 425.575,
+			"scoreStd": 167.3582814652445,
+			"scoreMin": 111,
+			"scoreMax": 791,
+			"rawMean": 354.92354454709687,
+			"winPct": 15,
+			"msMean": 209.31550662500004
 		},
 		{
 			"name": "hunter",
 			"games": 40,
-			"scoreMean": 1.7462006983998435,
-			"scoreStd": 0.9681576700136325,
-			"scoreMin": -1.4670289643238679,
-			"scoreMax": 3.332642384246452,
-			"msMean": 339.42930072499996,
-			"throwsMean": 9.65,
-			"recycledMean": 1.7,
-			"boardMean": 7.95,
-			"timeMean": 47.20869791666483
+			"scoreMean": 676.2,
+			"scoreStd": 217.3599779168189,
+			"scoreMin": 193,
+			"scoreMax": 999,
+			"rawMean": 581.5393176793966,
+			"winPct": 85,
+			"msMean": 209.31550662500004
 		}
-	]
+	],
+	"game": {
+		"throwsMean": 14.025,
+		"recycledMean": 2.025,
+		"boardMean": 12,
+		"timeMean": 54.0645833333254
+	}
 }

@@ -38,24 +38,46 @@ function inReturnZone(cfg, mode, x, y) {
 	}
 	return false;
 }
-// Remove resting pucks a return rule claims (swap-remove). Call at resolve end
-// and at settle end. Returns how many went back to the pool.
-function recyclePucks(w, mode) {
+// Move the last puck into slot i and shrink the board by one — the swap-remove every
+// removal is built on. Indices above i shift, so callers walk downwards.
+function moveLast(w, i) {
+	w.n--;
+	if (i === w.n) return;
+	w.x[i] = w.x[w.n]; w.y[i] = w.y[w.n];
+	w.vx[i] = w.vx[w.n]; w.vy[i] = w.vy[w.n];
+	w.r[i] = w.r[w.n]; w.m[i] = w.m[w.n];
+	w.th[i] = w.th[w.n]; w.om[i] = w.om[w.n]; w.st[i] = w.st[w.n];
+	w.own[i] = w.own[w.n];
+}
+// Remove every puck test(w, i) claims. onTake (optional) is told the seat that owned
+// it — that is how a returned puck goes back into its owner's stock.
+function takePucks(w, test, onTake) {
 	let count = 0;
 	for (let i = w.n - 1; i >= 0; i--) {
-		if (w.st[i] !== ST_SLEEP || !inReturnZone(w.cfg, mode, w.x[i], w.y[i])) continue;
-		w.n--;
-		if (i !== w.n) {
-			w.x[i] = w.x[w.n]; w.y[i] = w.y[w.n];
-			w.vx[i] = w.vx[w.n]; w.vy[i] = w.vy[w.n];
-			w.r[i] = w.r[w.n]; w.m[i] = w.m[w.n];
-			w.th[i] = w.th[w.n]; w.om[i] = w.om[w.n]; w.st[i] = w.st[w.n];
-		}
+		if (!test(w, i)) continue;
+		if (onTake) onTake(w.own[i]);
+		moveLast(w, i);
 		count++;
 	}
 	return count;
 }
-function poolOf(w, cfg) { return Math.max(0, cfg.poolSize - w.n); }
-function roundOver(w, cfg) { return poolOf(w, cfg) <= 0 || w.thrown >= cfg.maxThrows; }
+let _mode = 'none';
+function isRecyclable(w, i) { return w.st[i] === ST_SLEEP && inReturnZone(w.cfg, _mode, w.x[i], w.y[i]); }
+// A return rule only claims a puck that has come to rest inside its zone, and the disk
+// itself is exempt (inGuard), so nothing that still touches it is ever taken.
+function recyclePucks(w, mode, onBack) {
+	_mode = mode;
+	return mode === 'none' ? 0 : takePucks(w, isRecyclable, onBack);
+}
+let _dropOwner = -1;
+function isOwnedBy(w, i) { return w.own[i] === _dropOwner; }
+// A seat that leaves takes his pucks with him: they stop scoring, and they stop
+// cluttering the board for the seats that are still playing.
+function dropOwned(w, owner) {
+	_dropOwner = owner;
+	return takePucks(w, isOwnedBy, null);
+}
+// Remove one puck by index — the puck waiting on the launch spot, for instance.
+function removePuckAt(w, at) { moveLast(w, at); }
 
-if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, inReturnZone, recyclePucks, poolOf, roundOver };
+if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, inReturnZone, moveLast, takePucks, recyclePucks, dropOwned, removePuckAt };

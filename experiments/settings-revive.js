@@ -8,7 +8,8 @@
 //  3. "Change settings, can't move the disk again": the round ends by spinning the disk
 //     down (SETTLE -> SCORED); from there only a reset brought it back, so a ω slider
 //     move changed the readout and nothing else. A spent board must restart.
-Object.assign(globalThis, require('../js/physics.js'), require('../js/rules.js'), require('../js/predict.js'), require('../js/bots.js'));
+Object.assign(globalThis, require('../js/physics.js'), require('../js/score.js'), require('../js/players.js'),
+	require('../js/rules.js'), require('../js/predict.js'), require('../js/bots.js'));
 // game.js is a browser IIFE whose top-level const is module-local under node: load it
 // the way the page does, so Game lands on globalThis (same trick as client-smoke).
 const fs = require('fs');

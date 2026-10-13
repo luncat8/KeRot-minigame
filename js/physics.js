@@ -1,7 +1,7 @@
 // Fixed-step physics: area-weighted two-surface friction, co-rotation lock,
 // puck spin (material rotation) and exact time-of-impact circle/wall collisions.
 // Node-safe, no allocation in stepWorld (typed arrays + module scratch only).
-if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'), require('./field.js'));
+if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'));
 let _evTau = 0, _evKind = 0, _evI = 0, _evJ = 0, _evAxis = 0, _evFound = false;
 function consider(i, j, axis, tau, rem) {
 	if (tau < 0 || tau > rem || (_evFound && tau >= _evTau)) return;
@@ -18,18 +18,20 @@ function createWorld(cfg) {
 		r: new Float64Array(MAX_PUCKS), m: new Float64Array(MAX_PUCKS),
 		th: new Float64Array(MAX_PUCKS), om: new Float64Array(MAX_PUCKS),
 		st: new Uint8Array(MAX_PUCKS),
+		own: new Uint8Array(MAX_PUCKS), // the seat the puck belongs to (js/players.js)
 	};
 }
 function resetWorld(w) {
 	w.t = 0; w.theta = 0; w.omegaCur = w.cfg.omega; w.n = 0; w.thrown = 0;
 	w.settling = false; w.settleT = 0; w.settled = false;
 }
-function spawnPuck(w, x, y) {
+// owner is the seat index (js/players.js); the physics experiments leave it at 0.
+function spawnPuck(w, x, y, owner) {
 	if (w.n >= MAX_PUCKS) return -1;
 	const i = w.n++;
 	w.x[i] = x; w.y[i] = y; w.vx[i] = 0; w.vy[i] = 0;
 	w.r[i] = w.cfg.puckR; w.m[i] = w.cfg.puckM; w.st[i] = ST_SLEEP;
-	w.th[i] = 0; w.om[i] = 0;
+	w.th[i] = 0; w.om[i] = 0; w.own[i] = owner || 0;
 	separateOverlaps(w, i);
 	return i;
 }
@@ -366,11 +368,4 @@ function isSettled(w) {
 	return true;
 }
 function beginSettle(w) { if (!w.settling) { w.settling = true; w.settleT = 0; } }
-function fieldValueOf(w, i) { return fieldWorld(w.cfg, w.x[i], w.y[i], w.theta); }
-function totalScore(w) {
-	let s = 0;
-	for (let i = 0; i < w.n; i++) s += fieldValueOf(w, i);
-	return s;
-}
-
-if (typeof module !== 'undefined') module.exports = { createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, fieldValueOf, totalScore, diskOverlap, surfVelAt, holdable };
+if (typeof module !== 'undefined') module.exports = { createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, diskOverlap, surfVelAt, holdable, FR_RINGS, FR_RAYS, FR_N, FR_RAD, FR_COS, FR_SIN };

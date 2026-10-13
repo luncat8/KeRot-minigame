@@ -19,8 +19,10 @@ const CFG = {
 	maxSubsteps: 8,
 	maxResolve: 8, // s; ghost re-sim horizon
 	handoffT: 4, // s; hand the turn over even if the board has not settled
-	poolSize: 8, // pucks held in the pool; the round ends when none are left un-parked
-	maxThrows: 48, // hard round cap: a player who only ever recycles can still end
+	ballsPerPlayer: 4, // every seat throws this many pucks; the game is seats x balls throws
+	maxPlayers: 8, // roster cap: seats x balls pucks can be on the board at once
+	maxThrows: 96, // hard game cap: a board that keeps handing pucks back still ends
+	scoreDisplayMax: 999, // scores are shown as 0..scoreDisplayMax per game
 	recycleMode: 'zones', // 'none' | 'zones' | 'advance' (radio group)
 	botDelay: 0.7, // seconds a bot "thinks" (aim shown) before throwing
 	settleTime: 3,
@@ -57,7 +59,7 @@ const FIELD_SOURCES = [
 	{ x: -0.36, y: -0.36, w: -0.85, sigma: 0.240 },
 ];
 const FIELD_BIAS = -0.30;
-const MAX_PUCKS = 32;
+const MAX_PUCKS = 40;
 const ST_SLIDE = 0, ST_LOCKED = 1, ST_SLEEP = 2;
 
 function holdRadius(cfg) { return cfg.omega > 0 ? cfg.muS * cfg.g / (cfg.omega * cfg.omega) : Infinity; }

@@ -5,10 +5,11 @@ const Render = (() => {
 	let cv, ctx, scale = 100, ox = 0, oy = 0, dpr = 1;
 	let texDisk = null, texFloor = null, puckGrad = null, wallPath = null;
 	let zoneFan = null, zoneAdv = null, hatchPath = null, sectorPath = null;
-	const RING_COLORS = ['#e74c3c', '#f39c12', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#fd79a8', '#74b9ff'];
 	const Z_FILL = 'rgba(32,178,170,0.16)', Z_LINE = 'rgba(46,204,196,0.55)', Z_HATCH = 'rgba(46,204,196,0.16)';
 	const SECTOR_SHADE = 'rgba(45,52,54,0.42)'; // 3 of the 6 face sectors
 	let puckFont = '', labelRot = 0;
+	const HUD_FONT = 'bold 0.088px sans-serif';
+	const HUD_Y = 0.04, HUD_H = 0.23, HUD_GAP = 0.02, HUD_MAX = 0.46;
 	function setup(canvas) {
 		cv = canvas; ctx = cv.getContext('2d');
 		puckGrad = ctx.createRadialGradient(-0.03, -0.03, 0.01, 0, 0, CFG.puckR);
@@ -164,7 +165,10 @@ const Render = (() => {
 		}
 		ctx.restore();
 	}
-	function drawWorld(w, aim, opts, pred) {
+	// view = {w, aim, opts, pred, roster, turn, resolveT, state}: one object main
+	// mutates in place every frame, so drawing allocates nothing.
+	function drawWorld(view) {
+		const w = view.w, aim = view.aim, opts = view.opts, pred = view.pred;
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.fillStyle = '#0b1c26'; ctx.fillRect(0, 0, cv.width, cv.height);
 		ctx.setTransform(scale, 0, 0, scale, ox, oy);
@@ -197,6 +201,41 @@ const Render = (() => {
 		if (opts.preview && aim && aim.hasStroke) drawGhost(pred, aim);
 		drawAim(w, aim);
 		for (let i = 0; i < w.n; i++) drawPuck(w, i, aim && aim.pending === i);
+		drawHud(view);
+	}
+	// Scoreboard along the top of the board: one cell per seat — colour, balls left,
+	// score — the seat on turn lit, and its window draining while the board resolves.
+	function drawHud(view) {
+		const seats = view.roster, n = seats.length;
+		if (!n) return;
+		const cw = Math.min(HUD_MAX, (CFG.boardW - 0.12) / n - HUD_GAP);
+		const x0 = (CFG.boardW - (n * cw + (n - 1) * HUD_GAP)) / 2;
+		ctx.save();
+		ctx.font = HUD_FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+		for (let i = 0; i < n; i++) {
+			const x = x0 + i * (cw + HUD_GAP), col = seatColor(i), on = i === view.turn;
+			ctx.fillStyle = on ? 'rgba(255,255,255,0.13)' : 'rgba(0,0,0,0.28)';
+			ctx.fillRect(x, HUD_Y, cw, HUD_H);
+			if (on) { ctx.strokeStyle = col; ctx.lineWidth = 0.014; ctx.strokeRect(x, HUD_Y, cw, HUD_H); }
+			ctx.fillStyle = col;
+			ctx.beginPath(); ctx.arc(x + 0.055, HUD_Y + 0.072, 0.042, 0, Math.PI * 2); ctx.fill();
+			ctx.fillStyle = on ? '#ffffff' : '#dfe6e9';
+			ctx.fillText(String(displayScore(CFG, n, seats[i].score)), x + 0.115, HUD_Y + 0.075);
+			for (let k = 0; k < CFG.ballsPerPlayer; k++) {
+				ctx.beginPath(); ctx.arc(x + 0.135 + k * 0.062, HUD_Y + 0.178, 0.022, 0, Math.PI * 2);
+				if (k < seats[i].balls) { ctx.fillStyle = col; ctx.fill(); }
+				else { ctx.strokeStyle = 'rgba(223,230,233,0.40)'; ctx.lineWidth = 0.009; ctx.stroke(); }
+			}
+		}
+		if (view.state === 'resolve') { // the 4 s window that is paying right now
+			const left = Math.max(0, 1 - view.resolveT / CFG.handoffT);
+			const x = x0 + view.turn * (cw + HUD_GAP), y = HUD_Y + HUD_H + 0.022;
+			ctx.fillStyle = 'rgba(255,255,255,0.22)';
+			ctx.fillRect(x, y, cw, 0.026);
+			ctx.fillStyle = seatColor(view.turn);
+			ctx.fillRect(x, y, cw * left, 0.026);
+		}
+		ctx.restore();
 	}
 	function drawPuck(w, i, isPending) {
 		ctx.save();
@@ -209,7 +248,7 @@ const Render = (() => {
 		ctx.rotate(w.th[i]); ctx.scale(w.r[i], w.r[i]);
 		ctx.fillStyle = SECTOR_SHADE; ctx.fill(sectorPath);
 		ctx.restore();
-		ctx.lineWidth = 0.014; ctx.strokeStyle = RING_COLORS[i % RING_COLORS.length]; ctx.stroke();
+		ctx.lineWidth = 0.020; ctx.strokeStyle = seatColor(w.own[i]); ctx.stroke();
 		ctx.globalAlpha *= 0.8;
 		ctx.fillStyle = '#2d3436'; ctx.font = puckFont;
 		ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -235,5 +274,5 @@ const Render = (() => {
 		ctx.fillText(sp.toFixed(2) + ' m/s, stops ~' + (sp * sp / (2 * CFG.muK * CFG.g)).toFixed(1) + ' m', sx + ux * (len + 0.45), sy + uy * (len + 0.45));
 		ctx.restore();
 	}
-	return { setup, resize, drawWorld, toWorld, colors: RING_COLORS };
+	return { setup, resize, drawWorld, toWorld };
 })();

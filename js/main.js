@@ -7,6 +7,9 @@
 	UI.bind(() => Game.reset());
 	window.addEventListener('resize', () => Render.resize());
 	document.addEventListener('visibilitychange', () => { last = performance.now(); });
+	// Everything the renderer needs about the game, in one object main mutates in
+	// place: the draw call itself allocates nothing.
+	const view = { w: Game.world, aim: Game.aim, opts: null, pred: Game.pred, roster: Game.roster, turn: 0, resolveT: 0, state: 'aim' };
 	let last = performance.now(), acc = 0, uiAcc = 0;
 	function frame(now) {
 		requestAnimationFrame(frame);
@@ -22,7 +25,8 @@
 			if (steps === 96) acc = 0;
 			if (steps) Game.afterSteps(steps * CFG.h);
 		}
-		Render.drawWorld(Game.world, Game.aim, UI.opts(), Game.pred);
+		view.opts = UI.opts(); view.turn = Game.turn; view.resolveT = Game.resolveT; view.state = Game.state;
+		Render.drawWorld(view);
 		uiAcc += dt;
 		if (uiAcc >= 0.2) { uiAcc = 0; UI.update(Game.world); } // ~5 Hz numeric readouts
 	}
