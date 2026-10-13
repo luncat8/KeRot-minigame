@@ -1,0 +1,19 @@
+Important: smooth, realistic physics.
+
+The player throws a puck (like in curling), choosing its direction and speed (a vector) by swiping with the pointer and pressing the throw button (Space). That way, they can make a new stroke before throwing if they don’t like the previous one.
+
+On the left side of the screen is a rotating big_disk. Add a slider to control the big_disk’s rotation speed.
+
+The big_disk is colored in zones (you can color a distance field from several points), ranging from -1 (blue) to +1 (red).
+
+Pucks remain on the board, and points are tallied at the end.
+
+Important: choose the puck’s mass and the big_disk’s rotation speed so that centrifugal force pushes pucks off the outer 10% of the big_disk’s radius. Friction and static friction should work, with sliders to adjust them; choose suitable values for ice.
+
+The physics must be completely independent of frame rate, with no surface tunneling.
+
+As a puck moves onto the big_disk, it should receive rotational impulse from friction against both the ordinary floor and the big_disk. Think carefully about the correct direction of these forces.
+
+Since the pucks are round, simply calculate the collision time.
+
+Would it be better to implement this yourself, accounting for friction, or use Box2D or another engine that can handle circle collisions accurately without overshooting?
