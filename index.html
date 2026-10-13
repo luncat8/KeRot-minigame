@@ -13,12 +13,15 @@
 	#panel h1 { font-size: 18px; margin: 0 0 4px; }
 	#panel p { font-size: 12px; color: #b2bec3; }
 	.row { margin: 10px 0; font-size: 13px; }
-	.row label { display: flex; justify-content: space-between; }
+	.row label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 	input[type=range] { width: 100%; }
+	select { background: #0984e3; color: #fff; border: 0; border-radius: 6px; padding: 5px; }
 	button { background: #0984e3; color: #fff; border: 0; border-radius: 6px; padding: 7px 10px; margin: 2px; cursor: pointer; }
 	button:hover { background: #74b9ff; color: #2d3436; }
 	.readout { font-variant-numeric: tabular-nums; font-size: 13px; line-height: 1.5; }
 	#breakdown { font-size: 13px; margin-top: 6px; }
+	fieldset { border: 1px solid #2d4a5c; border-radius: 6px; margin: 10px 0; }
+	fieldset label { display: flex; justify-content: flex-start; gap: 6px; margin: 3px 0; }
 </style>
 </head>
 <body>
@@ -26,8 +29,20 @@
 	<div id="boardWrap"><canvas id="c"></canvas></div>
 	<div id="panel">
 		<h1>KeRot — rotating disk curling</h1>
-		<p>Drag on the board to set a stroke (direction + power), then throw with Space. Drag again or press Esc to change your mind. Arrow keys nudge aim, R resets. Pucks that the disk can hold (inside the dashed eject ring) ride it around; the rest are flung onto the cold floor. Score is the field value under each puck after the disk spins down.</p>
-		<div class="row"><label>disk ω <span id="omegaVal"></span></label><input type="range" id="omega" min="0" max="2" step="0.001" value="0.7831"></div>
+		<p>Drag on the board to set a stroke (direction + power), then throw with Space. Drag again or press Esc to change your mind. Arrow keys nudge aim, R resets. Pucks the disk can hold (inside the dashed eject ring) ride it around; the rest are flung onto the cold floor. Recycled pucks return to the pool for reuse; parked pucks score at the end.</p>
+		<div class="row"><label>player
+			<select id="playerType">
+				<option value="human">human</option>
+				<option value="random">bot — random</option>
+				<option value="keeper">bot — keeper</option>
+				<option value="hunter">bot — hunter</option>
+			</select></label></div>
+		<fieldset><legend>return pucks</legend>
+			<label><input type="radio" name="recycle" value="none" id="recNone"> keep all (classic)</label>
+			<label><input type="radio" name="recycle" value="behind" id="recBehind"> behind-disk half</label>
+			<label><input type="radio" name="recycle" value="zones" id="recZones" checked> zones (board gutters)</label>
+		</fieldset>
+		<div class="row"><label>disk ω <span id="omegaVal"></span></label><input type="range" id="omega" min="0" max="4" step="0.001" value="0.7831"></div>
 		<div class="row"><label>kinetic friction μk <span id="muKVal"></span></label><input type="range" id="muK" min="0.005" max="0.3" step="0.001" value="0.03"></div>
 		<div class="row"><label>static friction μs <span id="muSVal"></span></label><input type="range" id="muS" min="0.03" max="0.5" step="0.001" value="0.045"></div>
 		<div class="row">
@@ -35,7 +50,7 @@
 			<button id="btnAuto">auto-ω (90%)</button><button id="btnReset">Reset board</button><button id="btnPause">Pause</button>
 		</div>
 		<div class="row"><label><span><input type="checkbox" id="chkRing" checked> eject ring</span></label>
-		<label><span><input type="checkbox" id="chkPreview" checked> preview line</span></label></div>
+		<label><span><input type="checkbox" id="chkPreview" checked> ghost trajectory</span></label></div>
 		<div class="readout">
 			<div id="hold"></div><div id="stop"></div><div id="simTime"></div>
 			<div id="puckCount"></div><div id="liveScore"></div><div id="state"></div>
@@ -46,6 +61,9 @@
 <script src="js/cfg.js"></script>
 <script src="js/field.js"></script>
 <script src="js/physics.js"></script>
+<script src="js/rules.js"></script>
+<script src="js/predict.js"></script>
+<script src="js/bots.js"></script>
 <script src="js/render.js"></script>
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>

@@ -1,0 +1,4 @@
+date,bot,games,scoreMean,scoreStd,scoreMin,scoreMax,msPerGame,throwsMean,recycledMean,boardMean,simTimeMean,recycleMode,seed0
+2026-10-13T09:16:26.790Z,random,40,-1.1103,0.9251,-2.9632,1.2241,42.3,40.92,35.50,5.42,268.52,zones,20261013
+2026-10-13T09:16:26.790Z,keeper,40,-0.6811,1.0771,-2.5722,2.4452,28.9,24.63,17.25,7.38,178.31,zones,20261013
+2026-10-13T09:16:26.790Z,hunter,40,3.2607,0.8325,1.2968,4.7447,234.3,11.43,3.52,7.90,64.13,zones,20261013

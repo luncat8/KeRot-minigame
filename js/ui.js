@@ -1,12 +1,16 @@
-// Side-panel wiring. DOM text is written only when a value actually changes.
+// Side-panel wiring. DOM text is written only when a value actually changes;
+// update() is throttled to ~5 Hz by main. opts is a shared object mutated in
+// place — never allocated in the frame loop.
 const UI = (() => {
 	const $ = id => document.getElementById(id);
 	const els = {};
+	const opts = { ring: true, preview: true, mode: 'zones' };
 	let lastText = {};
 	function setText(id, txt) { if (lastText[id] !== txt) { lastText[id] = txt; els[id].textContent = txt; } }
 	function bind(onReset) {
-		for (const id of ['omega', 'muK', 'muS', 'omegaVal', 'muKVal', 'muSVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'chkRing', 'chkPreview'])
+		for (const id of ['omega', 'muK', 'muS', 'omegaVal', 'muKVal', 'muSVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'chkRing', 'chkPreview', 'playerType'])
 			els[id] = $(id);
+		els.omega.max = String(CFG.omegaMax);
 		els.omega.addEventListener('input', () => { CFG.omega = parseFloat(els.omega.value); sync(); });
 		els.muK.addEventListener('input', () => {
 			CFG.muK = parseFloat(els.muK.value);
@@ -20,6 +24,11 @@ const UI = (() => {
 		els.btnClear.addEventListener('click', () => { Game.aim.hasStroke = false; });
 		els.btnReset.addEventListener('click', onReset);
 		els.btnPause.addEventListener('click', () => { els.btnPause.textContent = Game.togglePause() ? 'Resume' : 'Pause'; });
+		els.playerType.addEventListener('change', () => Game.setPlayer(els.playerType.value));
+		for (const r of document.querySelectorAll('input[name=recycle]')) {
+			r.addEventListener('change', () => { if (r.checked) { CFG.recycleMode = r.value; opts.mode = r.value; } });
+			if (r.checked) { CFG.recycleMode = r.value; opts.mode = r.value; }
+		}
 		sync();
 	}
 	function sync() {
@@ -31,15 +40,20 @@ const UI = (() => {
 		if (dh > CFG.diskR) warn = ' (nothing is ever ejected)';
 		else if (dh < 0.2 * CFG.diskR) warn = ' (meat grinder)';
 		setText('hold', 'd_hold/R = ' + pct + warn);
-		setText('stop', 'max-throw stopping distance = ' + (CFG.vMax * CFG.vMax / (2 * CFG.muK * CFG.g)).toFixed(2) + ' m');
+		setText('stop', 'speed range ' + CFG.vMin.toFixed(2) + '–' + CFG.vMax.toFixed(2) + ' m/s; max-throw stops in ~' +
+			(CFG.vMax * CFG.vMax / (2 * CFG.muK * CFG.g)).toFixed(1) + ' m');
 	}
 	function update(w) {
 		sync();
 		setText('simTime', 't = ' + w.t.toFixed(1) + ' s');
-		setText('puckCount', 'puck ' + Math.min(w.thrown + (Game.state === 'aim' ? 1 : 0), CFG.pucksPerGame) + ' / ' + CFG.pucksPerGame);
-		setText('liveScore', (Game.state === 'scored' ? 'final score = ' : 'live score = ') + totalScore(w).toFixed(2));
-		setText('state', Game.state === 'aim' ? 'aim: drag to set the stroke, Space to throw' :
-			Game.state === 'resolve' ? 'resolving…' : Game.state === 'settle' ? 'disk spinning down…' : 'scored — press Reset board');
+		setText('puckCount', 'board ' + w.n + ' / ' + CFG.poolSize + ' · pool ' + poolOf(w, CFG) + ' · throws ' + w.thrown);
+		let s = 0;
+		for (let i = 0; i < w.n; i++) if (Game.state !== 'aim' || i !== Game.pending) s += fieldValueOf(w, i);
+		setText('liveScore', (Game.state === 'scored' ? 'final score = ' : 'live score = ') + s.toFixed(2));
+		setText('state', Game.state === 'aim' ? (Game.player === 'human'
+			? 'aim: drag to set the stroke, Space to throw'
+			: 'bot (' + Game.player + ') is aiming…')
+			: Game.state === 'resolve' ? 'resolving…' : Game.state === 'settle' ? 'disk spinning down…' : 'scored — press Reset board');
 		if (Game.state === 'scored') {
 			let html = '';
 			for (let i = 0; i < w.n; i++) html += 'puck ' + (i + 1) + ': V = ' + fieldValueOf(w, i).toFixed(2) + '<br>';
@@ -47,5 +61,9 @@ const UI = (() => {
 			if (lastText.breakdown !== html) { lastText.breakdown = html; els.breakdown.innerHTML = html; }
 		} else if (lastText.breakdown !== '') { lastText.breakdown = ''; els.breakdown.innerHTML = ''; }
 	}
-	return { bind, update, opts: () => ({ ring: els.chkRing.checked, preview: els.chkPreview.checked }) };
+	function optsNow() {
+		opts.ring = els.chkRing.checked; opts.preview = els.chkPreview.checked;
+		return opts;
+	}
+	return { bind, update, opts: optsNow };
 })();

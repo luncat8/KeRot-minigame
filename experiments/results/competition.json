@@ -1,0 +1,57 @@
+{
+	"date": "2026-10-13T09:16:26.790Z",
+	"config": {
+		"omega": 0.7831,
+		"muK": 0.03,
+		"muS": 0.045,
+		"vMin": 0.8,
+		"vMax": 4,
+		"recycleMode": "zones",
+		"poolSize": 8,
+		"maxThrows": 48,
+		"h": 0.0020833333333333333,
+		"games": 40,
+		"seed0": 20261013
+	},
+	"bots": [
+		{
+			"name": "random",
+			"games": 40,
+			"scoreMean": -1.1102805947342547,
+			"scoreStd": 0.9250647144774615,
+			"scoreMin": -2.963211327224772,
+			"scoreMax": 1.224107612463645,
+			"msMean": 42.3456834,
+			"throwsMean": 40.925,
+			"recycledMean": 35.5,
+			"boardMean": 5.425,
+			"timeMean": 268.5193229170171
+		},
+		{
+			"name": "keeper",
+			"games": 40,
+			"scoreMean": -0.6811101020065542,
+			"scoreStd": 1.0770573604245968,
+			"scoreMin": -2.5722284020642427,
+			"scoreMax": 2.4451736523227376,
+			"msMean": 28.885596475,
+			"throwsMean": 24.625,
+			"recycledMean": 17.25,
+			"boardMean": 7.375,
+			"timeMean": 178.30588541673794
+		},
+		{
+			"name": "hunter",
+			"games": 40,
+			"scoreMean": 3.2606716366508386,
+			"scoreStd": 0.8325191093679283,
+			"scoreMin": 1.2968409921540127,
+			"scoreMax": 4.744655325581482,
+			"msMean": 234.26230425,
+			"throwsMean": 11.425,
+			"recycledMean": 3.525,
+			"boardMean": 7.9,
+			"timeMean": 64.13411458331612
+		}
+	]
+}
