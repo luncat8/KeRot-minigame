@@ -20,8 +20,18 @@ function makeCtx() {
 		putImageData() { },
 	};
 }
+// Recording Path2D: the zone shapes are baked into Path2D objects the stub canvas
+// never sees, so the geometry has to be checked where it is built.
+const paths = [];
+const num = v => (Math.round(v * 1000) / 1000).toFixed(3);
 class Path2D {
-	moveTo() { } lineTo() { } arc() { } rect() { } closePath() { } addPath() { }
+	constructor() { this.ops = []; paths.push(this); }
+	moveTo(x, y) { this.ops.push('moveTo:' + num(x) + ',' + num(y)); }
+	lineTo(x, y) { this.ops.push('lineTo:' + num(x) + ',' + num(y)); }
+	arc(x, y, r) { this.ops.push('arc:' + num(x) + ',' + num(y) + ',' + num(r)); }
+	rect(x, y, w, h) { this.ops.push('rect:' + num(x) + ',' + num(y) + ',' + num(w) + ',' + num(h)); }
+	closePath() { this.ops.push('close'); }
+	addPath(p) { for (const o of p.ops) this.ops.push(o); }
 }
 function makeCanvas() {
 	return { width: 0, height: 0, style: {}, clientWidth: 640, getContext: () => makeCtx(), addEventListener() { }, getBoundingClientRect: () => ({ left: 0, top: 0 }) };
@@ -58,12 +68,25 @@ for (const f of ['../js/field.js', '../js/render.js', '../js/game.js']) {
 	check(ops.includes('text:RETURN'), 'fan labelled');
 	check(ops.includes('rotate:' + w.th[a].toFixed(3)), 'puck face rotates by the material angle');
 	check(ops.filter(o => o.startsWith('rotate')).length >= 2, 'disk texture and puck sectors both rotate');
+	// The other return rule: same hole, plus the launch lane, and two labels.
+	ops.length = 0;
+	Render.drawWorld(w, aim, { ring: false, preview: false, mode: 'advance' }, null);
+	const wedge = ops.length;
+	check(ops.includes('fill:evenodd') && ops.includes('clip:evenodd'), 'wedge+lane drawn with the on-disk hole (evenodd)');
+	check(ops.filter(o => o === 'text:RETURN').length === 2, 'both halves of wedge+lane are labelled');
+	const zoned = paths.filter(p => p.ops.some(o => o.startsWith('arc:')));
+	const lanes = zoned.filter(p => p.ops.some(o => o.startsWith('rect:')));
+	check(lanes.length >= 1, 'the launch lane is baked into a zone path');
+	check(zoned.length - lanes.length >= 1, 'the fan path stays a plain triangle');
+	check(lanes.some(p => p.ops.some(o => o === 'arc:' + num(CFG.diskX) + ',' + num(CFG.diskY) + ',' + num(CFG.diskR + CFG.puckR))),
+		'the lane shares the fan\'s on-disk guard');
 	ops.length = 0;
 	Render.drawWorld(w, aim, { ring: false, preview: false, mode: 'none' }, null);
 	check(!ops.includes('text:RETURN') && ops.length > 0, 'mode none draws no zone, still renders');
 	check(withZones > ops.length, 'zones mode costs extra draw calls only');
 	Render.resize();
-	console.log('render smoke: ' + withZones + ' ops with the fan, ' + ops.length + ' without, no exceptions');
+	console.log('render smoke: ' + withZones + ' ops with the fan, ' + wedge + ' with wedge+lane, ' + ops.length +
+		' without, no exceptions');
 }
 // Game: stroke mapping (plain + shift precision), ghost refresh on physics change,
 // and a full bot round through the real state machine.

@@ -1,5 +1,5 @@
 {
-	"date": "2026-10-13T10:04:59.457Z",
+	"date": "2026-10-13T12:19:27.978Z",
 	"config": {
 		"omega": 0.7831,
 		"muK": 0.03,
@@ -17,41 +17,41 @@
 		{
 			"name": "random",
 			"games": 40,
-			"scoreMean": -2.3549565140232724,
-			"scoreStd": 0.5573649735541856,
-			"scoreMin": -3.123399752948536,
-			"scoreMax": -1.0631773294135582,
-			"msMean": 6.019268525000002,
-			"throwsMean": 12.275,
-			"recycledMean": 4.3,
+			"scoreMean": -2.3336591552208548,
+			"scoreStd": 0.4717363188106505,
+			"scoreMin": -3.109109995465991,
+			"scoreMax": -1.1847012892398205,
+			"msMean": 9.080706925,
+			"throwsMean": 12.175,
+			"recycledMean": 4.2,
 			"boardMean": 7.975,
-			"timeMean": 46.327187499998686
+			"timeMean": 46.531510416665135
 		},
 		{
 			"name": "keeper",
 			"games": 40,
-			"scoreMean": -1.6833005101546323,
-			"scoreStd": 0.6389957244409228,
-			"scoreMin": -3.2977417746399937,
-			"scoreMax": -0.3863251906800186,
-			"msMean": 6.475335000000001,
-			"throwsMean": 8.4,
-			"recycledMean": 0.45,
-			"boardMean": 7.95,
-			"timeMean": 56.330052083323245
+			"scoreMean": -1.4934789037948337,
+			"scoreStd": 0.660213719565391,
+			"scoreMin": -2.8298355158538975,
+			"scoreMax": -0.02086971324704745,
+			"msMean": 9.712677450000001,
+			"throwsMean": 8.35,
+			"recycledMean": 0.375,
+			"boardMean": 7.975,
+			"timeMean": 53.3146354166593
 		},
 		{
 			"name": "hunter",
 			"games": 40,
-			"scoreMean": 1.511335302459571,
-			"scoreStd": 0.8998726551297715,
-			"scoreMin": -1.04500100060572,
-			"scoreMax": 3.1841394647364654,
-			"msMean": 94.50763265000002,
-			"throwsMean": 9,
-			"recycledMean": 1.05,
-			"boardMean": 7.95,
-			"timeMean": 40.843020833337235
+			"scoreMean": 1.4402626060507746,
+			"scoreStd": 0.8875577735276665,
+			"scoreMin": -0.5489732041329644,
+			"scoreMax": 3.027007160425891,
+			"msMean": 136.35588577500002,
+			"throwsMean": 8.575,
+			"recycledMean": 0.575,
+			"boardMean": 8,
+			"timeMean": 41.82307291666967
 		}
 	]
 }

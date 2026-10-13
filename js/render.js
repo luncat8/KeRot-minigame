@@ -4,7 +4,7 @@
 const Render = (() => {
 	let cv, ctx, scale = 100, ox = 0, oy = 0, dpr = 1;
 	let texDisk = null, texFloor = null, puckGrad = null, wallPath = null;
-	let zonePath = null, zoneTri = null, zoneHole = null, hatchPath = null, sectorPath = null;
+	let zoneFan = null, zoneAdv = null, hatchPath = null, sectorPath = null;
 	const RING_COLORS = ['#e74c3c', '#f39c12', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#fd79a8', '#74b9ff'];
 	const Z_FILL = 'rgba(32,178,170,0.16)', Z_LINE = 'rgba(46,204,196,0.55)', Z_HATCH = 'rgba(46,204,196,0.16)';
 	const SECTOR_SHADE = 'rgba(45,52,54,0.42)'; // 3 of the 6 face sectors
@@ -17,15 +17,12 @@ const Render = (() => {
 		resize();
 	}
 	function buildZonePaths() {
-		const z = RETURN_ZONES;
-		// The eject fan, with the on-disk guard (diskR + puckR) punched out of the
-		// fill, so the exemption is drawn instead of implied.
-		zoneTri = new Path2D();
-		zoneTri.moveTo(z.ax, z.ay); zoneTri.lineTo(z.bx, z.by); zoneTri.lineTo(z.cx, z.cy); zoneTri.closePath();
-		zoneHole = new Path2D();
-		zoneHole.arc(CFG.diskX, CFG.diskY, CFG.diskR + CFG.puckR, 0, Math.PI * 2);
-		zonePath = new Path2D();
-		zonePath.addPath(zoneTri); zonePath.addPath(zoneHole);
+		const z = RETURN_ZONES, v = ADVANCE_ZONES;
+		// Both return rules: a fill with the on-disk guard (diskR + puckR) punched
+		// out of it, so the exemption is drawn instead of implied, plus the outline
+		// to stroke. The 'advance' rule adds the launch lane to its wedge.
+		zoneFan = bakeZone(z, null);
+		zoneAdv = bakeZone(v, [v.lx, 0, v.lw, CFG.boardH]);
 		hatchPath = new Path2D();
 		for (let s = -CFG.boardH; s < CFG.boardW; s += 0.14) { // 45° stripes across the board
 			hatchPath.moveTo(s, 0); hatchPath.lineTo(s + CFG.boardH, CFG.boardH);
@@ -39,6 +36,18 @@ const Render = (() => {
 			sectorPath.closePath();
 		}
 		labelRot = Math.atan2(z.by - z.ay, z.bx - z.ax); // fan edge -> readable label angle
+	}
+	function bakeZone(t, rect) {
+		const fill = new Path2D(), line = new Path2D();
+		fill.moveTo(t.ax, t.ay); fill.lineTo(t.bx, t.by); fill.lineTo(t.cx, t.cy); fill.closePath();
+		line.moveTo(t.ax, t.ay); line.lineTo(t.bx, t.by); line.lineTo(t.cx, t.cy); line.closePath();
+		if (rect) { fill.rect(rect[0], rect[1], rect[2], rect[3]); line.rect(rect[0], rect[1], rect[2], rect[3]); }
+		const hole = new Path2D();
+		hole.arc(CFG.diskX, CFG.diskY, CFG.diskR + CFG.puckR, 0, Math.PI * 2);
+		const path = new Path2D();
+		path.addPath(fill); path.addPath(hole);
+		line.addPath(hole);
+		return { path: path, line: line };
 	}
 	function resize() {
 		dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -63,16 +72,25 @@ const Render = (() => {
 	}
 	function drawZones(mode) {
 		if (mode === 'none') return;
+		const z = mode === 'advance' ? zoneAdv : zoneFan;
 		ctx.save();
 		ctx.fillStyle = Z_FILL;
-		ctx.fill(zonePath, 'evenodd');
-		ctx.save(); ctx.clip(zonePath, 'evenodd');
+		ctx.fill(z.path, 'evenodd');
+		ctx.save(); ctx.clip(z.path, 'evenodd');
 		ctx.strokeStyle = Z_HATCH; ctx.lineWidth = 0.012; ctx.stroke(hatchPath);
 		ctx.restore();
 		ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = Z_LINE;
-		ctx.stroke(zoneTri); ctx.stroke(zoneHole); ctx.setLineDash([]);
-		drawZoneLabel(2.55, 0.75, labelRot); // inside the fan, along its edges
-		drawZoneLabel(2.55, CFG.boardH - 0.75, -labelRot);
+		ctx.stroke(z.line); ctx.setLineDash([]);
+		if (mode === 'advance') {
+			const v = ADVANCE_ZONES;
+			// upright in both halves: the wedge's live part is its left edge, the only
+			// stretch of it the disk guard does not cover, and the lane is the strip
+			drawZoneLabel(0.10, CFG.diskY, -Math.PI / 2);
+			drawZoneLabel(v.lx + v.lw / 2, CFG.diskY, -Math.PI / 2);
+		} else {
+			drawZoneLabel(2.55, 0.75, labelRot); // inside the fan, along its edges
+			drawZoneLabel(2.55, CFG.boardH - 0.75, -labelRot);
+		}
 		ctx.restore();
 	}
 	function drawZoneLabel(x, y, rot) {

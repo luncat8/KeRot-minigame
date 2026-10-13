@@ -30,19 +30,72 @@ function ke(w) {
 	check(w.om[i] === 0 && w.st[i] === ST_SLEEP, 'spin snaps to 0 and sleeps');
 	check(mono, 'spin decays monotonically, never negative');
 }
-// 2a. Fully covered and co-rotating but past the hold radius: no lock can fire, so
-//     the spin ramp is observable in isolation and must match rate·a.
+// 2a. Fully covered and past the hold radius: no lock can fire, so the spin ramp is
+//     observable in isolation and must run at spinDrag·μk·g/r (the contact sits at the
+//     puck's centre, so the sliding impulse spends nothing of the torque budget).
 {
 	const c = Object.assign({}, cfg, { omega: 1.5, muS: 0.01 }); // d_hold = 0.044 m < 0.5 m
 	const w = createWorld(c);
 	const i = spawnPuck(w, cfg.diskX + 0.5, cfg.diskY);
-	w.st[i] = ST_SLIDE; w.vy[i] = c.omega * 0.5;
+	w.st[i] = ST_SLIDE;
+	w.vx[i] = 0.3; w.vy[i] = c.omega * 0.5; // surface velocity at the centre, plus a real slip
 	const steps = 40;
 	for (let s = 0; s < steps; s++) stepWorld(w, cfg.h);
 	const expect = rate * steps * cfg.h;
 	console.log('spin ramp on the disk: Δom = ' + w.om[i].toFixed(6) + ' (expect ' + expect.toFixed(6) + '), state = ' + w.st[i]);
 	check(w.st[i] === ST_SLIDE, 'low muS keeps it sliding (no lock)');
 	check(Math.abs(w.om[i] - expect) < 0.01 * expect, 'spin-up rate = spinDrag·μk·g/r');
+}
+// 2c. A contact that is barely slipping grips at μs instead of chasing the slip.
+{
+	const c = Object.assign({}, cfg, { omega: 0 });
+	const w = createWorld(c);
+	const i = spawnPuck(w, 2.5, cfg.diskY);
+	w.st[i] = ST_SLIDE;
+	w.vx[i] = cfg.epsStick; // on the floor, under the stick threshold
+	const v0 = w.vx[i];
+	stepWorld(w, cfg.h);
+	const dv = v0 - w.vx[i], expect = cfg.muS * cfg.g * cfg.h;
+	console.log('slow slide: Δv = ' + dv.toFixed(6) + ' (μs·g·h = ' + expect.toFixed(6) +
+		', μk·g·h = ' + (cfg.muK * cfg.g * cfg.h).toFixed(6) + ')');
+	check(Math.abs(dv - expect) < 1e-9, 'a gripping contact brakes at μs');
+	check(dv > cfg.muK * cfg.g * cfg.h, 'static holds harder than kinetic');
+}
+// 2d. Identical surfaces: with the disk still, a puck straddling the rim must decay
+//     exactly as it would on bare ice — the two patches partition one contact, and the
+//     sliding impulses and the couples draw on the same budget. Below the stick
+//     threshold the patches grip, so the last of the spin goes at the μs rate. This is
+//     the case a straddling puck used to get wrong: it either span up (a roller bearing
+//     between the rim and the floor) or decayed a third too slowly.
+{
+	const c = Object.assign({}, cfg, { omega: 0 });
+	for (const [name, om] of [['spinning fast', 1.0], ['spinning slowly', 0.3]]) {
+		const w = createWorld(c);
+		const i = spawnPuck(w, cfg.diskX + cfg.diskR, cfg.diskY); // centre on the rim: a ≈ ½
+		w.st[i] = ST_SLIDE; w.om[i] = om;
+		const dK = -cfg.spinDrag * cfg.muK * cfg.g / cfg.puckR * cfg.h; // bare ice
+		const dS = -cfg.spinDrag * cfg.muS * cfg.g / cfg.puckR * cfg.h; // gripping contact
+		stepWorld(w, cfg.h);
+		const got = w.om[i] - om;
+		console.log('straddling puck, ' + name + ': Δom = ' + got.toFixed(6) + ' (μk ' + dK.toFixed(6) +
+			', μs ' + dS.toFixed(6) + ')');
+		check(Math.abs(got - dK) < 1e-9 || Math.abs(got - dS) < 1e-9, 'straddling spin decays at the bare-ice rate (' + name + ')');
+		check(got <= dK + 1e-9 && got >= dS - 1e-9, 'straddling spin decays at neither less than μk nor more than μs (' + name + ')');
+	}
+}
+// 2e. The roller bearing: a puck left straddling the rim of the turning disk must
+//     settle, not creep and spin up along the rim forever.
+{
+	const w = createWorld(cfg);
+	const i = spawnPuck(w, cfg.launchX, cfg.launchMinY);
+	throwPuck(w, i, -1.2, -0.3); // a throw that lands on the rim and stays there
+	let t = 0, worst = 0;
+	while (w.st[i] !== ST_SLEEP && t < 30) { stepWorld(w, cfg.h); t += cfg.h; worst = Math.max(worst, Math.abs(w.om[i])); }
+	console.log('rim roller: settled after ' + t.toFixed(2) + ' s, om = ' + w.om[i].toFixed(4) +
+		', peak |om| = ' + worst.toFixed(3) + ', state = ' + (w.st[i] === ST_SLEEP ? 'SLEEP' : 'still moving'));
+	check(w.st[i] === ST_SLEEP, 'rim roller sleeps instead of spinning up');
+	check(t < 8, 'rim roller settles inside the 8 s resolve cap');
+	check(worst < 3 * cfg.omega, 'rim roller never winds up past a few times ω_disk');
 }
 // 2b. Captured puck: locks and spins exactly with the disk, riding without drift.
 {

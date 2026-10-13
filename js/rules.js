@@ -8,15 +8,25 @@ function onDisk(cfg, x, y) {
 	const dx = x - cfg.diskX, dy = y - cfg.diskY;
 	return Math.sqrt(dx * dx + dy * dy) <= cfg.diskR + cfg.puckR;
 }
-// The eject fan: inside the triangle apex→far corners (all three cross products
-// with the same sign, as the vertex table is wound consistently).
-function inReturnZone(cfg, mode, x, y) {
-	if (mode === 'none' || onDisk(cfg, x, y)) return false;
-	const z = RETURN_ZONES;
+// Inside a wound triangle: all three edge cross products point the same way (the
+// vertex tables are wound so that "inside" is ≥ 0).
+function inTri(z, x, y) {
 	const e1 = (z.bx - z.ax) * (y - z.ay) - (z.by - z.ay) * (x - z.ax);
 	const e2 = (z.cx - z.bx) * (y - z.by) - (z.cy - z.by) * (x - z.bx);
 	const e3 = (z.ax - z.cx) * (y - z.cy) - (z.ay - z.cy) * (x - z.cx);
 	return e1 >= 0 && e2 >= 0 && e3 >= 0;
+}
+// 'zones' is the eject fan: inside the triangle apex→far corners. 'advance' is the
+// wedge behind the disk plus the launch lane: a puck has to get past the disk and
+// out of its own box. Either way the disk itself is never a return zone.
+function inReturnZone(cfg, mode, x, y) {
+	if (mode === 'none' || onDisk(cfg, x, y)) return false;
+	if (mode === 'zones') return inTri(RETURN_ZONES, x, y);
+	if (mode === 'advance') {
+		const v = ADVANCE_ZONES;
+		return inTri(v, x, y) || (x >= v.lx && x <= v.lx + v.lw);
+	}
+	return false;
 }
 // Remove resting pucks a return rule claims (swap-remove). Call at resolve end
 // and at settle end. Returns how many went back to the pool.

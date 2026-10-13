@@ -14,13 +14,14 @@ const CFG = {
 	ePuck: 0.65,
 	h: 1 / 480,
 	epsLock: 0.010, epsSleep: 0.004, epsSpin: 0.050, epsV: 1e-4,
+	epsStick: 0.020, // slip speed below which a contact sticks: its friction is bounded by muS, not muK
 	spinDrag: 4 / 3, // spinning friction: ω̇ = spinDrag*muK*g/r per unit covered area
 	slop: 1e-6,
 	maxSubsteps: 8,
 	maxResolve: 8,
 	poolSize: 8, // pucks held in the pool; the round ends when none are left un-parked
 	maxThrows: 48, // hard round cap: a player who only ever recycles can still end
-	recycleMode: 'zones', // 'none' | 'zones' (radio group)
+	recycleMode: 'zones', // 'none' | 'zones' | 'advance' (radio group)
 	botDelay: 0.7, // seconds a bot "thinks" (aim shown) before throwing
 	settleTime: 3,
 	dragFull: 0.90,
@@ -37,6 +38,17 @@ const RETURN_ZONES = {
 	bx: CFG.boardW, by: 0, // far corners
 	cx: CFG.boardW, cy: CFG.boardH,
 };
+// The other rule (recycleMode 'advance'): the wedge the disk stands in front of —
+// apex at the disk centre, base on the left wall — plus the launch lane, the full-
+// height strip the puck is thrown from. Both are ground a puck has to leave: behind
+// the disk it never got into play, in the lane it never left home. The wedge is the
+// mirror of the fan, and the disk itself is exempt in either rule (see onDisk).
+const ADVANCE_ZONES = {
+	ax: 0, ay: CFG.boardH, // wound so every edge test of an inside point is ≥ 0
+	bx: 0, by: 0,
+	cx: CFG.diskX, cy: CFG.diskY,
+	lx: CFG.launchMinX, lw: CFG.boardW - CFG.launchMinX, // launch lane, floor to ceiling
+};
 // Field sources in disk-local meters (see field.js). BIAS cools the whole plane.
 const FIELD_SOURCES = [
 	{ x: 0.00, y: 0.00, w: 1.25, sigma: 0.256 },
@@ -51,4 +63,4 @@ const ST_SLIDE = 0, ST_LOCKED = 1, ST_SLEEP = 2;
 function holdRadius(cfg) { return cfg.omega > 0 ? cfg.muS * cfg.g / (cfg.omega * cfg.omega) : Infinity; }
 function autoOmega(cfg) { return Math.sqrt(cfg.muS * cfg.g / (0.9 * cfg.diskR)); }
 
-if (typeof module !== 'undefined') module.exports = { CFG, RETURN_ZONES, FIELD_SOURCES, FIELD_BIAS, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, holdRadius, autoOmega, clamp };
+if (typeof module !== 'undefined') module.exports = { CFG, RETURN_ZONES, ADVANCE_ZONES, FIELD_SOURCES, FIELD_BIAS, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, holdRadius, autoOmega, clamp };
