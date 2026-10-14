@@ -10,7 +10,9 @@ const Game = (() => {
 	const PRED_COOLDOWN = 0.08; // s between ghost re-sims during a drag
 	const w = createWorld(CFG);
 	const pred = createPredictor(CFG);
-	const roster = createRoster(['human', 'hunter'], CFG.ballsPerPlayer);
+	// Default table: one human against the three profiles that differ the most — a
+	// scorer, an attacker and a recoverer — so the first game shows the whole spread.
+	const roster = createRoster(['human', 'balanced', 'blackhole', 'retriever'], CFG.ballsPerPlayer);
 	let state = 'aim', turn = 0, pending = -1, resolveT = 0, paused = false;
 	let botT = 0, predT = 0, ghostDirty = false, seed = 1, rng = makeRng(seed);
 	// len/anchor* implement precision mode (shift): the speed mapping is rebased every

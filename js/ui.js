@@ -41,8 +41,8 @@ const UI = (() => {
 		sync();
 	}
 	// A new seat joins as a human, unless every seat already is one — then it joins as
-	// a bot, so a solo player who removes the default bot still gets an opponent.
-	function nextType() { return Game.roster.some(s => s.type !== 'human') ? 'human' : 'hunter'; }
+	// a bot, so a solo player who removes the default bots still gets an opponent.
+	function nextType() { return Game.roster.some(s => s.type !== 'human') ? 'human' : 'balanced'; }
 	// The roster block is rebuilt when the number of seats changes, or when a row and
 	// its seat have drifted apart (a seat removed and another added in one go); the
 	// values inside it are rewritten in place by update().

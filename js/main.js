@@ -5,7 +5,14 @@
 	Game.reset();
 	Game.bindInput(cv);
 	UI.bind(() => Game.reset());
-	window.addEventListener('resize', () => Render.resize());
+	Help.bind();
+	// The board is fitted to its box, so it has to be re-measured on every event that
+	// changes that box: window size, the panel's scrollbar, or a mobile URL bar.
+	const refit = () => Render.resize();
+	window.addEventListener('resize', refit);
+	window.addEventListener('orientationchange', refit);
+	if (window.ResizeObserver) new window.ResizeObserver(refit).observe(cv.parentElement);
+	if (window.visualViewport) window.visualViewport.addEventListener('resize', refit);
 	document.addEventListener('visibilitychange', () => { last = performance.now(); });
 	// Everything the renderer needs about the game, in one object main mutates in
 	// place: the draw call itself allocates nothing.

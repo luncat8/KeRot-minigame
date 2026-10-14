@@ -37,17 +37,19 @@ class Path2D {
 	addPath(p) { for (const o of p.ops) this.ops.push(o); }
 }
 function makeCanvas() {
-	return { width: 0, height: 0, style: {}, clientWidth: 640, getContext: () => makeCtx(), addEventListener() { }, getBoundingClientRect: () => ({ left: 0, top: 0 }) };
+	return { width: 0, height: 0, style: {}, clientWidth: 640, parentElement: { clientWidth: 900, clientHeight: 550 }, getContext: () => makeCtx(), addEventListener() { }, getBoundingClientRect: () => ({ left: 0, top: 0 }) };
 }
 globalThis.Path2D = Path2D;
-globalThis.window = { devicePixelRatio: 2, addEventListener() { } };
+const winListeners = {};
+globalThis.window = { devicePixelRatio: 2, addEventListener(type, fn) { (winListeners[type] = winListeners[type] || []).push(fn); } };
+function fireWindow(type, ev) { for (const fn of winListeners[type] || []) fn(ev); }
 globalThis.document = { createElement: () => makeCanvas(), getElementById: () => null };
 // Browser layer files as they run on the page: classic scripts, no modules, their
 // top-level consts become real globals (node would keep them module-local).
-for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/render.js', '../js/game.js', '../js/ui.js']) {
+for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/render.js', '../js/game.js', '../js/ui.js', '../js/help.js']) {
 	const src = fs.readFileSync(require('path').join(__dirname, f), 'utf8')
 		.replace(/^if \(typeof module !== 'undefined'\).*$/m, '') // node-only export guard
-		.replace(/\bconst (Render|Game|UI|SEAT_COLORS|SEAT_TYPES|SEAT_LABELS|SEAT_NAMES|SC_LUT_N|SC_LUT_W|RED_MAX) =/, 'globalThis.$1 =')
+		.replace(/\bconst (Render|Game|UI|Help|SEAT_COLORS|SEAT_TYPES|SEAT_LABELS|SEAT_NAMES|SC_LUT_N|SC_LUT_W|RED_MAX) =/, 'globalThis.$1 =')
 		.replace(/\bfunction bakeFieldCanvas/, 'globalThis.bakeFieldCanvas = function bakeFieldCanvas');
 	eval(src);
 }
@@ -99,9 +101,22 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	Render.drawWorld(view);
 	check(!ops.includes('text:RETURN') && ops.length > 0, 'mode none draws no zone, still renders');
 	check(withZones > ops.length, 'zones mode costs extra draw calls only');
+	// The board is sized to fit its box, not to the window: it keeps its aspect, never
+	// exceeds the box on either axis, and fills it on the tight one — that is what
+	// keeps the page from ever growing a scrollbar.
 	Render.resize();
+	const cssW = parseFloat(cv.style.width), cssH = parseFloat(cv.style.height);
+	check(Math.abs(cssW / cssH - CFG.boardW / CFG.boardH) < 0.01, 'the fitted board keeps the board aspect');
+	check(cssW <= 900.5 && cssH <= 550.5, 'the fitted board fits its box', cssW + 'x' + cssH);
+	check(cssW >= 899.5 || cssH >= 549.5, 'the fitted board fills its box on the tight axis', cssW + 'x' + cssH);
+	const wide = makeCanvas();
+	wide.parentElement = { clientWidth: 1200, clientHeight: 400 }; // the height binds here
+	Render.setup(wide);
+	check(parseFloat(wide.style.height) === 400 && Math.abs(parseFloat(wide.style.width) - 400 * CFG.boardW / CFG.boardH) < 1,
+		'a wide box fits the board by its height', wide.style.width + 'x' + wide.style.height);
+	check(wide.width <= 1200 * 3, 'the backing store is capped by a pixel budget', String(wide.width));
 	console.log('render smoke: ' + withZones + ' ops with the fan, ' + wedge + ' with wedge+lane, ' + ops.length +
-		' without, no exceptions');
+		' without, board fitted to ' + cssW + 'x' + cssH + ' css px, no exceptions');
 }
 // Scoring: off the disk nothing is earned, on it the rate is the covered red area,
 // and the integral does not care how the frame loop is chopped up.
@@ -134,8 +149,9 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 {
 	Game.reset();
 	check(Game.state === 'aim' && Game.pending >= 0, 'reset arms a pending puck');
-	check(Game.roster.length === 2 && Game.roster[0].balls === CFG.ballsPerPlayer - 1 && Game.roster[1].balls === CFG.ballsPerPlayer,
-		'two seats: the seat on turn has taken a ball, the other still has four');
+	check(Game.roster.length === 4 && Game.roster[0].balls === CFG.ballsPerPlayer - 1 && Game.roster[1].balls === CFG.ballsPerPlayer,
+		'four default seats: the seat on turn has taken a ball, the others still have four');
+	check(Game.seatTypes.join() === 'human,balanced,blackhole,retriever', 'the default table is one human vs balanced, black hole, retriever', Game.seatTypes.join());
 	check(Game.world.own[Game.pending] === 0, 'the pending puck belongs to the seat on turn');
 	const speed = () => Math.hypot(Game.aim.vx, Game.aim.vy);
 	Game.setStroke(-CFG.dragFull / 2, 0, false);
@@ -178,27 +194,30 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	Game.reset();
 	const board0 = Game.world.n, balls0 = Game.roster[0].balls;
 	Game.addPlayer('random');
-	check(Game.roster.length === 3 && Game.roster[2].balls === CFG.ballsPerPlayer, 'a seat joins with his balls');
-	Game.removePlayer(2);
-	check(Game.roster.length === 2, 'a seat leaves at once');
+	check(Game.roster.length === 5 && Game.roster[4].balls === CFG.ballsPerPlayer, 'a seat joins with his balls');
+	Game.removePlayer(4);
+	check(Game.roster.length === 4, 'a seat leaves at once');
 	check(Game.world.n === board0 && Game.roster[0].balls === balls0, 'leaving refunds the puck on the spot and re-arms');
 	check(Game.state === 'aim' && Game.world.own[Game.pending] === Game.turn, 'the game is still aiming');
 	const seat1 = Game.roster[1];
 	const survivor = spawnPuck(Game.world, CFG.diskX, CFG.diskY, 1), survivorUid = Game.world.uid[survivor];
 	Game.world.ownerLosses[1] = 2;
 	Game.removePlayer(0); // the seat on turn leaves: the turn moves to the next seat
-	check(Game.roster.length === 1 && Game.roster[0] === seat1 && Game.turn === 0, 'removing the seat on turn passes it on');
+	check(Game.roster.length === 3 && Game.roster[0] === seat1 && Game.turn === 0, 'removing the seat on turn passes it on');
 	check(Game.world.own[0] === 0 && Game.world.uid[0] === survivorUid && Game.world.ownerLosses[0] === 2, 'surviving puck identity, owner and loss counter reindex');
 	const beforeSurvivorScore = Game.roster[0].score;
 	scoreTick(Game.world, Game.roster, 1);
 	check(Game.roster[0].score > beforeSurvivorScore, 'the remaining puck still scores after removing an earlier seat');
 	check(Game.state === 'aim' && Game.world.own[Game.pending] === 0, 'the new seat on turn has his own puck');
 	Game.addPlayer('human');
-	check(Game.roster.length === 2 && Game.turn === 0, 'adding a seat does not move the turn');
+	check(Game.roster.length === 4 && Game.turn === 0, 'adding a seat does not move the turn');
 	// Full two-seat bot game through the real state machine.
 	Game.reset();
 	Game.setSeatType(0, 'keeper');
 	Game.setSeatType(1, 'hunter');
+	Game.setSeatType(2, 'blackhole');
+	Game.setSeatType(3, 'retriever');
+	check(Game.roster.every(s => s.type !== 'human'), 'the auto-played game has no human seat');
 	let guard = 0, turns = 0, last = -1;
 	while (Game.state !== 'scored' && guard++ < 60000) {
 		Game.tick(1 / 60);
@@ -208,15 +227,17 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		if (Game.turn !== last) { last = Game.turn; turns++; }
 	}
 	const r = Game.roster;
-	console.log('2-seat game: state = ' + Game.state + ', throws = ' + Game.world.thrown + ', board = ' + Game.world.n +
+	console.log(r.length + '-seat game: state = ' + Game.state + ', throws = ' + Game.world.thrown + ', board = ' + Game.world.n +
 		', turns = ' + turns + ', winner = P' + (Game.winner + 1) +
-		', scores ' + displayScore(CFG, 2, r[0].score) + ' vs ' + displayScore(CFG, 2, r[1].score) +
-		' (raw ' + r[0].score.toFixed(1) + ' / ' + r[1].score.toFixed(1) + ')');
+		', scores ' + r.map(s => displayScore(CFG, r.length, s.score)).join(' / ') +
+		' (raw ' + r.map(s => s.score.toFixed(1)).join(' / ') + ')');
 	check(Game.state === 'scored', 'game reaches SCORED');
 	check(Game.world.thrown <= CFG.maxThrows, 'throw cap respected');
 	check(turns >= 2 * CFG.ballsPerPlayer, 'every seat took his throws', String(turns));
 	check(r[0].score >= 0 && r[1].score >= 0 && isFinite(r[0].score) && isFinite(r[1].score), 'scores are finite and non-negative');
-	check(Game.winner === (r[0].score >= r[1].score ? 0 : 1), 'the winner is the top score');
+	let top = 0;
+	for (let i = 1; i < r.length; i++) if (r[i].score > r[top].score) top = i;
+	check(Game.winner === top, 'the winner is the top score');
 	check(Game.roster.every(s => s.balls === 0), 'every ball was thrown');
 }
 // UI: the panel is built against the *real* ids of index.html — the stub only knows
@@ -225,15 +246,22 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	const ids = new Set([...fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8').matchAll(/id="([^"]+)"/g)].map(m => m[1]));
 	const els = {};
 	function makeEl(id) {
-		return {
-			id: id, children: [], style: {}, textContent: '', innerHTML: '', value: '', checked: false, title: '', className: '',
-			classList: { toggle() { } },
+		const el = {
+			id: id, children: [], cls: {}, style: {}, textContent: '', innerHTML: '', value: '', checked: false, title: '', className: '',
+			classList: {
+				toggle(name, on) { el.cls[name] = on === undefined ? !el.cls[name] : !!on; },
+				contains(name) { return !!el.cls[name]; },
+			},
+			setAttribute(name, value) { el.attrs[name] = value; },
+			attrs: {},
+			contains() { return false; },
 			appendChild(c) { c.parent = this; this.children.push(c); return c; },
 			append(...cs) { for (const c of cs) { c.parent = this; this.children.push(c); } },
 			remove() { const p = this.parent; if (p) p.children.splice(p.children.indexOf(this), 1); },
 			addEventListener(type, fn) { (this.on = this.on || {})[type] = fn; },
 			click() { if (this.on && this.on.click) this.on.click(); },
 		};
+		return el;
 	}
 	const radios = ['none', 'zones', 'advance'].map(v => ({ value: v, checked: v === 'zones', addEventListener() { } }));
 	globalThis.document = {
@@ -251,12 +279,12 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(String(els.puckCount.textContent).includes('seat'), 'the board readout counts seats');
 	els.btnAdd.click(); // "+ add player" on a finished game starts a new one
 	UI.update(Game.world);
-	check(Game.roster.length === 3 && els.roster.children.length === 3, 'add player adds a row and a seat');
+	check(Game.roster.length === 5 && els.roster.children.length === 5, 'add player adds a row and a seat');
 	check(Game.state === 'aim', 'adding a seat to a finished game starts a new one');
 	const removeBtn = els.roster.children[0].children.find(c => c.title === 'remove this player');
 	removeBtn.click();
 	UI.update(Game.world);
-	check(Game.roster.length === 2 && els.roster.children.length === 2, '× removes the row and the seat');
+	check(Game.roster.length === 4 && els.roster.children.length === 4, '× removes the row and the seat');
 	els.chkRing.checked = true; els.chkPreview.checked = true; // the stub cannot read the HTML attribute
 	const opts = UI.opts();
 	check(opts.ring && opts.preview && opts.mode === 'zones', 'the draw options are read from the checkboxes');
@@ -266,6 +294,29 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	els.btnReset.click();
 	UI.update(Game.world);
 	check(Game.state === 'aim' && Game.roster.every((s, i) => s.balls === CFG.ballsPerPlayer - (i === Game.turn ? 1 : 0)), 'reset re-deals every seat');
+	// Help drawer: the pointer near the left edge opens it, the tab pins it, a tap out
+	// on the board closes it, and a swipe in from the edge does the same on touch.
+	Help.bind();
+	const help = els.help, tab = els.helpTab;
+	fireWindow('pointermove', { pointerType: 'mouse', clientX: 8 });
+	check(help.cls.open === true, 'a pointer near the left edge opens the help');
+	fireWindow('pointermove', { pointerType: 'mouse', clientX: 900 });
+	check(!help.cls.open, 'it closes again once the pointer leaves');
+	tab.click();
+	check(help.cls.open === true && tab.attrs['aria-expanded'] === 'true', 'the tab pins it open');
+	fireWindow('pointermove', { pointerType: 'mouse', clientX: 900 });
+	check(help.cls.open === true, 'pinned, it stays open when the pointer leaves');
+	fireWindow('pointerdown', { target: { id: 'board' } });
+	check(!help.cls.open, 'a tap out on the board closes it');
+	fireWindow('pointermove', { pointerType: 'touch', clientX: 8 });
+	check(!help.cls.open, 'a touch move is not a hover');
+	fireWindow('touchstart', { touches: [{ clientX: 4, clientY: 300 }], timeStamp: 1000 });
+	fireWindow('touchmove', { touches: [{ clientX: 64, clientY: 305 }], timeStamp: 1100 });
+	check(help.cls.open === true, 'a swipe in from the edge opens it on touch');
+	fireWindow('touchstart', { touches: [{ clientX: 300, clientY: 300 }], timeStamp: 2000 });
+	fireWindow('touchmove', { touches: [{ clientX: 240, clientY: 305 }], timeStamp: 2100 });
+	check(!help.cls.open, 'a swipe left on it closes it');
+	console.log('help smoke: drawer opens, pins and closes, no exceptions');
 	console.log('ui smoke: ' + els.roster.children.length + ' rows, breakdown ' +
 		(els.breakdown.innerHTML ? 'filled' : 'empty') + ', no exceptions');
 }

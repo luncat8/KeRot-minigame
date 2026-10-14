@@ -2,22 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>KeRot — rotating disk curling</title>
 <style>
-	body { margin: 0; font-family: system-ui, sans-serif; background: #0b1c26; color: #dfe6e9; }
-	#app { display: flex; flex-wrap: wrap; gap: 12px; padding: 12px; align-items: flex-start; }
-	#boardWrap { flex: 1 1 640px; min-width: 320px; }
-	canvas { width: 100%; display: block; border-radius: 8px; }
-	#panel { flex: 0 1 300px; background: #122b3a; border-radius: 8px; padding: 14px; }
-	#panel h1 { font-size: 18px; margin: 0 0 4px; }
-	#panel p { font-size: 12px; color: #b2bec3; }
+	html, body { height: 100%; }
+	body { margin: 0; overflow: hidden; overscroll-behavior: none; font-family: system-ui, sans-serif; background: #0b1c26; color: #dfe6e9; }
+	#app { display: flex; gap: 12px; height: 100vh; height: 100dvh; align-items: stretch; box-sizing: border-box;
+		padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
+			max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); }
+	#boardWrap { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+	canvas { display: block; border-radius: 8px; }
+	#panel { flex: 0 0 320px; box-sizing: border-box; background: #122b3a; border-radius: 8px; padding: 14px; overflow-y: auto; overscroll-behavior: contain; }
 	.row { margin: 10px 0; font-size: 13px; }
 	.row label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 	input[type=range] { width: 100%; }
 	select { background: #0984e3; color: #fff; border: 0; border-radius: 6px; padding: 5px; }
 	button { background: #0984e3; color: #fff; border: 0; border-radius: 6px; padding: 7px 10px; margin: 2px; cursor: pointer; }
 	button:hover { background: #74b9ff; color: #2d3436; }
+	button.go { background: #27ae60; padding: 9px 14px; font-weight: 600; }
+	button.go:hover { background: #2ecc71; color: #0b1c26; }
 	.readout { font-variant-numeric: tabular-nums; font-size: 13px; line-height: 1.5; }
 	#breakdown { font-size: 13px; margin-top: 6px; }
 	.dim { color: #7f8c8d; }
@@ -31,14 +34,35 @@
 	button.px { padding: 3px 7px; margin: 0; }
 	fieldset { border: 1px solid #2d4a5c; border-radius: 6px; margin: 10px 0; }
 	fieldset label { display: flex; justify-content: flex-start; gap: 6px; margin: 3px 0; }
+	/* Help drawer: parked off the left edge, slides in on a pointer near that edge or
+	   on a swipe in from it. It is an overlay — the board keeps running underneath. */
+	#help { position: fixed; left: 0; top: 0; bottom: 0; z-index: 20; width: min(370px, 88vw); overflow-y: auto;
+		overscroll-behavior: contain; box-sizing: border-box; background: rgba(11, 32, 44, 0.97);
+		border-right: 1px solid #2d4a5c; box-shadow: 8px 0 28px rgba(0,0,0,0.45);
+		transform: translateX(-101%); transition: transform 0.22s ease;
+		padding: 16px 18px 26px max(18px, env(safe-area-inset-left, 0px)); }
+	#help.open { transform: none; }
+	#help h1 { font-size: 18px; margin: 0 0 10px; padding-right: 30px; }
+	#help h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: #74b9ff; margin: 16px 0 5px; }
+	#help p, #help li { font-size: 12.5px; line-height: 1.55; color: #b2bec3; margin: 5px 0; }
+	#help ul { margin: 4px 0; padding-left: 19px; }
+	#help b { color: #dfe6e9; }
+	#help kbd { background: #0b1c26; border: 1px solid #2d4a5c; border-radius: 4px; padding: 0 4px; color: #dfe6e9; font: inherit; }
+	#helpClose { position: absolute; right: 8px; top: 10px; margin: 0; }
+	#helpTab { position: fixed; left: 0; top: 50%; z-index: 19; width: 26px; height: 48px; margin: 0; padding: 0;
+		font-size: 16px; line-height: 1; transform: translateY(-50%); border-radius: 0 8px 8px 0;
+		background: #122b3a; color: #74b9ff; border: 1px solid #2d4a5c; border-left: 0; }
+	#helpTab:hover { background: #1b3d52; color: #dfe6e9; }
+	@media (hover: none) { #helpTab { top: auto; bottom: 16px; transform: none; height: 42px; width: 34px; } }
+	@media (prefers-reduced-motion: reduce) { #help { transition: none; } }
+	@media (max-width: 760px) { #app { flex-direction: column; } #panel { flex: 0 1 auto; max-height: 46%; } }
 </style>
 </head>
 <body>
 <div id="app">
 	<div id="boardWrap"><canvas id="c"></canvas></div>
 	<div id="panel">
-		<h1>KeRot — rotating disk curling</h1>
-		<p>Drag on the board to set a stroke (direction + power, 0–3 m/s), then throw with Space. Hold <b>shift</b> while dragging for fine speed control; arrow keys nudge aim (shift = fine there too), Esc clears the stroke, R resets. Pucks the disk can hold (inside the dashed eject ring) ride it around and pick up its spin — the 6-sector face shows each puck's rotation — the rest are flung onto the cold floor. Every seat gets 4 pucks and pushes one per turn. From the push, each seat earns <i>dt × the red area of the big disk its pucks cover</i> while the board resolves; the red field rotates with the disk. The shaded eject fan and <b>wedge + lane</b> rule return spent pucks to their owner's stock. The two half-circles above and below the disk are black holes: entering one permanently removes a puck. Try the retriever, black-hole, or balanced bots to compare recovery and attack strategies.</p>
+		<div class="row dim">swipe in from the left edge — or press <b>?</b> — for the rules</div>
 		<fieldset><legend>players — 4 balls each, one push per turn</legend>
 			<div id="roster"></div>
 			<div class="row"><button id="btnAdd">+ add player</button><span class="dim">remove with × — both take effect at once, no restart</span></div>
@@ -52,7 +76,7 @@
 		<div class="row"><label>kinetic friction μk <span id="muKVal"></span></label><input type="range" id="muK" min="0.005" max="0.3" step="0.001" value="0.03"></div>
 		<div class="row"><label>static friction μs <span id="muSVal"></span></label><input type="range" id="muS" min="0.03" max="0.5" step="0.001" value="0.045"></div>
 		<div class="row">
-			<button id="btnThrow">Throw ␣</button><button id="btnClear">Clear stroke</button>
+			<button id="btnThrow" class="go">Throw ␣</button><button id="btnClear">Clear stroke</button>
 			<button id="btnAuto">auto-ω (90%)</button><button id="btnReset">Reset board</button><button id="btnPause">Pause</button>
 		</div>
 		<div class="row"><label><span><input type="checkbox" id="chkRing" checked> eject ring</span></label>
@@ -64,6 +88,35 @@
 		<div id="breakdown"></div>
 	</div>
 </div>
+<button id="helpTab" title="how to play" aria-label="how to play" aria-expanded="false">?</button>
+<aside id="help">
+	<button id="helpClose" class="px" title="close" aria-label="close">×</button>
+	<h1>KeRot — rotating disk curling</h1>
+	<p>Every seat gets 4 pucks and pushes one per turn. Pucks the disk can hold (inside the
+	dashed eject ring) ride it around and pick up its spin — the 6-sector face shows each
+	puck's rotation — the rest are flung onto the cold floor.</p>
+	<h2>controls</h2>
+	<ul>
+		<li><b>drag</b> on the board to set a stroke: direction + power, 0–3 m/s</li>
+		<li><kbd>Space</kbd> throws · <kbd>Esc</kbd> clears the stroke · <kbd>R</kbd> resets the board</li>
+		<li>hold <kbd>shift</kbd> while dragging for fine speed control</li>
+		<li><kbd>←</kbd> <kbd>→</kbd> nudge the aim, <kbd>↑</kbd> <kbd>↓</kbd> the speed (shift = fine there too)</li>
+		<li>swipe in from the left edge for this panel</li>
+	</ul>
+	<h2>score</h2>
+	<p>From the push, each seat earns <i>dt × the red area of the big disk its pucks cover</i>
+	while the board resolves; the red field rotates with the disk. Scores are shown
+	normalised to 0–999 per game, so the number means the same thing for 2 seats and for 8.</p>
+	<h2>return pucks</h2>
+	<p>The shaded eject fan and the <b>wedge + lane</b> rule return spent pucks to their
+	owner's stock — pick one in the side panel.</p>
+	<h2>black holes</h2>
+	<p>The two half-circles above and below the disk are black holes: entering one
+	permanently removes a puck.</p>
+	<h2>bots</h2>
+	<p>Try the retriever, black-hole, or balanced bots to compare recovery and attack
+	strategies. A seat can be switched between human and bot at any time.</p>
+</aside>
 <script src="js/cfg.js"></script>
 <script src="js/field.js"></script>
 <script src="js/physics.js"></script>
@@ -75,6 +128,7 @@
 <script src="js/render.js"></script>
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/help.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

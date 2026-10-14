@@ -10,8 +10,12 @@ const Render = (() => {
 	let puckFont = '', labelRot = 0;
 	const HUD_FONT = 'bold 0.088px sans-serif';
 	const HUD_Y = 0.04, HUD_H = 0.23, HUD_GAP = 0.02, HUD_MAX = 0.46;
+	const RIM_W = 0.020; // puck ring; stroked inside the fill so the edge stays crisp
+	const MAX_BACKING = 6e6; // device px the canvas may ask for, however big the window
 	function setup(canvas) {
 		cv = canvas; ctx = cv.getContext('2d');
+		ctx.imageSmoothingEnabled = true;
+		ctx.imageSmoothingQuality = 'high';
 		puckGrad = ctx.createRadialGradient(-0.03, -0.03, 0.01, 0, 0, CFG.puckR);
 		puckGrad.addColorStop(0, '#f5f6fa'); puckGrad.addColorStop(0.7, '#b2bec3'); puckGrad.addColorStop(1, '#636e72');
 		buildZonePaths();
@@ -88,22 +92,51 @@ const Render = (() => {
 		path.addPath(fill); path.addPath(hole);
 		return { path: path, line: line };
 	}
+	// The board is fitted into its box by hand instead of by CSS: it takes the largest
+	// rect of the board's aspect that fits both ways, so the canvas never grows past the
+	// viewport and never raises a scrollbar. Refits are cheap — an unchanged size
+	// returns before re-baking the textures.
 	function resize() {
-		dpr = Math.min(2, window.devicePixelRatio || 1);
-		const wpx = cv.clientWidth || 960, hpx = wpx * CFG.boardH / CFG.boardW;
-		cv.width = Math.round(wpx * dpr); cv.height = Math.round(hpx * dpr);
-		cv.style.height = hpx + 'px';
+		const box = cv.parentElement;
+		const availW = box.clientWidth || 960;
+		const availH = box.clientHeight || Math.round(availW * CFG.boardH / CFG.boardW);
+		const aspect = CFG.boardW / CFG.boardH;
+		let wpx = availW, hpx = availW / aspect;
+		if (hpx > availH) { hpx = availH; wpx = availH * aspect; }
+		wpx = Math.max(1, Math.floor(wpx)); hpx = Math.max(1, Math.floor(hpx));
+		// Supersampling is the cheap antialiasing: draw at the device ratio, capped so
+		// a huge window cannot ask for a backing store no frame loop could fill.
+		dpr = Math.min(3, window.devicePixelRatio || 1);
+		if (wpx * hpx * dpr * dpr > MAX_BACKING) dpr = Math.max(1, Math.sqrt(MAX_BACKING / (wpx * hpx)));
+		const bw = Math.round(wpx * dpr), bh = Math.round(hpx * dpr);
+		if (bw === cv.width && bh === cv.height) return;
+		cv.style.width = wpx + 'px'; cv.style.height = hpx + 'px';
+		cv.width = bw; cv.height = bh;
 		scale = Math.min(cv.width / CFG.boardW, cv.height / CFG.boardH);
 		ox = (cv.width - CFG.boardW * scale) / 2; oy = (cv.height - CFG.boardH * scale) / 2;
 		bake();
 	}
 	function bake() {
 		const ppmDisk = Math.max(96, Math.min(512, 2 * scale / dpr));
-		texDisk = bakeFieldCanvas({ x: -CFG.diskR, y: -CFG.diskR, w: 2 * CFG.diskR, h: 2 * CFG.diskR }, ppmDisk, null, CFG);
+		texDisk = bakeDisk(ppmDisk);
 		texFloor = bakeFieldCanvas({ x: 0, y: 0, w: CFG.boardW, h: CFG.boardH }, 40, 0, CFG);
 		wallPath = new Path2D();
 		wallPath.rect(0, 0, CFG.boardW, CFG.boardH);
 		puckFont = 'bold ' + (CFG.puckR * 0.55) + 'px sans-serif';
+	}
+	// The disk sprite is cut to the circle once, at bake time. Clipping the drawn image
+	// to an arc every frame costs more and reads worse: a clip edge is a hard edge,
+	// while a pre-cut sprite gets smoothed by the rotation and the bilinear filter.
+	function bakeDisk(ppm) {
+		const tex = bakeFieldCanvas({ x: -CFG.diskR, y: -CFG.diskR, w: 2 * CFG.diskR, h: 2 * CFG.diskR }, ppm, null, CFG);
+		const cut = document.createElement('canvas');
+		cut.width = tex.width; cut.height = tex.height;
+		const g = cut.getContext('2d');
+		g.drawImage(tex, 0, 0);
+		g.globalCompositeOperation = 'destination-in';
+		g.fillStyle = '#ffffff';
+		g.beginPath(); g.arc(tex.width / 2, tex.height / 2, CFG.diskR * ppm, 0, Math.PI * 2); g.fill();
+		return cut;
 	}
 	function toWorld(clientX, clientY) {
 		const r = cv.getBoundingClientRect();
@@ -194,9 +227,9 @@ const Render = (() => {
 		ctx.save(); ctx.beginPath(); ctx.rect(0, 0, CFG.boardW, CFG.boardH); ctx.clip();
 		ctx.globalAlpha = 0.35; ctx.drawImage(texFloor, 0, 0, CFG.boardW, CFG.boardH); ctx.globalAlpha = 1;
 		drawZones(opts.mode);
-		// Disk: field texture rotated by theta, clipped to the circle.
+		// Disk: field sprite rotated by theta. It is already cut to the circle, so this
+		// needs no clip — which is both cheaper and smoother on the rim.
 		ctx.save();
-		ctx.beginPath(); ctx.arc(CFG.diskX, CFG.diskY, CFG.diskR, 0, Math.PI * 2); ctx.clip();
 		ctx.translate(CFG.diskX, CFG.diskY); ctx.rotate(w.theta);
 		ctx.drawImage(texDisk, -CFG.diskR, -CFG.diskR, 2 * CFG.diskR, 2 * CFG.diskR);
 		ctx.fillStyle = '#2d3436'; ctx.fillRect(0.55, -0.012, 0.22, 0.024); // spin tick
@@ -267,7 +300,10 @@ const Render = (() => {
 		ctx.rotate(w.th[i]); ctx.scale(w.r[i], w.r[i]);
 		ctx.fillStyle = SECTOR_SHADE; ctx.fill(sectorPath);
 		ctx.restore();
-		ctx.lineWidth = 0.020; ctx.strokeStyle = seatColor(w.own[i]); ctx.stroke();
+		// The ring is inset by half its width: stroking on the fill edge leaves half the
+		// line over the board, which reads as a fuzzy halo instead of a rim.
+		ctx.lineWidth = RIM_W; ctx.strokeStyle = seatColor(w.own[i]);
+		ctx.beginPath(); ctx.arc(0, 0, w.r[i] - RIM_W / 2, 0, Math.PI * 2); ctx.stroke();
 		ctx.globalAlpha *= 0.8;
 		ctx.fillStyle = '#2d3436'; ctx.font = puckFont;
 		ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
