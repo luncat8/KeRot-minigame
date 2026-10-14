@@ -98,6 +98,17 @@ function scoreRate(w, seat) {
 	for (let i = 0; i < w.n; i++) if (w.own[i] === seat) { rateOf(w, i); sum += _rate.red; }
 	return sum;
 }
+// All seat rates in one puck pass, used by the predictor at its score samples.
+function scoreRates(w, out) {
+	out.fill(0);
+	setGeo(w);
+	for (let i = 0; i < w.n; i++) {
+		const owner = w.own[i];
+		if (owner >= out.length) continue;
+		rateOf(w, i); out[owner] += _rate.red;
+	}
+	return out;
+}
 // One pass over the pucks, every seat paid at once: O(pucks), not O(seats × pucks).
 // dt is simulated seconds, so the total is frame-rate independent.
 function scoreTick(w, roster, dt) {
@@ -124,4 +135,4 @@ function displayScore(cfg, seats, raw) {
 	return v < 0 ? 0 : v > cfg.scoreDisplayMax ? cfg.scoreDisplayMax : v;
 }
 
-if (typeof module !== 'undefined') module.exports = { scoreRate, scoreTick, puckRate, puckArea, scoreRef, displayScore };
+if (typeof module !== 'undefined') module.exports = { scoreRate, scoreRates, scoreTick, puckRate, puckArea, scoreRef, displayScore };

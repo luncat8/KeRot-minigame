@@ -1,6 +1,6 @@
 // Game rules shared by the browser loop and the headless competition: pool
 // accounting and puck recycling. Node-safe: no DOM access.
-if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'));
+if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'), require('./physics.js'));
 
 // A puck that still touches the disk is in play there — never recycle it.
 function onDisk(cfg, x, y) {
@@ -40,15 +40,7 @@ function inReturnZone(cfg, mode, x, y) {
 }
 // Move the last puck into slot i and shrink the board by one — the swap-remove every
 // removal is built on. Indices above i shift, so callers walk downwards.
-function moveLast(w, i) {
-	w.n--;
-	if (i === w.n) return;
-	w.x[i] = w.x[w.n]; w.y[i] = w.y[w.n];
-	w.vx[i] = w.vx[w.n]; w.vy[i] = w.vy[w.n];
-	w.r[i] = w.r[w.n]; w.m[i] = w.m[w.n];
-	w.th[i] = w.th[w.n]; w.om[i] = w.om[w.n]; w.st[i] = w.st[w.n];
-	w.own[i] = w.own[w.n];
-}
+function moveLast(w, i) { swapRemovePuck(w, i); }
 // Remove every puck test(w, i) claims. onTake (optional) is told the seat that owned
 // it — that is how a returned puck goes back into its owner's stock.
 function takePucks(w, test, onTake) {
@@ -62,7 +54,10 @@ function takePucks(w, test, onTake) {
 	return count;
 }
 let _mode = 'none';
-function isRecyclable(w, i) { return w.st[i] === ST_SLEEP && inReturnZone(w.cfg, _mode, w.x[i], w.y[i]); }
+function puckWouldRecycle(w, i, mode) {
+	return w.st[i] === ST_SLEEP && inReturnZone(w.cfg, mode, w.x[i], w.y[i]);
+}
+function isRecyclable(w, i) { return puckWouldRecycle(w, i, _mode); }
 // A return rule only claims a puck that has come to rest inside its zone, and the disk
 // itself is exempt (inGuard), so nothing that still touches it is ever taken.
 function recyclePucks(w, mode, onBack) {
@@ -77,7 +72,14 @@ function dropOwned(w, owner) {
 	_dropOwner = owner;
 	return takePucks(w, isOwnedBy, null);
 }
+// Roster splice changes every surviving owner after the removed seat by one.
+function reindexOwners(w, removed) {
+	for (let i = 0; i < w.n; i++) if (w.own[i] > removed) w.own[i]--;
+	const losses = w.ownerLosses;
+	for (let i = removed; i < losses.length - 1; i++) losses[i] = losses[i + 1];
+	losses[losses.length - 1] = 0;
+}
 // Remove one puck by index — the puck waiting on the launch spot, for instance.
 function removePuckAt(w, at) { moveLast(w, at); }
 
-if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, inReturnZone, moveLast, takePucks, recyclePucks, dropOwned, removePuckAt };
+if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, inReturnZone, puckWouldRecycle, moveLast, takePucks, recyclePucks, dropOwned, reindexOwners, removePuckAt };

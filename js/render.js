@@ -132,6 +132,24 @@ const Render = (() => {
 		}
 		ctx.restore();
 	}
+	function drawBlackHoles() {
+		ctx.save();
+		ctx.beginPath(); ctx.rect(0, 0, CFG.boardW, CFG.boardH); ctx.clip();
+		for (let i = 0; i < BLACK_HOLES.length; i++) {
+			const hole = BLACK_HOLES[i];
+			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r + CFG.puckR, 0, 2 * Math.PI);
+			ctx.strokeStyle = 'rgba(186, 104, 200, 0.65)'; ctx.lineWidth = 0.012; ctx.setLineDash([0.035, 0.025]); ctx.stroke();
+			ctx.setLineDash([]);
+			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r, 0, 2 * Math.PI);
+			ctx.fillStyle = '#090812'; ctx.fill();
+			ctx.strokeStyle = '#9b59b6'; ctx.lineWidth = 0.018; ctx.stroke();
+			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r * 0.58, 0, 2 * Math.PI);
+			ctx.strokeStyle = 'rgba(214, 165, 255, 0.7)'; ctx.lineWidth = 0.012; ctx.stroke();
+			ctx.fillStyle = '#e5c3ff'; ctx.font = '0.045px sans-serif';
+			ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('VOID', hole.x, hole.y + (i === 0 ? 0.10 : -0.10));
+		}
+		ctx.restore();
+	}
 	function drawZoneLabel(x, y, rot) {
 		ctx.save();
 		ctx.translate(x, y); ctx.rotate(rot);
@@ -192,6 +210,7 @@ const Render = (() => {
 				ctx.beginPath(); ctx.arc(CFG.diskX, CFG.diskY, dh, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
 			}
 		}
+		drawBlackHoles();
 		// Launch zone
 		ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 0.01; ctx.setLineDash([0.04, 0.03]);
 		ctx.strokeRect(CFG.launchMinX, CFG.launchMinY, CFG.launchMaxX - CFG.launchMinX, CFG.launchMaxY - CFG.launchMinY);

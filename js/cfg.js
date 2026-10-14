@@ -59,10 +59,16 @@ const FIELD_SOURCES = [
 	{ x: -0.36, y: -0.36, w: -0.85, sigma: 0.240 },
 ];
 const FIELD_BIAS = -0.30;
+// Semicircular capture zones along the left map edge, above and below the disk.
+// A puck is absorbed when its centre enters BLACK_HOLES[k].r + puckR.
+const BLACK_HOLES = [
+	{ x: 0.48, y: 0, r: 0.18 },
+	{ x: 0.48, y: CFG.boardH, r: 0.18 },
+];
 const MAX_PUCKS = 40;
 const ST_SLIDE = 0, ST_LOCKED = 1, ST_SLEEP = 2;
 
 function holdRadius(cfg) { return cfg.omega > 0 ? cfg.muS * cfg.g / (cfg.omega * cfg.omega) : Infinity; }
 function autoOmega(cfg) { return Math.sqrt(cfg.muS * cfg.g / (0.9 * cfg.diskR)); }
 
-if (typeof module !== 'undefined') module.exports = { CFG, RETURN_ZONES, ADVANCE_ZONES, FIELD_SOURCES, FIELD_BIAS, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, holdRadius, autoOmega, clamp };
+if (typeof module !== 'undefined') module.exports = { CFG, RETURN_ZONES, ADVANCE_ZONES, FIELD_SOURCES, FIELD_BIAS, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, holdRadius, autoOmega, clamp };

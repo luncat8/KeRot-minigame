@@ -97,3 +97,9 @@
 - `spawnPuck()` leaves the puck asleep: a test that only spawns it measures a statue.
   Call `throwPuck(w, i, 0, 0)` (or set `st[i] = ST_SLIDE`) to wake it — including in
   the browser, where the exception surfaced as 0 s settle times.
+- If simulation can swap-remove entities mid-run, an array index is not an identity:
+  copy a stable uid with the entity and resolve the tracked index after a removal. A
+  predictor that follows only its original index silently starts tracing the swapped-in
+  puck. When a roster is spliced, remove the departing owner's entities first, then
+  reindex every surviving `own[]` entry and owner-indexed counter; test that a survivor
+  still scores afterward.

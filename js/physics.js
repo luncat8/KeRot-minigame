@@ -7,11 +7,29 @@ function consider(i, j, axis, tau, rem) {
 	if (tau < 0 || tau > rem || (_evFound && tau >= _evTau)) return;
 	_evTau = tau; _evI = i; _evJ = j; _evAxis = axis; _evKind = j < 0 ? 1 : 2; _evFound = true;
 }
+// Swept-circle entry: the puck radius expands the hole, so even a fast grazing path is caught.
+function considerHole(i, hole, tau, rem) {
+	if (tau < 0 || tau > rem || (_evFound && tau >= _evTau)) return;
+	_evTau = tau; _evI = i; _evJ = hole; _evAxis = -1; _evKind = 3; _evFound = true;
+}
+function holeEntryTime(w, i, hole, rem) {
+	const dx = w.x[i] - hole.x, dy = w.y[i] - hole.y;
+	const r = hole.r + w.r[i], c = dx * dx + dy * dy - r * r;
+	if (c <= 0) return 0;
+	const vx = w.vx[i], vy = w.vy[i], vv = vx * vx + vy * vy;
+	if (vv <= 0) return -1;
+	const dot = dx * vx + dy * vy;
+	if (dot >= 0) return -1;
+	const disc = dot * dot - vv * c;
+	if (disc < 0) return -1;
+	const tau = (-dot - Math.sqrt(disc)) / vv;
+	return tau <= rem ? tau : -1;
+}
 
 function createWorld(cfg) {
 	return {
 		cfg: cfg, t: 0, theta: 0, omegaCur: cfg.omega,
-		n: 0, thrown: 0,
+		n: 0, thrown: 0, nextUid: 1,
 		settling: false, settleT: 0, settled: false,
 		x: new Float64Array(MAX_PUCKS), y: new Float64Array(MAX_PUCKS),
 		vx: new Float64Array(MAX_PUCKS), vy: new Float64Array(MAX_PUCKS),
@@ -19,10 +37,13 @@ function createWorld(cfg) {
 		th: new Float64Array(MAX_PUCKS), om: new Float64Array(MAX_PUCKS),
 		st: new Uint8Array(MAX_PUCKS),
 		own: new Uint8Array(MAX_PUCKS), // the seat the puck belongs to (js/players.js)
+		uid: new Uint32Array(MAX_PUCKS), // stable across swap-removal, for prediction tracking
+		ownerLosses: new Uint16Array(cfg.maxPlayers || CFG.maxPlayers),
 	};
 }
 function resetWorld(w) {
-	w.t = 0; w.theta = 0; w.omegaCur = w.cfg.omega; w.n = 0; w.thrown = 0;
+	w.t = 0; w.theta = 0; w.omegaCur = w.cfg.omega; w.n = 0; w.thrown = 0; w.nextUid = 1;
+	w.ownerLosses.fill(0);
 	w.settling = false; w.settleT = 0; w.settled = false;
 }
 // owner is the seat index (js/players.js); the physics experiments leave it at 0.
@@ -31,9 +52,18 @@ function spawnPuck(w, x, y, owner) {
 	const i = w.n++;
 	w.x[i] = x; w.y[i] = y; w.vx[i] = 0; w.vy[i] = 0;
 	w.r[i] = w.cfg.puckR; w.m[i] = w.cfg.puckM; w.st[i] = ST_SLEEP;
-	w.th[i] = 0; w.om[i] = 0; w.own[i] = owner || 0;
+	w.th[i] = 0; w.om[i] = 0; w.own[i] = owner || 0; w.uid[i] = w.nextUid++;
 	separateOverlaps(w, i);
 	return i;
+}
+function swapRemovePuck(w, i) {
+	w.n--;
+	if (i === w.n) return;
+	w.x[i] = w.x[w.n]; w.y[i] = w.y[w.n];
+	w.vx[i] = w.vx[w.n]; w.vy[i] = w.vy[w.n];
+	w.r[i] = w.r[w.n]; w.m[i] = w.m[w.n];
+	w.th[i] = w.th[w.n]; w.om[i] = w.om[w.n];
+	w.st[i] = w.st[w.n]; w.own[i] = w.own[w.n]; w.uid[i] = w.uid[w.n];
 }
 // Positional-only separation (spawn / fallback): never injects velocity.
 function separateOverlaps(w, only) {
@@ -264,6 +294,10 @@ function findEvent(w, rem) {
 		if (w.vx[i] > 0) consider(i, -1, 0, (cfg.boardW - r - w.x[i]) / w.vx[i], rem);
 		if (w.vy[i] < 0) consider(i, -1, 1, (r - w.y[i]) / w.vy[i], rem);
 		if (w.vy[i] > 0) consider(i, -1, 1, (cfg.boardH - r - w.y[i]) / w.vy[i], rem);
+		for (let k = 0; k < BLACK_HOLES.length; k++) {
+			const tau = holeEntryTime(w, i, BLACK_HOLES[k], rem);
+			if (tau >= 0) considerHole(i, k, tau, rem);
+		}
 	}
 	for (let i = 0; i < w.n; i++) {
 		for (let j = i + 1; j < w.n; j++) {
@@ -284,6 +318,12 @@ function findEvent(w, rem) {
 }
 function resolveEvent(w) {
 	const cfg = w.cfg, i = _evI;
+	if (_evKind === 3) {
+		const owner = w.own[i];
+		if (owner < w.ownerLosses.length) w.ownerLosses[owner]++;
+		swapRemovePuck(w, i);
+		return;
+	}
 	if (_evKind === 1) {
 		const low = _evAxis === 0 ? w.vx[i] < 0 : w.vy[i] < 0; // which board was hit
 		const sd = low ? 1 : -1, r = w.r[i];
@@ -362,10 +402,25 @@ function stepWorld(w, h) {
 	}
 	if (rem > 0) { advance(w, rem); clampInside(w); } // substep budget exhausted: guard only
 	if (w.settled) for (let i = 0; i < w.n; i++) { w.st[i] = ST_SLEEP; w.vx[i] = 0; w.vy[i] = 0; w.om[i] = 0; }
+	absorbBlackHoles(w);
 }
 function isSettled(w) {
 	for (let i = 0; i < w.n; i++) if (w.st[i] === ST_SLIDE) return false;
 	return true;
 }
+function absorbBlackHoles(w) {
+	for (let i = w.n - 1; i >= 0; i--) {
+		let captured = false;
+		for (let k = 0; k < BLACK_HOLES.length; k++) {
+			const hole = BLACK_HOLES[k], dx = w.x[i] - hole.x, dy = w.y[i] - hole.y;
+			const r = hole.r + w.r[i];
+			if (dx * dx + dy * dy <= r * r) { captured = true; break; }
+		}
+		if (!captured) continue;
+		const owner = w.own[i];
+		if (owner < w.ownerLosses.length) w.ownerLosses[owner]++;
+		swapRemovePuck(w, i);
+	}
+}
 function beginSettle(w) { if (!w.settling) { w.settling = true; w.settleT = 0; } }
-if (typeof module !== 'undefined') module.exports = { createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, diskOverlap, surfVelAt, holdable, FR_RINGS, FR_RAYS, FR_N, FR_RAD, FR_COS, FR_SIN };
+if (typeof module !== 'undefined') module.exports = { createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, diskOverlap, surfVelAt, holdable, swapRemovePuck, absorbBlackHoles, FR_RINGS, FR_RAYS, FR_N, FR_RAD, FR_COS, FR_SIN };

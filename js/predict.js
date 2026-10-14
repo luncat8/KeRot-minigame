@@ -1,58 +1,116 @@
-// Stroke prediction: clone a world, throw one puck, simulate to rest. Shared by
-// the ghost-trajectory preview and the sampling bots. Node-safe; everything is
-// allocated once in createPredictor and mutated in place.
-if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'), require('./physics.js'), require('./score.js'));
+// Stroke prediction for the ghost trajectory and strategic bots. The evaluator samples
+// every 1/30 s while the disk rotates, so score opportunity follows theta, not one
+// stale final-angle lookup. Node-safe; state and buffers are reused per predictor.
+if (typeof module !== 'undefined') Object.assign(globalThis,
+	require('./cfg.js'), require('./physics.js'), require('./score.js'), require('./rules.js'));
 
-const PRED_SAMPLES = 640; // path points; 8 s of 60 Hz samples fits in 480
+const PRED_SAMPLES = 640;
+const PRED_SCORE_EVERY = 16; // 30 Hz score samples at the fixed 480 Hz physics step
+const PRED_PATH_EVERY = 8; // 60 Hz ghost samples
 
 function createPredictor(cfg) {
+	const seats = cfg.maxPlayers || CFG.maxPlayers;
 	return {
 		world: createWorld(cfg),
 		n: 0,
 		path: new Float64Array(2 * PRED_SAMPLES),
-		endX: 0, endY: 0, endV: 0, dScore: 0, locked: false, t: 0,
+		initialRates: new Float64Array(seats),
+		previousRates: new Float64Array(seats),
+		sampleRates: new Float64Array(seats),
+		scoreBySeat: new Float64Array(seats),
+		finalRates: new Float64Array(seats),
+		endX: 0, endY: 0, endV: 0, dScore: 0, locked: false, removed: false,
+		recoveryDelta: 0, ownLost: 0, enemyLost: 0, duration: 0, t: 0,
 	};
 }
 function cloneInto(dst, src) {
 	dst.t = src.t; dst.theta = src.theta; dst.omegaCur = src.omegaCur;
-	dst.n = src.n; dst.thrown = src.thrown;
+	dst.n = src.n; dst.thrown = src.thrown; dst.nextUid = src.nextUid;
 	dst.settling = src.settling; dst.settleT = src.settleT; dst.settled = src.settled;
 	dst.x.set(src.x); dst.y.set(src.y); dst.vx.set(src.vx); dst.vy.set(src.vy);
 	dst.r.set(src.r); dst.m.set(src.m); dst.st.set(src.st);
-	dst.th.set(src.th); dst.om.set(src.om);
-	dst.own.set(src.own);
+	dst.th.set(src.th); dst.om.set(src.om); dst.own.set(src.own); dst.uid.set(src.uid);
+	dst.ownerLosses.set(src.ownerLosses);
 }
-// Simulate throwing puck i of src with (vx, vy); results land in pred.
-function predictStroke(pred, src, i, vx, vy, maxT) {
-	const cfg = src.cfg, w = pred.world;
-	const owner = src.own[i];
-	// What a stroke is worth is the red area it adds to its own seat's rate — the
-	// same quantity the scoreboard integrates, so the bots aim at what pays.
-	const rate0 = scoreRate(src, owner);
+function findPuckUid(w, uid) {
+	for (let i = 0; i < w.n; i++) if (w.uid[i] === uid) return i;
+	return -1;
+}
+function recoverableCount(w, owner, mode, skip) {
+	let count = 0;
+	for (let i = 0; i < w.n; i++) {
+		if (i !== skip && w.own[i] === owner && puckWouldRecycle(w, i, mode)) count++;
+	}
+	return count;
+}
+function sumOtherLosses(losses, owner) {
+	let sum = 0;
+	for (let i = 0; i < losses.length; i++) if (i !== owner) sum += losses[i];
+	return sum;
+}
+// Simulate throwing puck i of src with (vx, vy); results land in pred. `evaluate`
+// enables the per-seat score integration used by bots; the ghost only needs a path.
+function predictStroke(pred, src, i, vx, vy, maxT, evaluate) {
+	const cfg = src.cfg, w = pred.world, owner = src.own[i];
+	const uid = src.uid[i], startLoss = src.ownerLosses[owner] || 0;
+	const startEnemyLoss = sumOtherLosses(src.ownerLosses, owner);
+	const recoverable0 = recoverableCount(src, owner, cfg.recycleMode, i);
+	let rate0;
+	if (evaluate) { scoreRates(src, pred.initialRates); rate0 = pred.initialRates[owner]; }
+	else rate0 = scoreRate(src, owner);
+	pred.n = 0; pred.removed = false; pred.locked = false;
+	pred.endX = src.x[i]; pred.endY = src.y[i]; pred.endV = 0;
+	pred.duration = 0; pred.t = 0; pred.recoveryDelta = 0; pred.ownLost = 0; pred.enemyLost = 0;
+	pred.scoreBySeat.fill(0); pred.finalRates.fill(0);
 	cloneInto(w, src);
 	throwPuck(w, i, vx, vy);
+	let tracked = i, lastX = w.x[i], lastY = w.y[i];
 	const path = pred.path, cap = PRED_SAMPLES;
-	const sampleEvery = 8; // 60 Hz samples at h = 1/480
-	pred.n = 0;
-	path[0] = w.x[i]; path[1] = w.y[i]; pred.n = 1;
-	const maxSteps = Math.ceil(maxT / cfg.h);
-	let steps = 0;
+	path[0] = lastX; path[1] = lastY; pred.n = 1;
+	const horizon = maxT === undefined ? cfg.maxResolve : Math.max(0, maxT);
+	const maxSteps = Math.ceil(horizon / cfg.h);
+	let steps = 0, scoreSampleStep = 0;
+	if (evaluate) {
+		scoreRates(w, pred.sampleRates);
+		pred.previousRates.set(pred.sampleRates);
+	}
 	while (steps < maxSteps && !isSettled(w)) {
 		stepWorld(w, cfg.h);
 		steps++;
-		if (steps % sampleEvery === 0 && pred.n < cap) {
-			path[pred.n * 2] = w.x[i]; path[pred.n * 2 + 1] = w.y[i]; pred.n++;
+		if (tracked >= 0 && (tracked >= w.n || w.uid[tracked] !== uid)) tracked = findPuckUid(w, uid);
+		if (tracked >= 0) { lastX = w.x[tracked]; lastY = w.y[tracked]; }
+		else pred.removed = true;
+		if (steps % PRED_PATH_EVERY === 0 && tracked >= 0 && pred.n < cap - 1) {
+			path[pred.n * 2] = lastX; path[pred.n * 2 + 1] = lastY; pred.n++;
+		}
+		const done = isSettled(w);
+		if (evaluate && (steps - scoreSampleStep >= PRED_SCORE_EVERY || done || steps >= maxSteps)) {
+			scoreRates(w, pred.sampleRates);
+			const dt = (steps - scoreSampleStep) * cfg.h;
+			for (let s = 0; s < pred.scoreBySeat.length; s++) {
+				pred.scoreBySeat[s] += (pred.previousRates[s] + pred.sampleRates[s]) * 0.5 * dt;
+			}
+			pred.previousRates.set(pred.sampleRates);
+			scoreSampleStep = steps;
 		}
 	}
-	// Always record the true final position (drop the last sample if full).
+	if (tracked >= 0) { lastX = w.x[tracked]; lastY = w.y[tracked]; }
 	if (pred.n >= cap) pred.n = cap - 1;
-	path[pred.n * 2] = w.x[i]; path[pred.n * 2 + 1] = w.y[i]; pred.n++;
-	pred.endX = w.x[i]; pred.endY = w.y[i];
-	pred.endV = Math.sqrt(w.vx[i] * w.vx[i] + w.vy[i] * w.vy[i]);
-	pred.locked = w.st[i] === ST_LOCKED;
-	pred.t = w.t - src.t;
-	pred.dScore = scoreRate(w, owner) - rate0;
+	if (pred.n === 0 || path[(pred.n - 1) * 2] !== lastX || path[(pred.n - 1) * 2 + 1] !== lastY) {
+		path[pred.n * 2] = lastX; path[pred.n * 2 + 1] = lastY; pred.n++;
+	}
+	pred.endX = lastX; pred.endY = lastY;
+	pred.endV = tracked >= 0 ? Math.hypot(w.vx[tracked], w.vy[tracked]) : 0;
+	pred.locked = tracked >= 0 && w.st[tracked] === ST_LOCKED;
+	pred.duration = steps * cfg.h; pred.t = pred.duration;
+	pred.recoveryDelta = recoverableCount(w, owner, cfg.recycleMode, -1) - recoverable0;
+	pred.ownLost = (w.ownerLosses[owner] || 0) - startLoss;
+	pred.enemyLost = sumOtherLosses(w.ownerLosses, owner) - startEnemyLoss;
+	if (evaluate) {
+		scoreRates(w, pred.finalRates);
+		pred.dScore = pred.finalRates[owner] - rate0;
+	} else pred.dScore = scoreRate(w, owner) - rate0;
 	return pred;
 }
 
-if (typeof module !== 'undefined') module.exports = { createPredictor, cloneInto, predictStroke, PRED_SAMPLES };
+if (typeof module !== 'undefined') module.exports = { createPredictor, cloneInto, predictStroke, PRED_SAMPLES, PRED_SCORE_EVERY, PRED_PATH_EVERY };

@@ -22,7 +22,7 @@ const Game = (() => {
 	// A puck a return rule claims goes back to the stock of the seat that threw it.
 	function giveBack(owner) { roster[owner].balls++; }
 	function botPrep() {
-		const s = chooseStroke(roster[turn].type, w, CFG, pending, pred, rng);
+		const s = chooseStroke(roster[turn].type, w, CFG, pending, pred, rng, roster);
 		aim.vx = s.vx; aim.vy = s.vy; aim.hasStroke = true;
 		botT = 0; invalidateGhost();
 	}
@@ -175,6 +175,7 @@ const Game = (() => {
 		if (roster.length <= 1 || i < 0 || i >= roster.length) return false;
 		disarm(); // the puck on the launch spot goes back to its owner first
 		dropOwned(w, i); // his pucks leave the board with him
+		reindexOwners(w, i);
 		roster.splice(i, 1);
 		if (i < turn) turn--; // keep the seat on turn where it is
 		turn = turn % roster.length;

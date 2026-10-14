@@ -72,6 +72,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	const withZones = ops.length;
 	check(ops.includes('fill:evenodd') && ops.includes('clip:evenodd'), 'fan drawn with the on-disk hole (evenodd)');
 	check(ops.includes('text:RETURN'), 'fan labelled');
+	check(ops.includes('text:VOID'), 'both permanent black holes are visible');
 	check(ops.includes('rotate:' + w.th[a].toFixed(3)), 'puck face rotates by the material angle');
 	check(ops.filter(o => o.startsWith('rotate')).length >= 2, 'disk texture and puck sectors both rotate');
 	// The HUD: one score per seat, the balls of each, and the turn window draining.
@@ -183,8 +184,14 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(Game.world.n === board0 && Game.roster[0].balls === balls0, 'leaving refunds the puck on the spot and re-arms');
 	check(Game.state === 'aim' && Game.world.own[Game.pending] === Game.turn, 'the game is still aiming');
 	const seat1 = Game.roster[1];
+	const survivor = spawnPuck(Game.world, CFG.diskX, CFG.diskY, 1), survivorUid = Game.world.uid[survivor];
+	Game.world.ownerLosses[1] = 2;
 	Game.removePlayer(0); // the seat on turn leaves: the turn moves to the next seat
 	check(Game.roster.length === 1 && Game.roster[0] === seat1 && Game.turn === 0, 'removing the seat on turn passes it on');
+	check(Game.world.own[0] === 0 && Game.world.uid[0] === survivorUid && Game.world.ownerLosses[0] === 2, 'surviving puck identity, owner and loss counter reindex');
+	const beforeSurvivorScore = Game.roster[0].score;
+	scoreTick(Game.world, Game.roster, 1);
+	check(Game.roster[0].score > beforeSurvivorScore, 'the remaining puck still scores after removing an earlier seat');
 	check(Game.state === 'aim' && Game.world.own[Game.pending] === 0, 'the new seat on turn has his own puck');
 	Game.addPlayer('human');
 	check(Game.roster.length === 2 && Game.turn === 0, 'adding a seat does not move the turn');
@@ -237,6 +244,8 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	UI.bind(() => Game.reset());
 	UI.update(Game.world); // the game above ended in SCORED
 	check(els.roster.children.length === Game.roster.length, 'a panel row per seat', String(els.roster.children.length));
+	const options = els.roster.children[0].children[1].children.map(o => o.value);
+	check(options.includes('retriever') && options.includes('blackhole') && options.includes('balanced'), 'new bot strategies are selectable');
 	check(els.breakdown.innerHTML.includes('winner'), 'the final scores are listed with the winner');
 	check(String(els.liveScore.textContent).includes('/s'), 'the live rate is shown');
 	check(String(els.puckCount.textContent).includes('seat'), 'the board readout counts seats');

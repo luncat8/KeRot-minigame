@@ -8,11 +8,12 @@ let fail = 0;
 // omega=0 and a puck fully off-disk travelling along the bottom lane.
 {
 	const w = createWorld(cfg);
-	const i = spawnPuck(w, 0.3, 2.0);
+	const startX = 1.4;
+	const i = spawnPuck(w, startX, 2.0);
 	throwPuck(w, i, 1.0, 0);
 	let guard = 0;
 	while (w.st[i] === cfgm.ST_SLIDE && guard++ < 480 * 30) stepWorld(w, cfg.h);
-	const travelled = w.x[i] - 0.3, expect = 1.0 / (2 * cfg.muK * cfg.g);
+	const travelled = w.x[i] - startX, expect = 1.0 / (2 * cfg.muK * cfg.g);
 	console.log('stop dist=' + travelled.toFixed(3) + ' expect=' + expect.toFixed(3));
 	if (Math.abs(travelled - expect) / expect > 0.02) { console.log('FAIL stopping distance'); fail = 1; }
 }

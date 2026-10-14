@@ -138,7 +138,7 @@ function lensArea(Rr, rr, d) {
 			roster[turn].balls--;
 			const i = spawnPuck(w, CFG.launchX, CFG.launchY, turn);
 			if (i < 0) { roster[turn].balls = 0; continue; }
-			const s = chooseStroke(roster[turn].type, w, CFG, i, pred, rng);
+			const s = chooseStroke(roster[turn].type, w, CFG, i, pred, rng, roster);
 			throwPuck(w, i, s.vx, s.vy);
 			let t = 0;
 			while (!isSettled(w) && t < CFG.handoffT) {

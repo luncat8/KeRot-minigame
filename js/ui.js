@@ -108,7 +108,9 @@ const UI = (() => {
 		syncRoster();
 		sync();
 		setText('simTime', 't = ' + w.t.toFixed(1) + ' s');
-		setText('puckCount', 'board ' + w.n + ' · throws ' + w.thrown + ' · ' + n + ' seat' + (n > 1 ? 's' : '') + ' × ' + CFG.ballsPerPlayer);
+		let lost = 0;
+		for (let i = 0; i < w.ownerLosses.length; i++) lost += w.ownerLosses[i];
+		setText('puckCount', 'board ' + w.n + ' · throws ' + w.thrown + ' · black holes ' + lost + ' · ' + n + ' seat' + (n > 1 ? 's' : '') + ' × ' + CFG.ballsPerPlayer);
 		const seat = roster[Game.turn];
 		setText('liveScore', 'on turn: ' + seatName(Game.turn) + ' earns ' + scoreRate(w, Game.turn).toFixed(1) + '/s');
 		setText('state', stateText(seat));

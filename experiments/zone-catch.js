@@ -78,7 +78,7 @@ function playGame(seed, mode, deaths) {
 		const i = spawnPuck(w, CFG.launchX, CFG.launchY, seat);
 		if (i < 0) { roster[seat].balls = 0; continue; }
 		seen[i] = 0; // the pending puck is sleeping on purpose: not a death yet
-		const s = chooseStroke('random', w, CFG, i, pred, rng);
+		const s = chooseStroke('random', w, CFG, i, pred, rng, roster);
 		throwPuck(w, i, s.vx, s.vy);
 		let t = 0;
 		while (!isSettled(w) && t < CFG.maxResolve) { stepWorld(w, CFG.h); t += CFG.h; }
