@@ -26,9 +26,10 @@ function createPredictor(cfg) {
 	};
 }
 function cloneInto(dst, src) {
-	dst.t = src.t; dst.theta = src.theta; dst.omegaCur = src.omegaCur;
+	dst.t = src.t; dst.theta = src.theta; dst.omegaCur = src.omegaCur; dst.alpha = src.alpha;
+	dst.rampFrom = src.rampFrom; dst.rampTo = src.rampTo; dst.rampT = src.rampT; dst.rampDur = src.rampDur;
 	dst.n = src.n; dst.thrown = src.thrown; dst.nextUid = src.nextUid;
-	dst.settling = src.settling; dst.settleT = src.settleT; dst.settled = src.settled;
+	dst.settling = src.settling; dst.settled = src.settled;
 	dst.x.set(src.x); dst.y.set(src.y); dst.vx.set(src.vx); dst.vy.set(src.vy);
 	dst.r.set(src.r); dst.m.set(src.m); dst.st.set(src.st);
 	dst.th.set(src.th); dst.om.set(src.om); dst.own.set(src.own); dst.uid.set(src.uid);

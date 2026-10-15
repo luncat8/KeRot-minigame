@@ -1,0 +1,207 @@
+{
+ "date": "2026-10-15T23:04:30.578Z",
+ "schema": "classic",
+ "games": 12,
+ "table": [
+  "keeper",
+  "balanced",
+  "blackhole",
+  "retriever"
+ ],
+ "omega0": 0.7831,
+ "voteT": 1,
+ "spinRampT": 1,
+ "voteDeltaMax": 0.5,
+ "results": [
+  {
+   "variant": "off",
+   "rule": "off",
+   "mode": "delta",
+   "games": 12,
+   "throws": 17.25,
+   "simT": 75.00694444441753,
+   "votes": 0,
+   "changes": 0,
+   "meanAbsDelta": 0,
+   "shedPerGame": 0,
+   "omegaMin": 0.7831,
+   "omegaMax": 0.7831,
+   "omegaMean": 0.7831000000000774,
+   "msPerGame": 3191.8333333333335,
+   "bots": [
+    {
+     "name": "keeper",
+     "score": 180.66666666666666,
+     "winPct": 0
+    },
+    {
+     "name": "balanced",
+     "score": 167.08333333333334,
+     "winPct": 8.333333333333334
+    },
+    {
+     "name": "blackhole",
+     "score": 236,
+     "winPct": 50
+    },
+    {
+     "name": "retriever",
+     "score": 233.5,
+     "winPct": 41.666666666666664
+    }
+   ]
+  },
+  {
+   "variant": "turn-delta",
+   "rule": "turn",
+   "mode": "delta",
+   "games": 12,
+   "throws": 28.5,
+   "simT": 120.1361111110432,
+   "votes": 27.5,
+   "changes": 27.5,
+   "meanAbsDelta": 0.0784318181818182,
+   "shedPerGame": 3.9166666666666665,
+   "omegaMin": 0.5339333333333334,
+   "omegaMax": 1.5905999999999998,
+   "omegaMean": 1.0419622682497829,
+   "msPerGame": 3913.9166666666665,
+   "bots": [
+    {
+     "name": "keeper",
+     "score": 140.08333333333334,
+     "winPct": 16.666666666666668
+    },
+    {
+     "name": "balanced",
+     "score": 140.5,
+     "winPct": 16.666666666666668
+    },
+    {
+     "name": "blackhole",
+     "score": 173.58333333333334,
+     "winPct": 41.666666666666664
+    },
+    {
+     "name": "retriever",
+     "score": 145.58333333333334,
+     "winPct": 25
+    }
+   ]
+  },
+  {
+   "variant": "turn-exact",
+   "rule": "turn",
+   "mode": "exact",
+   "games": 12,
+   "throws": 65,
+   "simT": 192.0847222220897,
+   "votes": 64,
+   "changes": 63.833333333333336,
+   "meanAbsDelta": 0.33772628372497815,
+   "shedPerGame": 4.833333333333333,
+   "omegaMin": 0.7831,
+   "omegaMax": 2.7964333333333333,
+   "omegaMean": 1.3748390155522978,
+   "msPerGame": 6492,
+   "bots": [
+    {
+     "name": "keeper",
+     "score": 89.41666666666667,
+     "winPct": 8.333333333333334
+    },
+    {
+     "name": "balanced",
+     "score": 102.58333333333333,
+     "winPct": 25
+    },
+    {
+     "name": "blackhole",
+     "score": 96.66666666666667,
+     "winPct": 25
+    },
+    {
+     "name": "retriever",
+     "score": 126.33333333333333,
+     "winPct": 41.666666666666664
+    }
+   ]
+  },
+  {
+   "variant": "round-delta",
+   "rule": "round",
+   "mode": "delta",
+   "games": 12,
+   "throws": 17.5,
+   "simT": 82.06388888885581,
+   "votes": 4.083333333333333,
+   "changes": 4.083333333333333,
+   "meanAbsDelta": 0.13698979591836732,
+   "shedPerGame": 0.9166666666666666,
+   "omegaMin": 0.5081,
+   "omegaMax": 1.1106,
+   "omegaMean": 0.8055175499591541,
+   "msPerGame": 3134.75,
+   "bots": [
+    {
+     "name": "keeper",
+     "score": 184.83333333333334,
+     "winPct": 0
+    },
+    {
+     "name": "balanced",
+     "score": 196,
+     "winPct": 0
+    },
+    {
+     "name": "blackhole",
+     "score": 257.4166666666667,
+     "winPct": 33.333333333333336
+    },
+    {
+     "name": "retriever",
+     "score": 265.0833333333333,
+     "winPct": 66.66666666666667
+    }
+   ]
+  },
+  {
+   "variant": "round-exact",
+   "rule": "round",
+   "mode": "exact",
+   "games": 12,
+   "throws": 33.75,
+   "simT": 111.12499999994019,
+   "votes": 19,
+   "changes": 19,
+   "meanAbsDelta": 0.33995614035087707,
+   "shedPerGame": 3.25,
+   "omegaMin": 0.17810000000000012,
+   "omegaMax": 2.2631,
+   "omegaMean": 1.043584506580553,
+   "msPerGame": 4222.833333333333,
+   "bots": [
+    {
+     "name": "keeper",
+     "score": 165.75,
+     "winPct": 0
+    },
+    {
+     "name": "balanced",
+     "score": 125.16666666666667,
+     "winPct": 16.666666666666668
+    },
+    {
+     "name": "blackhole",
+     "score": 146.33333333333334,
+     "winPct": 25
+    },
+    {
+     "name": "retriever",
+     "score": 188.25,
+     "winPct": 58.333333333333336
+    }
+   ]
+  }
+ ]
+}

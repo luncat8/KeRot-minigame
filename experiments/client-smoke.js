@@ -3,7 +3,7 @@
 // "the frame loop throws" and input mapping regressions that the physics
 // experiments cannot see.
 Object.assign(globalThis, require('../js/physics.js'), require('../js/score.js'), require('../js/players.js'),
-	require('../js/rules.js'), require('../js/predict.js'), require('../js/bots.js'), require('../js/presets.js'));
+	require('../js/rules.js'), require('../js/predict.js'), require('../js/bots.js'), require('../js/vote.js'), require('../js/presets.js'));
 const fs = require('fs');
 const path = require('path');
 let fail = 0;
@@ -87,6 +87,17 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(want !== 'text:0', 'a seat that earned shows a score', want);
 	const bars = ops.filter(o => o === 'fillRect').length;
 	check(bars >= 2 * 2 + 2, 'seat cells and the turn-window bar are filled', String(bars));
+	// A speed vote: each seat's vote in its cell, the vote's time under the whole row.
+	roster[1].voteLabel = '+.10'; view.state = 'vote'; view.voteT = 0.4;
+	ops.length = 0;
+	Render.drawWorld(view);
+	check(ops.includes('text:+.10'), 'a seat\'s speed vote is shown in its cell');
+	check(ops.filter(o => o === 'fillRect').length === bars, 'the vote bar replaces the turn-window bar', String(ops.filter(o => o === 'fillRect').length));
+	const rule0 = CFG.speedVote;
+	CFG.speedVote = 'off'; ops.length = 0;
+	Render.drawWorld(view);
+	check(!ops.includes('text:+.10'), 'no vote badge while the rule is off');
+	CFG.speedVote = rule0; roster[1].voteLabel = ''; view.state = 'resolve';
 	// The other return rule: same hole, plus the launch lane, and two labels.
 	ops.length = 0;
 	view.opts = { ring: false, preview: false, mode: 'advance', theme: 'classic' };
@@ -252,17 +263,21 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	Game.setSeatType(2, 'blackhole');
 	Game.setSeatType(3, 'retriever');
 	check(Game.roster.every(s => s.type !== 'human'), 'the auto-played game has no human seat');
-	let guard = 0, turns = 0, last = -1;
+	let guard = 0, turns = 0, last = -1, votes = 0, wasVote = false, allThrown = null;
 	while (Game.state !== 'scored' && guard++ < 60000) {
 		Game.tick(1 / 60);
 		Game.beforeSteps();
 		for (let s = 0; s < 8; s++) stepWorld(Game.world, CFG.h);
 		Game.afterSteps(8 * CFG.h);
 		if (Game.turn !== last) { last = Game.turn; turns++; }
+		if (Game.state === 'vote' && !wasVote) votes++;
+		wasVote = Game.state === 'vote';
+		if (Game.state === 'settle' && allThrown === null) allThrown = Game.roster.every(s => s.balls === 0);
 	}
 	const r = Game.roster;
 	console.log(r.length + '-seat game: state = ' + Game.state + ', throws = ' + Game.world.thrown + ', board = ' + Game.world.n +
-		', turns = ' + turns + ', winner = P' + (Game.winner + 1) +
+		', turns = ' + turns + ', speed votes = ' + votes + ' (ω ' + Game.omegaStart.toFixed(3) + ' -> ' + CFG.omega.toFixed(3) + ')' +
+		', winner = P' + (Game.winner + 1) +
 		', scores ' + r.map(s => displayScore(CFG, r.length, s.score)).join(' / ') +
 		' (raw ' + r.map(s => s.score.toFixed(1)).join(' / ') + ')');
 	check(Game.state === 'scored', 'game reaches SCORED');
@@ -272,7 +287,9 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	let top = 0;
 	for (let i = 1; i < r.length; i++) if (r[i].score > r[top].score) top = i;
 	check(Game.winner === top, 'the winner is the top score');
-	check(Game.roster.every(s => s.balls === 0), 'every ball was thrown');
+	// The settled board still returns what lies in the fan, so look when the spin-down began.
+	check(allThrown === true, 'every ball was thrown before the disk spun down');
+	check(CFG.speedVote !== 'round' || votes >= CFG.ballsPerPlayer - 1, 'a speed vote before every round after the first', String(votes));
 }
 // UI: the panel is built against the *real* ids of index.html — the stub only knows
 // those, so an id renamed on one side fails here instead of in the browser.
@@ -297,11 +314,15 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		};
 		return el;
 	}
-	const radios = ['none', 'zones', 'advance'].map(v => ({ value: v, checked: v === 'zones', addEventListener() { } }));
+	// The radio groups of index.html, by name; pick() is a user click on one.
+	const radioSets = {};
+	for (const [name, values] of [['recycle', ['none', 'zones', 'advance']], ['speedVote', ['off', 'turn', 'round']], ['voteMode', ['delta', 'exact']]])
+		radioSets[name] = values.map(v => ({ value: v, checked: false, addEventListener(type, fn) { this.on = fn; } }));
+	const pick = (name, value) => { for (const r of radioSets[name]) r.checked = r.value === value; radioSets[name].find(r => r.value === value).on(); };
 	globalThis.document = {
 		createElement: tag => makeEl(tag),
 		getElementById: id => ids.has(id) ? (els[id] = els[id] || makeEl(id)) : null,
-		querySelectorAll: () => radios,
+		querySelectorAll: sel => radioSets[/name=(\w+)/.exec(sel)[1]] || [],
 		body: Object.assign(makeEl('body'), { dataset: {} }),
 	};
 	UI.bind(() => Game.reset());
@@ -383,6 +404,57 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(holdRadius(CFG) === holdRef && !els.muKVal.textContent.includes('→'), 'back at the reference mass nothing is rescaled');
 	console.log('controls smoke: ' + schemaKeys.length + ' patterns, ' + themeKeys.length + ' schemes, mass 4 → 20 kg moves d_hold ' +
 		holdRef.toFixed(3) + ' → ' + (holdRef * Math.cbrt(m0 / 20)).toFixed(3) + ' m');
+	// Speed votes in the panel: the rule radios mirror CFG, a row per human seat, and
+	// a real tally moves the ω slider while the link keeps the configured speed.
+	{
+		const historyCalls = [];
+		globalThis.history = { replaceState(a, b, url) { historyCalls.push(url); } };
+		globalThis.location = { pathname: '/index.html', hash: '', search: '' };
+		const om0 = CFG.omega;
+		Game.setSeatTypes(['human', 'balanced', 'blackhole', 'retriever']); // the human back in seat 1
+		UI.update(Game.world);
+		check(radioSets.speedVote.find(r => r.checked).value === CFG.speedVote && radioSets.voteMode.find(r => r.checked).value === CFG.voteMode,
+			'the speed rule radios show the configured rule');
+		check(!els.voteBox.hidden && els.voteRows.children.length === 1, 'one vote row for the one human seat', String(els.voteRows.children.length));
+		const row = els.voteRows.children[0], line = row.children[0], range = row.children[1];
+		const noneBox = line.children[1].children[0], keepBox = line.children[2].children[0], valText = line.children[3];
+		check(noneBox.checked && !keepBox.checked, 'a vote starts at don\'t care');
+		check(range.min === String(-CFG.voteDeltaMax) && range.max === String(CFG.voteDeltaMax), 'a change vote spans ±voteDeltaMax', range.min + '..' + range.max);
+		keepBox.checked = true; keepBox.on.change();
+		check(Game.roster[0].vote === VOTE_KEEP, 'keep is a vote');
+		range.value = '0.5'; range.on.input(); UI.update(Game.world);
+		check(Game.roster[0].vote === VOTE_SET && valText.textContent === '+.50' && !keepBox.checked, 'the slider casts a change vote', valText.textContent);
+		Game.setAimVel(-0.6, 0.05); Game.commitThrow();
+		let k = 0;
+		const frame = () => { Game.tick(1 / 60); Game.beforeSteps(); for (let s = 0; s < 8; s++) stepWorld(Game.world, CFG.h); Game.afterSteps(8 * CFG.h); };
+		while (Game.state !== 'vote' && k++ < 20000) frame();
+		UI.update(Game.world);
+		check(Game.state === 'vote' && els.state.textContent.startsWith('speed vote') && els.voteStatus.textContent.includes('closes in'),
+			'the readouts show the open vote', els.state.textContent + ' | ' + els.voteStatus.textContent);
+		check(Game.roster[0].vote === VOTE_SET, 'a vote cast during the turns is still standing when the vote opens');
+		while (Game.state === 'vote' && k++ < 20000) frame();
+		UI.update(Game.world);
+		console.log('panel vote: ' + Game.tally.labels.join(' / ') + ' -> ω ' + Game.tally.from.toFixed(3) + ' -> ' + Game.tally.to.toFixed(3) +
+			'; readout "' + els.omegaVal.textContent + '"');
+		check(CFG.omega !== om0 && els.omega.value === String(CFG.omega) && els.omegaVal.textContent.includes('voted'),
+			'a tally moves the ω slider and the readout says it was voted', els.omegaVal.textContent);
+		check(els.voteStatus.textContent.startsWith('last vote') && noneBox.checked && range.value === '0',
+			'after the tally the row is back at don\'t care and the status reports it', els.voteStatus.textContent);
+		pick('voteMode', 'exact');
+		const exactRow = els.voteRows.children[0].children[1];
+		check(CFG.voteMode === 'exact' && exactRow.min === '0' && exactRow.max === String(CFG.omegaMax), 'exact votes span 0..omegaMax');
+		check(historyCalls[historyCalls.length - 1] === '?votemode=exact', 'the link names the rule and keeps the configured speed', historyCalls[historyCalls.length - 1]);
+		pick('speedVote', 'off');
+		UI.update(Game.world);
+		check(CFG.speedVote === 'off' && els.voteBox.hidden, 'the rule off hides the vote block');
+		const q = parseQuery('?vote=TURN&votemode=exact&vote2=x');
+		check(q && q.vote === 'turn' && q.voteMode === 'exact', 'vote and votemode are URL keys');
+		check(parseQuery('?vote=sometimes') === null, 'an unknown rule is dropped');
+		pick('speedVote', 'round'); pick('voteMode', 'delta');
+		Game.reset(); UI.update(Game.world);
+		check(CFG.omega === om0 && els.omega.value === String(om0), 'a new game starts from the configured speed again');
+		check(els.voteStatus.textContent.startsWith('the speed is voted'), 'a new game has no last vote', els.voteStatus.textContent);
+	}
 	console.log('ui smoke: ' + els.roster.children.length + ' rows, breakdown ' +
 		(els.breakdown.innerHTML ? 'filled' : 'empty') + ', no exceptions');
 	// Presets and URL parameters: the same setup objects applied at boot or from the

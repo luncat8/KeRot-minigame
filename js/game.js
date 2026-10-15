@@ -1,4 +1,4 @@
-// Game flow: seats take turns, one push each — AIM -> RESOLVE -> (next seat |
+// Game flow: seats take turns, one push each — AIM -> RESOLVE -> ([VOTE ->] next seat |
 // SETTLE -> SCORED). The board is shared and every seat is paid for the red area it
 // holds for as long as it holds it (js/score.js), so the game is "keep your pucks on
 // the red while the others try to shove them off".
@@ -6,6 +6,9 @@
 // steps, never inside one, so frame cadence cannot shift a throw.
 // A seat is either a human (pointer/keyboard) or a bot (js/bots.js) that aims on
 // its own; tick() drives bot throws and the ghost-trajectory preview.
+// With a speed rule on (js/vote.js), a VOTE of voteT seconds sits between two turns
+// when the rule calls one: the bots cast theirs as it opens, and when it closes the
+// tally sets the disk speed for the next throw.
 const Game = (() => {
 	const PRED_COOLDOWN = 0.08; // s between ghost re-sims during a drag
 	const w = createWorld(CFG);
@@ -13,7 +16,12 @@ const Game = (() => {
 	// Default table: one human against the three profiles that differ the most — a
 	// scorer, an attacker and a recoverer — so the first game shows the whole spread.
 	const roster = createRoster(['human', 'balanced', 'blackhole', 'retriever'], CFG.ballsPerPlayer);
-	let state = 'aim', turn = 0, pending = -1, resolveT = 0, paused = false;
+	let state = 'aim', turn = 0, pending = -1, resolveT = 0, voteT = 0, paused = false;
+	// The configured speed a game's votes have moved away from (NaN while they have
+	// not): the next game starts from it again.
+	let omegaBase = NaN;
+	// The last tally, for the panel: the votes it counted and what came of them.
+	const tally = { count: 0, from: 0, to: 0, labels: [] };
 	let botT = 0, predT = 0, ghostDirty = false, seed = 1, rng = makeRng(seed);
 	// len/anchor* implement precision mode (shift): the speed mapping is rebased every
 	// time shift flips, so the stroke never jumps when it is pressed or released.
@@ -64,9 +72,11 @@ const Game = (() => {
 		pending = -1; aim.pending = -1; aim.hasStroke = false;
 	}
 	function reset() {
+		if (!isNaN(omegaBase)) { CFG.omega = omegaBase; omegaBase = NaN; }
 		resetWorld(w);
 		for (let i = 0; i < roster.length; i++) { roster[i].balls = CFG.ballsPerPlayer; roster[i].score = 0; }
-		state = 'aim'; resolveT = 0; botT = 0; turn = 0; pending = -1;
+		clearVotes(CFG, roster); tally.count = 0; tally.labels.length = 0;
+		state = 'aim'; resolveT = 0; voteT = 0; botT = 0; turn = 0; pending = -1;
 		rng = makeRng(++seed); // fresh seed per board: bot games differ, competitions stay reproducible
 		armTurn();
 	}
@@ -100,6 +110,55 @@ const Game = (() => {
 		CFG.diskSchema = name;
 		if (state === 'aim' && pending >= 0 && isBot(roster[turn])) showBotAim();
 	}
+	// The turn timer has run out (or the board has settled): the next seat arms at
+	// once, or after a speed vote when the rule calls one before its turn. The game's
+	// first turn has no turn timer before it, so no vote either.
+	function handOff() {
+		recyclePucks(w, CFG.recycleMode, giveBack);
+		const prev = turn;
+		turn = (turn + 1) % roster.length;
+		if (w.thrown >= CFG.maxThrows) { state = 'settle'; beginSettle(w); return; }
+		const next = nextSeat(roster, turn);
+		if (next < 0 || !tallyDue(CFG, prev, next)) { armTurn(); return; }
+		turn = next; state = 'vote'; voteT = 0;
+		for (let i = 0; i < roster.length; i++) {
+			if (!isBot(roster[i])) continue;
+			const v = chooseVote(roster[i].type, w, CFG, i, roster, next, rng);
+			setVote(CFG, roster[i], v.kind, v.value);
+		}
+	}
+	// The vote closes: the average of the votes cast is the new speed, which the motor
+	// runs to over spinRampT, and every vote goes back to "don't care".
+	function closeVote() {
+		const from = CFG.omega, to = tallySpeed(CFG, roster, from);
+		tally.count = 0; tally.from = from; tally.to = to; tally.labels.length = roster.length;
+		for (let i = 0; i < roster.length; i++) {
+			tally.labels[i] = roster[i].voteLabel;
+			if (roster[i].vote !== VOTE_NONE) tally.count++;
+		}
+		clearVotes(CFG, roster);
+		if (to !== from) {
+			if (isNaN(omegaBase)) omegaBase = from;
+			CFG.omega = to;
+			beginSpinRamp(w, to, CFG.spinRampT);
+		}
+		armTurn();
+	}
+	// A direct speed change (the panel slider, auto-ω, a preset or a URL), whatever the
+	// rule: the disk jumps there, and games start from it from now on.
+	function setOmega(v) {
+		CFG.omega = v; omegaBase = NaN;
+		stopSpinRamp(w);
+	}
+	function setVoteOf(i, kind, value) { if (roster[i]) setVote(CFG, roster[i], kind, value); }
+	// A rule change applies from the next handoff on; switching the rule off closes a
+	// running vote uncounted. A vote's value means something else in the other mode,
+	// so changing either drops the votes held.
+	function setSpeedRule(rule, mode) {
+		CFG.speedVote = rule; CFG.voteMode = mode;
+		clearVotes(CFG, roster);
+		if (state === 'vote' && rule === 'off') armTurn();
+	}
 	function commitThrow() {
 		if (state !== 'aim' || pending < 0 || !aim.hasStroke) return;
 		throwPuck(w, pending, aim.vx, aim.vy);
@@ -122,12 +181,10 @@ const Game = (() => {
 			// the disk keeps nudging can slide for ten seconds, and the next seat must
 			// not wait for it. Whatever is still moving stays on the board and keeps
 			// being simulated while the next seat aims.
-			if (isSettled(w) || resolveT >= CFG.handoffT) {
-				recyclePucks(w, CFG.recycleMode, giveBack);
-				turn = (turn + 1) % roster.length;
-				if (w.thrown >= CFG.maxThrows) { state = 'settle'; beginSettle(w); }
-				else armTurn();
-			}
+			if (isSettled(w) || resolveT >= CFG.handoffT) handOff();
+		} else if (state === 'vote') {
+			voteT += dtSim;
+			if (voteT >= CFG.voteT) closeVote();
 		} else if (state === 'settle' && w.settled) {
 			recyclePucks(w, CFG.recycleMode, giveBack);
 			state = 'scored';
@@ -200,7 +257,7 @@ const Game = (() => {
 		if (!seat || seat.type === type) return;
 		seat.type = type;
 		if (state !== 'aim' || i !== turn || pending < 0) return;
-		if (isBot(seat)) botPrep(); else aim.hasStroke = false;
+		if (isBot(seat)) showBotAim(); else aim.hasStroke = false;
 	}
 	function addPlayer(type) {
 		if (roster.length >= CFG.maxPlayers) return false;
@@ -224,13 +281,16 @@ const Game = (() => {
 	return {
 		world: w, aim, pred, roster, reset, bindInput, beforeSteps, afterSteps, tick,
 		setStroke, setAimVel, commitThrow, setSeatType, setSeatTypes, addPlayer, removePlayer,
-		invalidateGhost, setPuckMass, setDiskSchema, giveBack,
+		invalidateGhost, setPuckMass, setDiskSchema, giveBack, setOmega, setSpeedRule, setVote: setVoteOf,
 		queueThrow: ts => queue.push({ type: 'throw', timeStamp: ts }),
 		get state() { return state; },
 		// The game is over (disk spinning down, or scored): the board is spent until
 		// the next reset, so a settings change has to restart it to be seen at all.
 		get roundEnded() { return state === 'settle' || state === 'scored'; },
 		get resolveT() { return resolveT; }, // s into the resolve; the turn hands off at handoffT
+		get voteT() { return voteT; }, // s into a speed vote; it closes at CFG.voteT
+		get omegaStart() { return isNaN(omegaBase) ? CFG.omega : omegaBase; }, // the configured speed
+		tally,
 		get pending() { return pending; },
 		get turn() { return turn; },
 		get seatTypes() { return roster.map(s => s.type); },

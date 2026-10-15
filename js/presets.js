@@ -10,13 +10,13 @@ if (typeof module !== 'undefined') Object.assign(globalThis,
 	require('./cfg.js'), require('./field.js'), require('./players.js'));
 
 // The bundles. Keys match the setup object parseQuery returns (omega, muK, muS,
-// puckM, schema, recycle, theme, seats, balls, autoOmega); a bundle sets only what
+// puckM, schema, recycle, vote, voteMode, theme, seats, balls, autoOmega); a bundle sets only what
 // it lists and leaves the rest alone, except `default`, which is complete on
 // purpose — the way back from anywhere. `autoOmega` re-solves the 90 % rule after
 // the bundle's μ and mass are in, so every mass preset keeps its own eject ring.
 const PRESETS = {
-	default: { label: 'classic default', muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'zones', theme: 'classic',
-		balls: 4, seats: ['human', 'balanced', 'blackhole', 'retriever'] },
+	default: { label: 'classic default', muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'zones',
+		vote: 'round', voteMode: 'delta', theme: 'classic', balls: 4, seats: ['human', 'balanced', 'blackhole', 'retriever'] },
 	slick: { label: 'slick ice · long slides', muK: 0.012, muS: 0.030, puckM: 4, autoOmega: true },
 	grippy: { label: 'grippy ice · short stops', muK: 0.080, muS: 0.120, puckM: 4, autoOmega: true },
 	stones: { label: 'curling stones · 20 kg', puckM: 20, autoOmega: true },
@@ -25,14 +25,15 @@ const PRESETS = {
 	// pins the reference table its 1.356 rad/s was solved for (d_hold = 0.3 R).
 	grinder: { label: 'meat grinder · eject at 0.3 R', muK: 0.030, muS: 0.045, puckM: 4, omega: 1.356 },
 	rimtrap: { label: 'rim traps · 6 hemispheres', schema: 'rim6' },
-	solo: { label: 'practice · human alone', seats: ['human'] },
+	solo: { label: 'practice · human alone', seats: ['human'], vote: 'off' }, // a vote of one is the slider
 	bots: { label: 'bot league · all six profiles', seats: ['keeper', 'hunter', 'balanced', 'retriever', 'blackhole', 'random'] },
 };
 // The slider ranges of index.html; URL values are clamped to them.
 const NUM_RANGES = { omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.5], puckM: [CFG.massMin, CFG.massMax], balls: [1, 8] };
 const RECYCLES = ['none', 'zones', 'advance'];
+const SPEED_RULES = ['off', 'turn', 'round'], VOTE_MODES = ['delta', 'exact']; // CFG.speedVote, CFG.voteMode
 
-// The CFG-level share of a setup: numbers, disk schema, return rule, balls. Called
+// The CFG-level share of a setup: numbers, disk schema, return rule, speed rule, balls. Called
 // by the boot path before the first deal and by the panel preset. Theme, seats and
 // the view toggles are not CFG — the caller applies those.
 function applyCfg(setup) {
@@ -49,6 +50,8 @@ function applyCfg(setup) {
 	if (setup.balls !== undefined) CFG.ballsPerPlayer = Math.round(clamp(setup.balls, NUM_RANGES.balls[0], NUM_RANGES.balls[1]));
 	if (setup.schema && DISK_SCHEMAS[setup.schema]) CFG.diskSchema = setup.schema;
 	if (RECYCLES.includes(setup.recycle)) CFG.recycleMode = setup.recycle;
+	if (SPEED_RULES.includes(setup.vote)) CFG.speedVote = setup.vote;
+	if (VOTE_MODES.includes(setup.voteMode)) CFG.voteMode = setup.voteMode;
 }
 
 // Keys are folded to lower case once (a hand-typed ?muK=0.09 and ?muk=0.09 are the
@@ -87,6 +90,9 @@ function parseQuery(search) {
 	if (DISK_SCHEMAS[schema]) { out.schema = schema; found = true; }
 	const recycle = q.recycle && q.recycle.toLowerCase();
 	if (RECYCLES.includes(recycle)) { out.recycle = recycle; found = true; }
+	const vote = q.vote && q.vote.toLowerCase(), voteMode = q.votemode && q.votemode.toLowerCase();
+	if (SPEED_RULES.includes(vote)) { out.vote = vote; found = true; }
+	if (VOTE_MODES.includes(voteMode)) { out.voteMode = voteMode; found = true; }
 	if (q.theme) { out.theme = q.theme.toLowerCase(); found = true; } // validated where themes live (ui.js)
 	if (q.seats) {
 		const seats = q.seats.split(',').map(s => s.trim().toLowerCase()).filter(s => SEAT_TYPES.includes(s)).slice(0, CFG.maxPlayers);
@@ -102,4 +108,4 @@ function parseQuery(search) {
 // and the same page state comes back when it is opened.
 function presetQuery(name) { return 'preset=' + name; }
 
-if (typeof module !== 'undefined') module.exports = { PRESETS, parseQuery, applyCfg, presetQuery };
+if (typeof module !== 'undefined') module.exports = { PRESETS, SPEED_RULES, VOTE_MODES, parseQuery, applyCfg, presetQuery };

@@ -28,6 +28,13 @@ const CFG = {
 	scoreDisplayMax: 999, // scores are shown as 0..scoreDisplayMax per game
 	recycleMode: 'zones', // 'none' | 'zones' | 'advance' (radio group)
 	diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
+	// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel
+	// slider alone; 'turn' — the seats vote before every turn; 'round' — before every
+	// round. A vote is a change of up to ±voteDeltaMax ('delta') or an exact speed
+	// ('exact'). It closes voteT after the turn timer, and the disk then runs to the
+	// average of the votes cast over spinRampT.
+	speedVote: 'round', voteMode: 'delta',
+	voteT: 1, voteDeltaMax: 0.50, spinRampT: 1,
 	botDelay: 0.7, // seconds a bot "thinks" (aim shown) before throwing
 	settleTime: 3,
 	dragFull: 0.90,

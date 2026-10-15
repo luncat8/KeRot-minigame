@@ -1,4 +1,5 @@
-// Deterministic headless comparison of all strategic profiles.
+// Deterministic headless comparison of all strategic profiles, at a fixed disk speed
+// (no speed vote; see vote-rules.js).
 // Run: node experiments/bot-strategies.js [games] [seed0] [disk schema]
 // The classic disk writes results/bot-strategies.json, any other bot-strategies-<schema>.json.
 Object.assign(globalThis,

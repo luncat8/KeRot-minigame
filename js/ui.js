@@ -9,15 +9,16 @@ const UI = (() => {
 	// preset move CFG — a shared link lists only what differs from this.
 	const SHIPPED = {
 		omega: CFG.omega, muK: CFG.muK, muS: CFG.muS, puckM: CFG.puckM,
-		schema: CFG.diskSchema, recycle: CFG.recycleMode, balls: CFG.ballsPerPlayer,
+		schema: CFG.diskSchema, recycle: CFG.recycleMode, vote: CFG.speedVote, voteMode: CFG.voteMode, balls: CFG.ballsPerPlayer,
 		theme: 'classic', seats: 'human,balanced,blackhole,retriever',
 	};
 	const rows = []; // one per seat: {root, sel, balls, score, rm}
-	let lastText = {};
+	const voteRows = []; // one per human seat: {seat, root, none, keep, range, val}
+	let voteKey = '', shownOmega = NaN, lastText = {};
 	function setText(id, txt) { if (lastText[id] !== txt) { lastText[id] = txt; els[id].textContent = txt; } }
 	function setNode(el, txt) { if (el.textContent !== txt) el.textContent = txt; }
 	function bind(onReset) {
-		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend'])
+		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus'])
 			els[id] = $(id);
 		// Every physics input invalidates the ghost: it is only valid for the settings
 		// it was simulated with, so a slider move must re-sim it on the next frame.
@@ -26,7 +27,7 @@ const UI = (() => {
 		// it again — so restart the board as well.
 		const onPhys = () => { if (Game.roundEnded) onReset(); Game.invalidateGhost(); markCustom(); };
 		els.omega.max = String(CFG.omegaMax);
-		els.omega.addEventListener('input', () => { CFG.omega = parseFloat(els.omega.value); sync(); onPhys(); });
+		els.omega.addEventListener('input', () => { Game.setOmega(parseFloat(els.omega.value)); shownOmega = CFG.omega; sync(); onPhys(); });
 		els.muK.addEventListener('input', () => {
 			CFG.muK = parseFloat(els.muK.value);
 			els.muS.min = String(CFG.muK);
@@ -48,20 +49,26 @@ const UI = (() => {
 		fillSelect(els.preset, PRESETS, '');
 		els.preset.addEventListener('change', () => { if (els.preset.value) applyPreset(els.preset.value); });
 		paintLegend();
-		els.btnAuto.addEventListener('click', () => { CFG.omega = autoOmega(CFG); els.omega.value = String(CFG.omega); sync(); onPhys(); });
+		els.btnAuto.addEventListener('click', () => { Game.setOmega(autoOmega(CFG)); pullOmega(); sync(); onPhys(); });
 		els.btnThrow.addEventListener('click', () => Game.queueThrow(performance.now()));
 		els.btnClear.addEventListener('click', () => { Game.aim.hasStroke = false; });
 		els.btnReset.addEventListener('click', onReset);
 		els.btnPause.addEventListener('click', () => { els.btnPause.textContent = Game.togglePause() ? 'Resume' : 'Pause'; });
 		els.btnAdd.addEventListener('click', () => { Game.addPlayer(nextType()); syncRoster(); markCustom(); });
-		for (const r of recycleRadios()) {
+		for (const r of radios('recycle')) {
 			r.addEventListener('change', () => { if (r.checked) { CFG.recycleMode = r.value; opts.mode = r.value; markCustom(); } });
 		}
+		// The speed rule is live, like the return rule: it applies from the next handoff.
+		for (const r of radios('speedVote')) r.addEventListener('change', () => { if (r.checked) setRule(r.value, CFG.voteMode); });
+		for (const r of radios('voteMode')) r.addEventListener('change', () => { if (r.checked) setRule(CFG.speedVote, r.value); });
 		pullControls();
 		syncRoster();
+		syncVotes();
 		sync();
 	}
-	function recycleRadios() { return document.querySelectorAll('input[name=recycle]'); }
+	function radios(name) { return document.querySelectorAll('input[name=' + name + ']'); }
+	function setRule(rule, mode) { Game.setSpeedRule(rule, mode); syncVotes(); markCustom(); }
+	function pullOmega() { shownOmega = CFG.omega; els.omega.value = String(CFG.omega); }
 	function numParam(v) { return String(Math.round(v * 1e6) / 1e6); }
 	function writeQuery(search) {
 		try { history.replaceState(null, '', search ? '?' + search : location.pathname + location.hash); }
@@ -72,12 +79,15 @@ const UI = (() => {
 	// table, so a refresh opens this page and not the bundle the select has left.
 	function liveQuery() {
 		const parts = [];
-		if (Math.abs(CFG.omega - SHIPPED.omega) > 5e-4) parts.push('omega=' + numParam(CFG.omega));
+		const omega = Game.omegaStart; // what games start at: a voted speed belongs to the game, not the link
+		if (Math.abs(omega - SHIPPED.omega) > 5e-4) parts.push('omega=' + numParam(omega));
 		if (Math.abs(CFG.muK - SHIPPED.muK) > 5e-4) parts.push('muk=' + numParam(CFG.muK));
 		if (Math.abs(CFG.muS - SHIPPED.muS) > 5e-4) parts.push('mus=' + numParam(CFG.muS));
 		if (Math.abs(CFG.puckM - SHIPPED.puckM) > 1e-3) parts.push('mass=' + numParam(CFG.puckM));
 		if (CFG.diskSchema !== SHIPPED.schema) parts.push('schema=' + CFG.diskSchema);
 		if (CFG.recycleMode !== SHIPPED.recycle) parts.push('recycle=' + CFG.recycleMode);
+		if (CFG.speedVote !== SHIPPED.vote) parts.push('vote=' + CFG.speedVote);
+		if (CFG.voteMode !== SHIPPED.voteMode) parts.push('votemode=' + CFG.voteMode);
 		if (opts.theme !== SHIPPED.theme) parts.push('theme=' + opts.theme);
 		if (CFG.ballsPerPlayer !== SHIPPED.balls) parts.push('balls=' + CFG.ballsPerPlayer);
 		const seats = Game.seatTypes.join(',');
@@ -96,15 +106,17 @@ const UI = (() => {
 	// The controls mirror CFG (after boot parameters and presets), never the stale
 	// HTML defaults: every writable control is written here.
 	function pullControls() {
-		els.omega.value = String(CFG.omega);
+		pullOmega();
 		els.muK.value = String(CFG.muK);
 		els.muS.value = String(CFG.muS);
 		els.muS.min = String(CFG.muK);
 		els.mass.value = String(Math.log10(CFG.puckM));
 		els.diskSchema.value = CFG.diskSchema;
 		els.theme.value = opts.theme;
-		for (const r of recycleRadios()) r.checked = r.value === CFG.recycleMode;
+		for (const r of radios('recycle')) r.checked = r.value === CFG.recycleMode;
 		opts.mode = CFG.recycleMode;
+		for (const r of radios('speedVote')) r.checked = r.value === CFG.speedVote;
+		for (const r of radios('voteMode')) r.checked = r.value === CFG.voteMode;
 	}
 	// A setup object (a preset by name, or the URL parameters) applied in one go:
 	// CFG first, then the table it asks for, then the looks. Any board-changing key
@@ -113,14 +125,16 @@ const UI = (() => {
 	function applySetup(setup) {
 		if (!setup) return;
 		applyCfg(setup);
+		if (setup.omega !== undefined || setup.autoOmega) Game.setOmega(CFG.omega); // a set speed, not a voted one
 		if (setup.theme && Render.themes[setup.theme]) { opts.theme = setup.theme; document.body.dataset.theme = opts.theme; }
 		if (setup.ring !== undefined) els.chkRing.checked = setup.ring;
 		if (setup.ghost !== undefined) els.chkPreview.checked = setup.ghost;
 		if (setup.seats && setup.seats.length) Game.setSeatTypes(setup.seats); // resets itself
 		else if (setup.omega !== undefined || setup.muK !== undefined || setup.muS !== undefined || setup.puckM !== undefined ||
-			setup.autoOmega || setup.balls !== undefined || setup.schema || setup.recycle) Game.reset();
+			setup.autoOmega || setup.balls !== undefined || setup.schema || setup.recycle || setup.vote || setup.voteMode) Game.reset();
 		pullControls();
 		syncRoster();
+		syncVotes();
 		sync();
 		if (setup.preset) els.preset.value = setup.preset;
 		// Boot does not rewrite the address bar: the link the page was opened with
@@ -195,11 +209,71 @@ const UI = (() => {
 		els.roster.appendChild(root);
 		return { root: root, sel: sel, balls: balls, score: score, rm: rm };
 	}
+	// The vote block: a row per human seat (the bots vote on their own; every vote
+	// shows on the board), rebuilt when the humans or the vote mode change and
+	// refreshed in place otherwise. Hidden while the rule is off.
+	function syncVotes() {
+		const roster = Game.roster, on = CFG.speedVote !== 'off';
+		els.voteBox.hidden = !on;
+		if (!on) return;
+		let key = CFG.voteMode;
+		for (let i = 0; i < roster.length; i++) if (roster[i].type === 'human') key += ' ' + i;
+		if (key !== voteKey) {
+			voteKey = key;
+			for (const r of voteRows) r.root.remove();
+			voteRows.length = 0;
+			for (let i = 0; i < roster.length; i++) if (roster[i].type === 'human') voteRows.push(buildVoteRow(i));
+		}
+		for (const r of voteRows) showVote(r, roster[r.seat]);
+		setText('voteStatus', voteStatus());
+	}
+	// One human's vote: don't care, keep, or the slider — a change or an exact speed —
+	// on a line of its own, so it keeps the panel's full width.
+	function buildVoteRow(i) {
+		const root = document.createElement('div'), line = document.createElement('div');
+		root.className = 'vseat'; line.className = 'vrow';
+		const dot = document.createElement('span');
+		dot.className = 'sw'; dot.style.background = seatColor(i); dot.title = seatName(i);
+		const none = voteChoice(i, VOTE_NONE, "don't care"), keep = voteChoice(i, VOTE_KEEP, 'keep');
+		const val = document.createElement('span');
+		val.className = 'vval';
+		line.append(dot, none.label, keep.label, val);
+		const exact = CFG.voteMode === 'exact', range = document.createElement('input');
+		range.type = 'range'; range.step = '0.01';
+		range.min = String(exact ? 0 : -CFG.voteDeltaMax); range.max = String(exact ? CFG.omegaMax : CFG.voteDeltaMax);
+		range.addEventListener('input', () => Game.setVote(i, VOTE_SET, parseFloat(range.value)));
+		root.append(line, range);
+		els.voteRows.appendChild(root);
+		return { seat: i, root: root, none: none.input, keep: keep.input, range: range, val: val };
+	}
+	function voteChoice(i, kind, text) {
+		const label = document.createElement('label'), input = document.createElement('input'), span = document.createElement('span');
+		input.type = 'radio'; input.name = 'vote' + i;
+		input.addEventListener('change', () => { if (input.checked) Game.setVote(i, kind, 0); });
+		span.textContent = text;
+		label.append(input, span);
+		return { label: label, input: input };
+	}
+	// The row follows the seat's vote: the tally hands it back as don't care.
+	function showVote(r, seat) {
+		r.none.checked = seat.vote === VOTE_NONE;
+		r.keep.checked = seat.vote === VOTE_KEEP;
+		if (seat.vote !== VOTE_SET) r.range.value = String(CFG.voteMode === 'exact' ? CFG.omega : 0);
+		setNode(r.val, seat.vote === VOTE_SET ? seat.voteLabel : '');
+	}
+	function voteStatus() {
+		const t = Game.tally;
+		if (Game.state === 'vote') return 'the vote is open — it closes in ' + Math.max(0, CFG.voteT - Game.voteT).toFixed(1) + ' s';
+		if (!t.labels.length) return 'the speed is voted ' + (CFG.speedVote === 'turn' ? 'between every two turns' : 'before every round');
+		if (!t.count) return 'last vote: nobody voted, the speed stayed';
+		return 'last vote: ' + t.from.toFixed(3) + ' → ' + t.to.toFixed(3) + ' rad/s, ' + t.count + ' vote' + (t.count > 1 ? 's' : '') + ' cast';
+	}
 	// The μ sliders are the coefficients of a massRef puck; at any other mass the
 	// coefficients the board actually runs on follow the arrow.
 	function muText(mu, eff) { return Math.abs(eff - mu) < 0.0005 ? mu.toFixed(3) : mu.toFixed(3) + ' → ' + eff.toFixed(3); }
 	function sync() {
-		setText('omegaVal', CFG.omega.toFixed(3) + ' rad/s');
+		const start = Game.omegaStart; // differs while a game's votes have moved the speed
+		setText('omegaVal', CFG.omega.toFixed(3) + ' rad/s' + (start !== CFG.omega ? ' (voted; set ' + start.toFixed(3) + ')' : ''));
 		setText('muKVal', muText(CFG.muK, muKEff(CFG)));
 		setText('muSVal', muText(CFG.muS, muSEff(CFG)));
 		setText('massVal', CFG.puckM.toFixed(2) + ' kg · μ ×' + loadFactor(CFG, CFG.puckM).toFixed(2));
@@ -222,12 +296,15 @@ const UI = (() => {
 			? 'P' + (Game.turn + 1) + ': drag to set the stroke, Space to throw'
 			: 'P' + (Game.turn + 1) + ' (' + SEAT_LABELS[seat.type] + ') is aiming…';
 		if (Game.state === 'resolve') return 'resolving… next seat in ' + Math.max(0, CFG.handoffT - Game.resolveT).toFixed(1) + ' s';
+		if (Game.state === 'vote') return 'speed vote — P' + (Game.turn + 1) + ' throws when it closes';
 		if (Game.state === 'settle') return 'disk spinning down…';
 		return 'game over — ' + seatName(Game.winner) + ' wins · Reset board for a new game';
 	}
 	function update(w) {
 		const roster = Game.roster, n = roster.length;
 		syncRoster();
+		syncVotes();
+		if (CFG.omega !== shownOmega) pullOmega(); // a tally moved it
 		sync();
 		setText('simTime', 't = ' + w.t.toFixed(1) + ' s');
 		let lost = 0;

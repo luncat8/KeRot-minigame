@@ -159,3 +159,27 @@
 - Do not rewrite a boot URL down to `?preset=name`. The individual keys after the
   preset are overrides; collapsing them makes a refresh drop what the link said.
   Fold names (`Preset=Stones`, `seats=Human, Hunter`) or a hand-typed link misses.
+- Profile weights summed over every enemy are right for targeted effects (one
+  enemy's puck knocked off) and wrong for symmetric ones. The room every thrower
+  gets from a disk speed is the same for all seats. Summing denial over N − 1
+  enemies made hunters and black holes vote the disk up every round: ω 1.45 rad/s,
+  48 throws, 35 votes in one 4-seat game. Weigh a symmetric effect against the mean
+  enemy (denial / (N − 1)), so only the profile's lean is left.
+- A value landscape over a candidate grid with i.i.d. per-candidate noise fragments
+  every plateau into random spikes. Find the plateau on noiseless values; put the
+  noise (and a tiny cost of change, as the tie-break) on the pick only.
+- "Best red reachable" is flat on the classic disk (the centre is red at any speed),
+  so a bot model built on it sees speeding up as free. What a faster disk takes from
+  a thrower is room: the red averaged over the area it can still hold.
+- Before using committed results as a baseline, re-run them at HEAD. A detached
+  `git worktree add /tmp/base HEAD --detach` runs the old code beside the new one for
+  byte-for-byte output diffs. It registers in `.git/worktrees`, so remove it at the
+  end (`git worktree remove --force`). `node -r preload.js experiment.js` flips a
+  CFG default for one run without editing the experiment (CFG is one shared module
+  object).
+- Test through the entry points the UI uses, not by writing CFG. Once Game kept a
+  "configured speed" to restore on reset, a test that wrote `CFG.omega` directly
+  was silently undone by the next reset.
+- The board settles, and only then are pucks resting in the return fan handed back
+  to stock. So "every seat has 0 balls at SCORED" holds only by chance. Snapshot
+  end-of-game invariants at the SETTLE transition.

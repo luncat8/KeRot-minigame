@@ -2,7 +2,7 @@
 // seats rotate every game, displayed score is what the page shows. Adds where the
 // score came from — seconds on the disk, mean rate while there, locks still held at
 // handoff, permanent losses, returned balls — so a profile that outscores another
-// can be told apart from one that only threw first.
+// can be told apart from one that only threw first. Fixed disk speed, as compete.js.
 // Run: node experiments/matchup.js [games] [seed0] [seat0,seat1,seat2] [schema]
 Object.assign(globalThis,
 	require('../js/field.js'), require('../js/physics.js'), require('../js/score.js'),

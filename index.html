@@ -54,6 +54,12 @@
 	button.px { padding: 3px 7px; margin: 0; }
 	fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 10px 0; }
 	fieldset label { display: flex; justify-content: flex-start; gap: 6px; margin: 3px 0; }
+	.vrow { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: var(--fs); }
+	.vrow label { margin: 0; gap: 4px; white-space: nowrap; }
+	.vrow .sw { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
+	.vseat { margin: 6px 0 2px; }
+	.vval { font-variant-numeric: tabular-nums; margin-left: auto; color: var(--acc); }
+	#voteStatus { font-size: 11.5px; margin-top: 4px; }
 	/* Help drawer: parked off the left edge, slides in on a pointer near that edge or
 	   on a swipe in from it. It is an overlay — the board keeps running underneath. */
 	#help { position: fixed; left: 0; top: 0; bottom: 0; z-index: 20; width: min(370px, 88vw); overflow-y: auto;
@@ -92,6 +98,18 @@
 			<label><input type="radio" name="recycle" value="none" id="recNone"> keep all (classic)</label>
 			<label><input type="radio" name="recycle" value="zones" id="recZones" checked> eject fan (disk centre → far corners)</label>
 			<label><input type="radio" name="recycle" value="advance" id="recAdvance"> wedge + lane (behind the disk, launch strip)</label>
+		</fieldset>
+		<fieldset><legend>disk speed in play</legend>
+			<label><input type="radio" name="speedVote" value="off"> set on the panel only</label>
+			<label><input type="radio" name="speedVote" value="turn"> seats vote before every turn</label>
+			<label><input type="radio" name="speedVote" value="round" checked> seats vote before every round</label>
+			<div id="voteBox">
+				<div class="vrow"><span class="dim">a vote is</span>
+					<label><input type="radio" name="voteMode" value="delta" checked> a change ±</label>
+					<label><input type="radio" name="voteMode" value="exact"> an exact speed</label></div>
+				<div id="voteRows"></div>
+				<div id="voteStatus" class="dim"></div>
+			</div>
 		</fieldset>
 		<div class="row"><label>disk pattern <select id="diskSchema"></select></label>
 			<div class="legend"><i id="legendBar"></i><span id="legendText" class="dim"></span></div></div>
@@ -146,6 +164,18 @@
 	<h2>return pucks</h2>
 	<p>The shaded eject fan and the <b>wedge + lane</b> rule return spent pucks to their
 	owner's stock — pick one in the side panel.</p>
+	<h2>disk speed in play</h2>
+	<p>With a vote rule on, the seats set the disk speed during the game. Every seat
+	holds one vote, settable at any time: <b>don't care</b> (the default — it abstains),
+	<b>keep</b> the current speed, or a value on the slider — a change of up to
+	±0.5 rad/s, or an exact speed. The vote closes 1 s after the turn timer, between
+	two turns (<b>every turn</b>) or before the first seat throws again (<b>every
+	round</b>); the average of the votes cast is the new speed, and every vote goes
+	back to don't care. Bots vote too — their votes show next to their scores.</p>
+	<p>The disk is a motor: it takes 1 s to reach a new speed, and a rider needs
+	friction for that speed-up or slow-down as well, so a big change can shed pucks
+	that a steady disk would keep. The ω slider still sets the speed directly, and a
+	new game starts from the speed the slider set.</p>
 	<h2>black holes</h2>
 	<p>The two half-circles above and below the disk are black holes: entering one
 	permanently removes a puck.</p>
@@ -157,7 +187,7 @@
 	tag show the share of the best possible rate each puck is earning right now.</p>
 	<h2>presets and links</h2>
 	<p>The <b>preset</b> select applies a named bundle of settings — physics, disk
-	pattern, return rule, colour scheme, the table itself — and starts a fresh board
+	pattern, return rule, speed rule, colour scheme, the table itself — and starts a fresh board
 	with it. Touch any control afterwards and you have left the bundle, and the select
 	clears. Picking a preset also puts its link into the address bar, so what you see
 	is what you can share.</p>
@@ -170,7 +200,8 @@
 	from the shipped table, which is the link of what you see now.
 	<code>preset</code>, <code>omega</code>, <code>muk</code>, <code>mus</code>,
 	<code>mass</code> (kg), <code>schema</code> (classic | circles | rim6),
-	<code>recycle</code> (none | zones | advance), <code>theme</code> (classic | kerot),
+	<code>recycle</code> (none | zones | advance), <code>vote</code> (off | turn | round),
+	<code>votemode</code> (delta | exact), <code>theme</code> (classic | kerot),
 	<code>seats</code> (a comma list of seat types), <code>balls</code>,
 	<code>ring</code>, <code>ghost</code> (0|1). Names are case-insensitive. Unknown
 	keys are ignored and numbers are clamped to the slider ranges — a hand-typed link
@@ -185,6 +216,7 @@
 <script src="js/rules.js"></script>
 <script src="js/predict.js"></script>
 <script src="js/bots.js"></script>
+<script src="js/vote.js"></script>
 <script src="js/render.js"></script>
 <script src="js/game.js"></script>
 <script src="js/ui.js"></script>

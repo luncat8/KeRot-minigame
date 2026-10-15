@@ -9,7 +9,7 @@
 //     down (SETTLE -> SCORED); from there only a reset brought it back, so a ω slider
 //     move changed the readout and nothing else. A spent board must restart.
 Object.assign(globalThis, require('../js/physics.js'), require('../js/score.js'), require('../js/players.js'),
-	require('../js/rules.js'), require('../js/predict.js'), require('../js/bots.js'));
+	require('../js/rules.js'), require('../js/predict.js'), require('../js/bots.js'), require('../js/vote.js'));
 // game.js is a browser IIFE whose top-level const is module-local under node: load it
 // the way the page does, so Game lands on globalThis (same trick as client-smoke).
 const fs = require('fs');
@@ -111,8 +111,9 @@ const ov = { a: 0, cx: 0, cy: 0, d: 0, qd: 0, qf: 0, px: 0, py: 0 };
 		', theta drift over 1 s = ' + spentTheta.toExponential(1) + ', roundEnded=' + g.roundEnded);
 	check(g.roundEnded, 'the game reports the round as over');
 	check(w.settled && w.omegaCur === 0 && spentTheta === 0, 'the disk is stopped while the board is spent');
-	// What js/ui.js does on any physics input:
-	CFG.omega = 2.0;
+	// What js/ui.js does on an ω slider move (setOmega: a set speed, not a voted one,
+	// so the reset keeps it), and on any physics input:
+	g.setOmega(2.0);
 	if (g.roundEnded) g.reset();
 	const th1 = w.theta;
 	for (let s = 0; s < 480; s++) stepWorld(w, CFG.h);
@@ -122,7 +123,7 @@ const ov = { a: 0, cx: 0, cy: 0, d: 0, qd: 0, qf: 0, px: 0, py: 0 };
 	check(g.state === 'aim' && !g.roundEnded, 'the board is live again');
 	check(Math.abs(turned - 2.0) < 1e-9, 'the disk turns at the new rate');
 	// And the slider is still honoured mid-round, with no reset involved.
-	CFG.omega = 0.5;
+	g.setOmega(0.5);
 	const th2 = w.theta;
 	for (let s = 0; s < 480; s++) stepWorld(w, CFG.h);
 	check(Math.abs((w.theta - th2) - 0.5) < 1e-9, 'a mid-round omega change is honoured immediately');

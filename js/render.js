@@ -315,7 +315,8 @@ const Render = (() => {
 		drawHud(view);
 	}
 	// Scoreboard along the top of the board: one cell per seat — colour, balls left,
-	// score — the seat on turn lit, and its window draining while the board resolves.
+	// score, speed vote — the seat on turn lit, and its window draining while the board
+	// resolves.
 	function drawHud(view) {
 		const seats = view.roster, n = seats.length;
 		if (!n) return;
@@ -339,6 +340,7 @@ const Render = (() => {
 				else { ctx.strokeStyle = 'rgba(223,230,233,0.40)'; ctx.lineWidth = 0.009; ctx.stroke(); }
 			}
 		}
+		if (CFG.speedVote !== 'off') drawVotes(view, x0, cw);
 		if (view.state === 'resolve') { // the 4 s window that is paying right now
 			const left = Math.max(0, 1 - view.resolveT / CFG.handoffT);
 			const x = x0 + view.turn * (cw + HUD_GAP), y = HUD_Y + HUD_H + 0.022;
@@ -348,6 +350,21 @@ const Render = (() => {
 			ctx.fillRect(x, y, cw * left, 0.026);
 		}
 		ctx.restore();
+	}
+	// What each seat asks for, at the right of its cell (blank = don't care) and, while
+	// a vote is open, its time draining under the whole row: every seat is voting.
+	function drawVotes(view, x0, cw) {
+		const seats = view.roster, n = seats.length;
+		ctx.font = font.tag; ctx.textAlign = 'right'; ctx.fillStyle = theme.inkSolid;
+		for (let i = 0; i < n; i++) {
+			if (seats[i].voteLabel) ctx.fillText(seats[i].voteLabel, x0 + i * (cw + HUD_GAP) + cw - 0.02, HUD_Y + 0.075);
+		}
+		if (view.state !== 'vote') return;
+		const left = Math.max(0, 1 - view.voteT / CFG.voteT), y = HUD_Y + HUD_H + 0.022, span = n * cw + (n - 1) * HUD_GAP;
+		ctx.fillStyle = 'rgba(255,255,255,0.22)';
+		ctx.fillRect(x0, y, span, 0.026);
+		ctx.fillStyle = theme.inkSolid;
+		ctx.fillRect(x0, y, span * left, 0.026);
 	}
 	function drawPuckClassic(w, i, isPending) {
 		ctx.save();

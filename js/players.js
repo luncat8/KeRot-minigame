@@ -14,7 +14,9 @@ const SEAT_LABELS = {
 const SEAT_COLORS = ['#e74c3c', '#f39c12', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#fd79a8', '#74b9ff'];
 const SEAT_NAMES = ['red', 'amber', 'green', 'violet', 'orange', 'teal', 'pink', 'blue'];
 
-function makeSeat(type, balls) { return { type: type, balls: balls, score: 0 }; }
+// A seat's speed vote (js/vote.js): kind, value, and the label the HUD and the panel show.
+const VOTE_NONE = 0, VOTE_KEEP = 1, VOTE_SET = 2; // don't care, keep the current speed, a value
+function makeSeat(type, balls) { return { type: type, balls: balls, score: 0, vote: VOTE_NONE, voteValue: 0, voteLabel: '' }; }
 function createRoster(types, balls) {
 	const out = [];
 	for (let i = 0; i < types.length; i++) out.push(makeSeat(types[i], balls));
@@ -43,4 +45,4 @@ function leader(roster) {
 	return best;
 }
 
-if (typeof module !== 'undefined') module.exports = { SEAT_TYPES, SEAT_LABELS, SEAT_COLORS, SEAT_NAMES, makeSeat, createRoster, nextSeat, seatsHaveBalls, seatColor, seatName, leader };
+if (typeof module !== 'undefined') module.exports = { SEAT_TYPES, SEAT_LABELS, SEAT_COLORS, SEAT_NAMES, VOTE_NONE, VOTE_KEEP, VOTE_SET, makeSeat, createRoster, nextSeat, seatsHaveBalls, seatColor, seatName, leader };

@@ -2,6 +2,8 @@
 // the same board and the same seeds. The seat order rotates from game to game —
 // the seat that throws first is not the seat that scores most — and what is compared
 // is the displayed score, the throws each bot needed, the recycles and the time.
+// The disk keeps its configured speed: this loop has no speed vote (vote-rules.js
+// plays the speed rules through the real game).
 // Run: node experiments/compete.js [games] [seed0]
 Object.assign(globalThis,
 	require('../js/physics.js'),

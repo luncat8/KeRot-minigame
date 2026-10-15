@@ -29,8 +29,12 @@ function holeEntryTime(w, i, hole, rem) {
 function createWorld(cfg) {
 	return {
 		cfg: cfg, t: 0, theta: 0, omegaCur: cfg.omega,
+		// The motor (beginSpinRamp): alpha is the disk's angular acceleration over the
+		// last step, rampFrom..rampTo the speed it is running between, rampDur > 0
+		// while it runs.
+		alpha: 0, rampFrom: 0, rampTo: 0, rampT: 0, rampDur: 0,
 		n: 0, thrown: 0, nextUid: 1,
-		settling: false, settleT: 0, settled: false,
+		settling: false, settled: false,
 		x: new Float64Array(MAX_PUCKS), y: new Float64Array(MAX_PUCKS),
 		vx: new Float64Array(MAX_PUCKS), vy: new Float64Array(MAX_PUCKS),
 		r: new Float64Array(MAX_PUCKS), m: new Float64Array(MAX_PUCKS),
@@ -44,7 +48,8 @@ function createWorld(cfg) {
 function resetWorld(w) {
 	w.t = 0; w.theta = 0; w.omegaCur = w.cfg.omega; w.n = 0; w.thrown = 0; w.nextUid = 1;
 	w.ownerLosses.fill(0);
-	w.settling = false; w.settleT = 0; w.settled = false;
+	w.alpha = 0; w.rampDur = 0;
+	w.settling = false; w.settled = false;
 }
 // owner is the seat index (js/players.js); the physics experiments leave it at 0.
 function spawnPuck(w, x, y, owner) {
@@ -202,19 +207,24 @@ function holdable(cfg, a, ov) {
 function applyFriction(w, h) {
 	const cfg = w.cfg, muKg = cfg.muK * cfg.g, muSg = cfg.muS * cfg.g, R = cfg.diskR, dcx = cfg.diskX, dcy = cfg.diskY;
 	const boardLoad = loadFactor(cfg, cfg.puckM); // the slider mass: a cbrt per step, not per puck
+	// What riding the disk asks of static friction, per metre of radius: the centripetal
+	// ω² and, while the motor changes speed, the tangential α — at right angles, so
+	// they add in quadrature. A steady disk keeps the plain ω², bit for bit.
+	const holdAcc = w.alpha === 0 ? w.omegaCur * w.omegaCur : Math.hypot(w.omegaCur * w.omegaCur, w.alpha);
 	for (let i = 0; i < w.n; i++) {
 		// A sleeping puck is at rest: it is skipped entirely, and only a contact that
-		// can move it brings it back (a puck hit wakes it explicitly). Nothing on the
-		// disk can: the drive a jammed straddler feels is saturated at μk·g·a, so
-		// spinning the disk up changes the *direction* of the slip under it, not the
-		// force the floor's static friction has to hold (see holdable).
+		// can move it brings it back (a puck hit wakes it explicitly). The disk cannot,
+		// once it turns: the drive a jammed straddler feels is saturated at μk·g·a, so
+		// a faster disk changes the *direction* of the slip under it, not the force the
+		// floor's static friction has to hold (see holdable). Only a still disk that
+		// starts turning wakes what it carries (wakeOnDisk).
 		if (w.st[i] === ST_SLEEP) continue;
 		// Ice grips a heavier puck less (loadFactor): its own mass sets both coefficients.
 		const load = w.m[i] === cfg.puckM ? boardLoad : loadFactor(cfg, w.m[i]), holdG = muSg * load;
 		const a = diskOverlap(w, i, _ov);
 		if (w.st[i] === ST_LOCKED) {
 			// Ride ends when the puck slides past the rim or beyond the hold radius.
-			if (a >= 0.98 && w.omegaCur * w.omegaCur * _ov.d <= holdG) {
+			if (a >= 0.98 && _ov.d * holdAcc <= holdG) {
 				if (w.omegaCur === 0) { w.st[i] = ST_SLEEP; w.vx[i] = 0; w.vy[i] = 0; w.om[i] = 0; continue; }
 				w.om[i] = w.omegaCur; // riding = co-rotating in both senses
 				surfVelAt(w, w.x[i], w.y[i], _sv); w.vx[i] = _sv[0]; w.vy[i] = _sv[1];
@@ -253,7 +263,7 @@ function applyFriction(w, h) {
 		surfVelAt(w, x, y, _sv);
 		const rvx = w.vx[i] - _sv[0], rvy = w.vy[i] - _sv[1];
 		const rv = Math.sqrt(rvx * rvx + rvy * rvy);
-		if (a >= 0.999 && rv <= cfg.epsLock && w.omegaCur * w.omegaCur * _ov.d <= holdG) {
+		if (a >= 0.999 && rv <= cfg.epsLock && _ov.d * holdAcc <= holdG) {
 			w.st[i] = ST_LOCKED; w.vx[i] = _sv[0]; w.vy[i] = _sv[1]; w.om[i] = w.omegaCur;
 			continue;
 		}
@@ -387,15 +397,44 @@ function clampInside(w) {
 		w.y[i] = Math.max(w.r[i], Math.min(cfg.boardH - w.r[i], w.y[i]));
 	}
 }
+// The motor: run the disk linearly from the speed it has now to `to` over `dur`
+// seconds — a tallied speed vote (js/game.js), or the spin-down that ends a game
+// (beginSettle). The setpoint the disk holds afterwards, cfg.omega, is the caller's.
+function beginSpinRamp(w, to, dur) {
+	w.rampFrom = spinNow(w); w.rampTo = to; w.rampT = 0; w.rampDur = dur;
+}
+// A direct speed change drops a running ramp, so the disk jumps to cfg.omega. The
+// spin-down is not dropped: a spent board stays spent until it is reset.
+function stopSpinRamp(w) { if (!w.settling) w.rampDur = 0; }
+// The disk's speed at the end of the last step (omegaCur is the step's average).
+function spinNow(w) {
+	return w.rampDur > 0 ? w.rampFrom + (w.rampTo - w.rampFrom) * (w.rampT / w.rampDur) : w.omegaCur;
+}
+function rampSpin(w, h) {
+	const t0 = w.rampT, k = (w.rampTo - w.rampFrom) / w.rampDur;
+	w.rampT = Math.min(w.rampDur, t0 + h);
+	// The step's average speed (trapezoid) keeps theta exact along the ramp.
+	w.omegaCur = w.rampFrom + k * 0.5 * (t0 + w.rampT);
+	w.alpha = k;
+	if (w.rampT < w.rampDur) return;
+	w.rampDur = 0;
+	if (w.settling) { w.omegaCur = 0; w.alpha = 0; w.settled = true; }
+}
+// A puck may sleep on the disk only while the floor holds it (holdable) — or while
+// the disk stands still, which lets anything on it stop. When a still disk starts
+// turning again, what it carries wakes up and is dragged along.
+function wakeOnDisk(w) {
+	for (let i = 0; i < w.n; i++) {
+		if (w.st[i] !== ST_SLEEP) continue;
+		const a = diskOverlap(w, i, _ov);
+		if (a > 0 && !holdable(w.cfg, a, _ov)) w.st[i] = ST_SLIDE;
+	}
+}
 function stepWorld(w, h) {
-	const cfg = w.cfg;
-	if (w.settling) {
-		const t0 = w.settleT;
-		w.settleT = Math.min(cfg.settleTime, w.settleT + h);
-		// Trapezoidal average keeps theta exact while omega ramps to 0.
-		w.omegaCur = cfg.omega * 0.5 * (Math.max(0, 1 - t0 / cfg.settleTime) + Math.max(0, 1 - w.settleT / cfg.settleTime));
-		if (w.settleT >= cfg.settleTime) { w.omegaCur = 0; w.settled = true; }
-	} else w.omegaCur = cfg.omega;
+	const cfg = w.cfg, still = w.omegaCur === 0;
+	if (w.rampDur > 0) rampSpin(w, h);
+	else if (!w.settling) { w.omegaCur = cfg.omega; w.alpha = 0; }
+	if (still && w.omegaCur !== 0) wakeOnDisk(w);
 	applyFriction(w, h);
 	let rem = h;
 	for (let k = 0; k < cfg.maxSubsteps; k++) {
@@ -426,5 +465,11 @@ function absorbBlackHoles(w) {
 		swapRemovePuck(w, i);
 	}
 }
-function beginSettle(w) { if (!w.settling) { w.settling = true; w.settleT = 0; } }
-if (typeof module !== 'undefined') module.exports = { createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, diskOverlap, surfVelAt, holdable, swapRemovePuck, absorbBlackHoles, FR_RINGS, FR_RAYS, FR_N, FR_RAD, FR_COS, FR_SIN };
+// The game is over: the disk spins down to a stop over settleTime, and the board is
+// spent once it has (settled).
+function beginSettle(w) {
+	if (w.settling) return;
+	beginSpinRamp(w, 0, w.cfg.settleTime);
+	w.settling = true;
+}
+if (typeof module !== 'undefined') module.exports = { createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, beginSpinRamp, stopSpinRamp, spinNow, diskOverlap, surfVelAt, holdable, swapRemovePuck, absorbBlackHoles, FR_RINGS, FR_RAYS, FR_N, FR_RAD, FR_COS, FR_SIN };
