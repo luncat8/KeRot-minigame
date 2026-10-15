@@ -70,18 +70,26 @@ function parseQuery(search) {
 	for (const entry of new URLSearchParams(search.charAt(0) === '?' ? search : '?' + search)) q[entry[0].toLowerCase()] = entry[1];
 	const out = {};
 	let found = false;
-	const preset = PRESETS[q.preset];
-	if (preset) { Object.assign(out, preset); out.preset = q.preset; found = true; }
+	const presetName = q.preset && q.preset.toLowerCase();
+	const preset = PRESETS[presetName];
+	if (preset) {
+		Object.assign(out, preset);
+		if (preset.seats) out.seats = preset.seats.slice(); // the bundle's array is not the caller's to mutate
+		out.preset = presetName;
+		found = true;
+	}
 	found = numKey(q, out, 'omega', 'omega') || found;
 	found = numKey(q, out, 'muk', 'muK') || found;
 	found = numKey(q, out, 'mus', 'muS') || found;
 	found = numKey(q, out, 'mass', 'puckM') || found;
 	found = numKey(q, out, 'balls', 'balls') || found;
-	if (DISK_SCHEMAS[q.schema]) { out.schema = q.schema; found = true; }
-	if (RECYCLES.includes(q.recycle)) { out.recycle = q.recycle; found = true; }
-	if (q.theme) { out.theme = q.theme; found = true; } // validated where themes live (ui.js)
+	const schema = q.schema && q.schema.toLowerCase();
+	if (DISK_SCHEMAS[schema]) { out.schema = schema; found = true; }
+	const recycle = q.recycle && q.recycle.toLowerCase();
+	if (RECYCLES.includes(recycle)) { out.recycle = recycle; found = true; }
+	if (q.theme) { out.theme = q.theme.toLowerCase(); found = true; } // validated where themes live (ui.js)
 	if (q.seats) {
-		const seats = q.seats.split(',').filter(s => SEAT_TYPES.includes(s)).slice(0, CFG.maxPlayers);
+		const seats = q.seats.split(',').map(s => s.trim().toLowerCase()).filter(s => SEAT_TYPES.includes(s)).slice(0, CFG.maxPlayers);
 		if (seats.length) { out.seats = seats; found = true; }
 	}
 	for (const key of ['ring', 'ghost']) {

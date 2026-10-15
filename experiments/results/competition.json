@@ -1,5 +1,5 @@
 {
-	"date": "2026-10-15T04:24:44.543Z",
+	"date": "2026-10-15T09:51:59.529Z",
 	"config": {
 		"omega": 0.7831,
 		"muK": 0.03,
@@ -19,41 +19,41 @@
 		{
 			"name": "random",
 			"games": 40,
-			"scoreMean": 273.8,
-			"scoreStd": 137.52676103217146,
-			"scoreMin": 93,
-			"scoreMax": 717,
-			"rawMean": 228.37764564257196,
-			"winPct": 35,
-			"msMean": 461.52051280000006
+			"scoreMean": 98.1,
+			"scoreStd": 50.51722478521558,
+			"scoreMin": 31,
+			"scoreMax": 216,
+			"rawMean": 81.84285664735428,
+			"winPct": 0,
+			"msMean": 2324.9565172999996
 		},
 		{
 			"name": "keeper",
 			"games": 40,
-			"scoreMean": 240.7,
-			"scoreStd": 81.72368077858461,
-			"scoreMin": 120,
-			"scoreMax": 416,
-			"rawMean": 200.78634714444897,
-			"winPct": 37.5,
-			"msMean": 461.52051280000006
+			"scoreMean": 467.625,
+			"scoreStd": 165.9853438560164,
+			"scoreMin": 191,
+			"scoreMax": 847,
+			"rawMean": 390.00616672624335,
+			"winPct": 30,
+			"msMean": 2324.9565172999996
 		},
 		{
 			"name": "hunter",
 			"games": 40,
-			"scoreMean": 245.55,
-			"scoreStd": 123.23655099036162,
-			"scoreMin": 89,
-			"scoreMax": 622,
-			"rawMean": 204.8194427120096,
-			"winPct": 27.5,
-			"msMean": 461.52051280000006
+			"scoreMean": 578.825,
+			"scoreStd": 188.4173409614943,
+			"scoreMin": 185,
+			"scoreMax": 999,
+			"rawMean": 482.98120815648434,
+			"winPct": 70,
+			"msMean": 2324.9565172999996
 		}
 	],
 	"game": {
-		"throwsMean": 12.6,
-		"recycledMean": 0.7,
-		"boardMean": 8.15,
-		"timeMean": 52.19416666666033
+		"throwsMean": 13.625,
+		"recycledMean": 1.675,
+		"boardMean": 9.425,
+		"timeMean": 50.567916666661965
 	}
 }

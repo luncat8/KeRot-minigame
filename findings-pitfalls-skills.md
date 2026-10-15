@@ -141,3 +141,21 @@
   and never ends. Wait on PIDs (`cmd & pid=$!; wait $pid`) instead.
 - `cd dir && (a) & (b)` runs `b` in the *old* directory: the `&` takes the whole
   `cd && (a)` list into the background.
+- The rate at handoff is not an annuity. A puck crossing a red lobe at t = 4 s can
+  read the maximum and still be flung a moment later; only a locked (or already
+  asleep) puck keeps paying. Pricing the instantaneous rate made every profile
+  prefer the fly-by, which is why the rim schema and the 3-seat league both looked
+  like a sampling problem when they were a value-function problem. Follow the
+  *thrown* puck for a short tail if you want late captures — following every slider
+  on a crowded board bills each candidate for pucks that throw did not touch.
+- The rim lock band from the launch lane is a few centimetres per second wide
+  (~1.07–1.13 m/s) and about 4° wide, on the co-rotating tangent. A ±0.12 m/s
+  jitter misses it every time. The floor-friction solve for that tangent
+  (`v² = v_surf² + 2 μ g · chord`) is ~10 % fast, because the disk drags less than
+  the floor once the puck is on it; sample ~0.86–0.94 of that solve. Which hold
+  radius lands on red depends on phase; one radius is blue for a sixth of the
+  period. Physics itself does not care about phase — the disk is rotationally
+  symmetric — so a lock-band scan at θ = 0 is a lock-band scan at every θ.
+- Do not rewrite a boot URL down to `?preset=name`. The individual keys after the
+  preset are overrides; collapsing them makes a refresh drop what the link said.
+  Fold names (`Preset=Stones`, `seats=Human, Hunter`) or a hand-typed link misses.

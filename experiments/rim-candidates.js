@@ -1,3 +1,6 @@
+// STALE sampler. chooseStroke no longer uses this speed formula or this value
+// function (the annuity is the locked rate, and the rim feed is a tight grid).
+// Kept as a record of the sweep that missed the lock band; not a gate.
 // One decision under a microscope: every candidate stroke a profile samples on an
 // empty rim6 board, with the predicted pieces its value is built from — so a
 // mis-ranking shows whether the sampler missed the good region or the value

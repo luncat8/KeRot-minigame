@@ -5,6 +5,13 @@ const UI = (() => {
 	const $ = id => document.getElementById(id);
 	const els = {};
 	const opts = { ring: true, preview: true, mode: 'zones', theme: 'classic' };
+	// What a link with no parameters opens. Taken now, before boot parameters or a
+	// preset move CFG — a shared link lists only what differs from this.
+	const SHIPPED = {
+		omega: CFG.omega, muK: CFG.muK, muS: CFG.muS, puckM: CFG.puckM,
+		schema: CFG.diskSchema, recycle: CFG.recycleMode, balls: CFG.ballsPerPlayer,
+		theme: 'classic', seats: 'human,balanced,blackhole,retriever',
+	};
 	const rows = []; // one per seat: {root, sel, balls, score, rm}
 	let lastText = {};
 	function setText(id, txt) { if (lastText[id] !== txt) { lastText[id] = txt; els[id].textContent = txt; } }
@@ -55,8 +62,37 @@ const UI = (() => {
 		sync();
 	}
 	function recycleRadios() { return document.querySelectorAll('input[name=recycle]'); }
-	// Any manual control change leaves the bundle the preset select last applied.
-	function markCustom() { if (els.preset) els.preset.value = ''; }
+	function numParam(v) { return String(Math.round(v * 1e6) / 1e6); }
+	function writeQuery(search) {
+		try { history.replaceState(null, '', search ? '?' + search : location.pathname + location.hash); }
+		catch (e) { // the address bar may refuse (sandbox, some file:// setups)
+		}
+	}
+	// The link of the board as it stands: every key that differs from the shipped
+	// table, so a refresh opens this page and not the bundle the select has left.
+	function liveQuery() {
+		const parts = [];
+		if (Math.abs(CFG.omega - SHIPPED.omega) > 5e-4) parts.push('omega=' + numParam(CFG.omega));
+		if (Math.abs(CFG.muK - SHIPPED.muK) > 5e-4) parts.push('muk=' + numParam(CFG.muK));
+		if (Math.abs(CFG.muS - SHIPPED.muS) > 5e-4) parts.push('mus=' + numParam(CFG.muS));
+		if (Math.abs(CFG.puckM - SHIPPED.puckM) > 1e-3) parts.push('mass=' + numParam(CFG.puckM));
+		if (CFG.diskSchema !== SHIPPED.schema) parts.push('schema=' + CFG.diskSchema);
+		if (CFG.recycleMode !== SHIPPED.recycle) parts.push('recycle=' + CFG.recycleMode);
+		if (opts.theme !== SHIPPED.theme) parts.push('theme=' + opts.theme);
+		if (CFG.ballsPerPlayer !== SHIPPED.balls) parts.push('balls=' + CFG.ballsPerPlayer);
+		const seats = Game.seatTypes.join(',');
+		if (seats !== SHIPPED.seats) parts.push('seats=' + seats);
+		if (els.chkRing && !els.chkRing.checked) parts.push('ring=0');
+		if (els.chkPreview && !els.chkPreview.checked) parts.push('ghost=0');
+		return parts.join('&');
+	}
+	// Any manual control change leaves the bundle the preset select last applied,
+	// and the address bar has to leave it too — a leftover ?preset= would reload the
+	// bundle and throw the tweak away.
+	function markCustom() {
+		if (els.preset) els.preset.value = '';
+		writeQuery(liveQuery());
+	}
 	// The controls mirror CFG (after boot parameters and presets), never the stale
 	// HTML defaults: every writable control is written here.
 	function pullControls() {
@@ -86,15 +122,21 @@ const UI = (() => {
 		pullControls();
 		syncRoster();
 		sync();
-		if (!setup.preset) return;
-		els.preset.value = setup.preset;
-		try { history.replaceState(null, '', '?' + presetQuery(setup.preset)); }
-		catch (e) { // the address bar may refuse (sandbox, some file:// setups) — the game is already set
-		}
+		if (setup.preset) els.preset.value = setup.preset;
+		// Boot does not rewrite the address bar: the link the page was opened with
+		// already round-trips, including keys that override a named preset. Rewriting
+		// it down to ?preset=name would drop those overrides.
 	}
 	function applyPreset(name) {
-		if (!PRESETS[name]) return;
-		applySetup(Object.assign({}, PRESETS[name], { preset: name }));
+		const src = PRESETS[name];
+		if (!src) return;
+		const setup = Object.assign({}, src, { preset: name });
+		if (src.seats) setup.seats = src.seats.slice();
+		applySetup(setup);
+		let q = presetQuery(name);
+		if (els.chkRing && !els.chkRing.checked) q += '&ring=0';
+		if (els.chkPreview && !els.chkPreview.checked) q += '&ghost=0';
+		writeQuery(q);
 	}
 	function fillSelect(sel, table, value) {
 		for (const key in table) {

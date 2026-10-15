@@ -28,6 +28,19 @@ const Game = (() => {
 		aim.vx = s.vx; aim.vy = s.vy; aim.hasStroke = true;
 		botT = 0; invalidateGhost();
 	}
+	// A line to show during the think, without a search: the co-rotating tangent if
+	// the puck can see the hold circle, otherwise the disk centre. The stroke that
+	// is actually thrown is chosen at the throw (botPrep), when the disk has finished
+	// turning — searching twice would hitch the page for the whole delay.
+	function showBotAim() {
+		const x = w.x[pending], y = w.y[pending];
+		const dh = holdRadius(CFG), rf = Math.min(0.82 * dh, CFG.diskR - CFG.puckR - 0.01);
+		const feed = CFG.omega !== 0 && rf > CFG.puckR ? feedTangent(CFG, x, y, rf) : null;
+		const ang = feed ? feed.ang : Math.atan2(CFG.diskY - y, CFG.diskX - x);
+		const sp = feed ? Math.min(CFG.vMax, feed.v0 * 0.9) : Math.min(CFG.vMax, 1.6);
+		aim.vx = Math.cos(ang) * sp; aim.vy = Math.sin(ang) * sp; aim.hasStroke = true;
+		botT = 0; invalidateGhost();
+	}
 	// Take a ball from the seat on turn and put its puck on the launch spot. No seat
 	// has a ball left -> the board spins down; a seat that has a ball but no room for
 	// it is retired and the turn moves on.
@@ -41,7 +54,7 @@ const Game = (() => {
 		aim.pending = pending; aim.hasStroke = false; aim.vx = 0; aim.vy = 0;
 		rebase(0, CFG.vMin, false);
 		state = 'aim';
-		if (isBot(roster[turn])) botPrep();
+		if (isBot(roster[turn])) showBotAim();
 	}
 	// Take the un-thrown puck off the board and give its ball back.
 	function disarm() {
@@ -85,7 +98,7 @@ const Game = (() => {
 	// the old one. (Slider drags do not: a re-aim per input event would stall the drag.)
 	function setDiskSchema(name) {
 		CFG.diskSchema = name;
-		if (state === 'aim' && pending >= 0 && isBot(roster[turn])) botPrep();
+		if (state === 'aim' && pending >= 0 && isBot(roster[turn])) showBotAim();
 	}
 	function commitThrow() {
 		if (state !== 'aim' || pending < 0 || !aim.hasStroke) return;

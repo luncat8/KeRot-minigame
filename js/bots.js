@@ -13,7 +13,8 @@ const BOT_SAMPLES = BOT_GROUPS * BOT_LEVELS;
 // almost free against a parking stroke — and noise pays in the same coin, so random
 // truly wanders while scoring bots keep their signal all game. A returned ball is
 // worth barely a window (recPrice), so extending a game by recycling is a tactical
-// fallback, never a scoring plan.
+// fallback, never a scoring plan. Opportunity is the locked rate, not the rate at the
+// sample instant: a puck crossing red at handoff pays for the window and then leaves.
 const BOT_PROFILES = {
 	random: { score: 0.10, opportunity: 0.10, denial: 0.05, recovery: 0.30, reserve: 0.20, risk: 0.30, kill: 0.05, noise: 8.0 },
 	keeper: { score: 1.00, opportunity: 1.20, denial: 0.15, recovery: 0.20, reserve: 0.15, risk: 1.30, kill: 0.10, noise: 0.00 },
@@ -62,28 +63,13 @@ function strategicTargets(w, cfg, i) {
 		const lx = aims[k].x * cl - aims[k].y * sl, ly = aims[k].x * sl + aims[k].y * cl;
 		setTarget(1, cfg.diskX + c * lx - s * ly, cfg.diskY + s * lx + c * ly);
 	}
-	// Group 4: the rim feed — the only throw that holds a puck outside the dead-stop
-	// lock radius (~0.5 R, where the rim6 lobes cannot be reached): approach the
-	// hold circle tangentially and arrive with the surface velocity, so the disk
-	// picks the puck up instead of flinging it. v0 is the launch speed that leaves
-	// exactly that arrival after friction, and the levels spread it for arrival
-	// phase (slightly slower/faster = the lobe led by less/more).
-	const dh = holdRadius(cfg), rf = Math.min(0.85 * dh, cfg.diskR - cfg.puckR - 0.01);
-	const ox = w.x[i] - cfg.diskX, oy = w.y[i] - cfg.diskY, od = Math.hypot(ox, oy) || 1e-9;
-	const beta = Math.atan2(oy, ox), alpha = Math.acos(clamp(rf / Math.max(od, rf + 1e-9), -1, 1));
-	for (const side of [-1, 1]) {
-		const a = beta + side * alpha;
-		const tx = cfg.diskX + rf * Math.cos(a), ty = cfg.diskY + rf * Math.sin(a);
-		// Of the two tangents from the puck to the hold circle, keep the one whose
-		// chord direction agrees with the surface — there the disk carries the puck
-		// forward; the other chord fights it.
-		const along = ((tx - w.x[i]) * -Math.sin(a) + (ty - w.y[i]) * Math.cos(a)) * cfg.omega;
-		if (along > 0 || side === 1) {
-			const chord = Math.hypot(tx - w.x[i], ty - w.y[i]), vs = Math.abs(cfg.omega) * rf;
-			setTarget(4, tx, ty, Math.sqrt(vs * vs + 2 * muKEff(cfg) * cfg.g * chord));
-			if (along > 0) break;
-		}
-	}
+	// Group 4 records the middle feed so a microscope can see it. The decision itself
+	// samples the tight grid in chooseStroke — the 4 jittered levels of this group
+	// never landed in the lock band.
+	const dh = holdRadius(cfg), rf = Math.min(0.82 * dh, cfg.diskR - cfg.puckR - 0.01);
+	const feed = cfg.omega !== 0 && rf > cfg.puckR ? feedTangent(cfg, w.x[i], w.y[i], rf) : null;
+	if (feed) setTarget(4, feed.x, feed.y, feed.v0);
+	else setTarget(4, cfg.diskX, cfg.diskY);
 	best = Infinity;
 	let targetX = cfg.diskX, targetY = cfg.diskY;
 	for (let j = 0; j < w.n; j++) {
@@ -125,18 +111,22 @@ function strategicTargets(w, cfg, i) {
 //   horizon); a parked puck's lost annuity is already priced by opportunity/denied.
 function evaluateStroke(profile, w, cfg, i, pred, vx, vy, rng, urgency, future, ballValue, recPrice, lifePrice) {
 	predictStroke(pred, w, i, vx, vy, cfg.handoffT, true);
-	const owner = w.own[i], base = pred.initialRates, final = pred.finalRates, integral = pred.scoreBySeat;
+	const owner = w.own[i], base = pred.initialRates, integral = pred.scoreBySeat;
 	const duration = pred.duration;
 	const ownIntegral = integral[owner] - base[owner] * duration;
 	// A locked puck is an annuity: it pays its rate every later resolve window, not
 	// only this one. future = the pays-still-coming horizon (later turns' windows
-	// plus the end settle), so an ending state is priced by what it actually earns.
-	const ownOpportunity = (final[owner] - base[owner]) * future;
+	// plus the end settle). Only the locked/asleep rate counts — the instantaneous
+	// rate at handoff prices a puck that is crossing red and about to leave as if it
+	// would pay for the rest of the game, and that single mistake makes every profile
+	// prefer a fly-by over a capture.
+	const stable = pred.stableRates, stable0 = pred.stableBase;
+	const ownOpportunity = (stable[owner] - stable0[owner]) * future;
 	let enemyIntegral = 0, enemyOpportunity = 0;
 	for (let s = 0; s < base.length; s++) {
 		if (s === owner) continue;
 		enemyIntegral += integral[s] - base[s] * duration;
-		enemyOpportunity += final[s] - base[s];
+		enemyOpportunity += stable[s] - stable0[s];
 	}
 	const denied = -(enemyIntegral + enemyOpportunity * future);
 	return profile.score * ownIntegral + profile.opportunity * ownOpportunity
@@ -150,14 +140,21 @@ function evaluateStroke(profile, w, cfg, i, pred, vx, vy, rng, urgency, future, 
 // with the same exact evaluation. Costs ~2x a plain decision; still ms-scale.
 const BOT_REFINE_DA = [-0.05, -0.025, 0, 0.025, 0.05];
 const BOT_REFINE_KV = [0.82, 0.88, 0.94, 1, 1.06, 1.12, 1.18];
+// Rim capture is a band a few centimetres per second wide around the co-rotating tangent
+// (measured: launch-lane locks sit near 0.90 of the floor-friction solve, a degree or
+// two off the geometric tangent, and which hold-circle radius lands on red depends on
+// the disk's phase). A jittered 4-sample sweep strides over it. This grid does not.
+const FEED_FRAC = [0.70, 0.82, 0.92]; // of d_hold, the three radii that cover a lobe period
+const FEED_KV = [0.86, 0.90, 0.94]; // of the floor-friction solve; on-disk drag makes the true speed lower
+const FEED_DA = [-0.02618, 0, 0.02618, 0.05236]; // rad around the tangent, about −1.5°..+3°
 function chooseStroke(name, w, cfg, i, pred, rng, roster) {
 	const profile = BOT_PROFILES[name] || BOT_PROFILES.balanced;
 	strategicTargets(w, cfg, i);
 	const own = w.own[i], stock = roster && roster[own] ? roster[own].balls : 0;
 	const urgency = 1 + (cfg.ballsPerPlayer - stock) * 0.55;
 	// Pays-still-coming horizon: later turns' resolve windows (≈0.9·handoffT each,
-	// they close on settle) plus ~2 s of the end settle. A thrown puck that ends
-	// the turn holding red earns that rate for all of them, so it is priced in here.
+	// they close on settle) plus ~2 s of the end settle. A throw that ends locked
+	// earns that rate for all of them; a fly-by earns only the window.
 	let future = cfg.handoffT;
 	if (roster) {
 		let turns = 0;
@@ -171,9 +168,15 @@ function chooseStroke(name, w, cfg, i, pred, rng, roster) {
 	// deterrent enough for opportunistic scraping, small enough under stock pressure.
 	const recPrice = 0.2 * ballValue;
 	const lifePrice = ballValue / (roster ? Math.max(1, roster.length) : 3);
-	let best = -Infinity, bestVx = 0, bestVy = 0, secondVx = 0, secondVy = 0;
+	let best = -Infinity, bestVx = 0, bestVy = 0;
+	function consider(vx, vy) {
+		const value = evaluateStroke(profile, w, cfg, i, pred, vx, vy, rng, urgency, future, ballValue, recPrice, lifePrice);
+		if (value <= best) return;
+		best = value; bestVx = vx; bestVy = vy;
+	}
 	for (let k = 0; k < BOT_SAMPLES; k++) {
 		const group = (k / BOT_LEVELS) | 0, level = k - group * BOT_LEVELS;
+		if (group === 4) continue; // replaced by the feed grid; skipping it keeps the other groups' rng stream
 		const t = botTargets[group];
 		const base = Math.atan2(t.y - w.y[i], t.x - w.x[i]);
 		// Rim-lobe captures sit up to ~0.3 rad past the led aim (measured on empty
@@ -185,28 +188,58 @@ function chooseStroke(name, w, cfg, i, pred, rng, roster) {
 		// the others sweep the whole stroke range as four coarse fractions.
 		const fraction = t.v0 > 0 ? (t.v0 / cfg.vMax) * (0.80 + 0.10 * speedIndex) : speedIndex / (BOT_LEVELS - 1);
 		const speed = clamp(cfg.vMin + (fraction + (rng() - 0.5) * 0.08) * (cfg.vMax - cfg.vMin), cfg.vMin, cfg.vMax);
-		const vx = Math.cos(base + offset) * speed, vy = Math.sin(base + offset) * speed;
-		const value = evaluateStroke(profile, w, cfg, i, pred, vx, vy, rng, urgency, future, ballValue, recPrice, lifePrice);
-		if (value <= best) continue;
-		secondVx = bestVx; secondVy = bestVy;
-		best = value; bestVx = vx; bestVy = vy;
+		consider(Math.cos(base + offset) * speed, Math.sin(base + offset) * speed);
 	}
-	for (let p = 0; p < 2; p++) {
-		const ang0 = Math.atan2(p ? secondVy : bestVy, p ? secondVx : bestVx);
-		const sp0 = Math.hypot(p ? secondVy : bestVy, p ? secondVx : bestVx);
-		if (p && !sp0) break;
+	// Co-rotating tangent feeds. Every throw is launched from the same spot, so the
+	// geometry is fixed; the predictor still sees the pucks already on the board.
+	if (cfg.omega !== 0) {
+		const dh = holdRadius(cfg), cap = cfg.diskR - cfg.puckR - 0.01;
+		for (let r = 0; r < FEED_FRAC.length; r++) {
+			const rf = Math.min(FEED_FRAC[r] * dh, cap);
+			if (rf <= cfg.puckR) continue;
+			const f = feedTangent(cfg, w.x[i], w.y[i], rf);
+			if (!f) continue;
+			for (let s = 0; s < FEED_KV.length; s++) {
+				const speed = clamp(f.v0 * FEED_KV[s], cfg.vMin, cfg.vMax);
+				for (let a = 0; a < FEED_DA.length; a++) {
+					const ang = f.ang + FEED_DA[a];
+					consider(Math.cos(ang) * speed, Math.sin(ang) * speed);
+				}
+			}
+		}
+	}
+	// One patch around the winner. A second patch around the runner-up cost as much
+	// again and, once the feed grid covers the lock band, rarely changed the pick.
+	const ang0 = Math.atan2(bestVy, bestVx), sp0 = Math.hypot(bestVx, bestVy);
+	if (sp0) {
 		for (let a = 0; a < BOT_REFINE_DA.length; a++) {
 			for (let s = 0; s < BOT_REFINE_KV.length; s++) {
 				const speed = clamp(sp0 * BOT_REFINE_KV[s], cfg.vMin, cfg.vMax);
-				const vx = Math.cos(ang0 + BOT_REFINE_DA[a]) * speed, vy = Math.sin(ang0 + BOT_REFINE_DA[a]) * speed;
-				const value = evaluateStroke(profile, w, cfg, i, pred, vx, vy, rng, urgency, future, ballValue, recPrice, lifePrice);
-				if (value <= best) continue;
-				best = value; bestVx = vx; bestVy = vy;
+				consider(Math.cos(ang0 + BOT_REFINE_DA[a]) * speed, Math.sin(ang0 + BOT_REFINE_DA[a]) * speed);
 			}
 		}
 	}
 	botOut.vx = bestVx; botOut.vy = bestVy;
 	return botOut;
 }
+// Tangent from (x, y) to the circle of radius rf about the disk, on the side whose
+// chord agrees with the surface velocity — the only side a capture works. v0 is the
+// launch speed that would leave exactly that surface speed after floor friction over
+// the whole chord; the true capture is a little slower (the disk drags less than the
+// floor once the puck is on it), which is why the feed grid scales v0 down.
+function feedTangent(cfg, x, y, rf) {
+	const ox = x - cfg.diskX, oy = y - cfg.diskY, od = Math.hypot(ox, oy);
+	if (!(od > rf)) return null;
+	const beta = Math.atan2(oy, ox), alpha = Math.acos(rf / od);
+	for (let s = 0; s < 2; s++) {
+		const side = s === 0 ? -1 : 1, a = beta + side * alpha;
+		const tx = cfg.diskX + rf * Math.cos(a), ty = cfg.diskY + rf * Math.sin(a);
+		const along = ((tx - x) * -Math.sin(a) + (ty - y) * Math.cos(a)) * cfg.omega;
+		if (along <= 0 && side !== 1) continue;
+		const chord = Math.hypot(tx - x, ty - y), vs = Math.abs(cfg.omega) * rf;
+		return { x: tx, y: ty, v0: Math.sqrt(vs * vs + 2 * muKEff(cfg) * cfg.g * chord), ang: Math.atan2(ty - y, tx - x) };
+	}
+	return null;
+}
 
-if (typeof module !== 'undefined') module.exports = { makeRng, chooseStroke, botOut, botTargets, strategicTargets, BOT_SAMPLES, BOT_PROFILES };
+if (typeof module !== 'undefined') module.exports = { makeRng, chooseStroke, botOut, botTargets, strategicTargets, feedTangent, BOT_SAMPLES, BOT_PROFILES };

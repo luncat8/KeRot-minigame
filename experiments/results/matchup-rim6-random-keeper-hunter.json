@@ -1,0 +1,49 @@
+{
+	"date": "2026-10-15T09:50:16.910Z",
+	"schema": "rim6",
+	"games": 4,
+	"seed0": 20261013,
+	"seats": [
+		"random",
+		"keeper",
+		"hunter"
+	],
+	"bots": [
+		{
+			"name": "random",
+			"games": 4,
+			"scoreMean": 137.5,
+			"rawMean": 114.60897347163343,
+			"diskT": 17.524999999999327,
+			"rate": 5.8228359660125735,
+			"locks": 3.5,
+			"lost": 1.25,
+			"ret": 0.5,
+			"winPct": 0
+		},
+		{
+			"name": "keeper",
+			"games": 4,
+			"scoreMean": 392.75,
+			"rawMean": 327.39302111340413,
+			"diskT": 44.14166666667483,
+			"rate": 6.471978627731849,
+			"locks": 14.5,
+			"lost": 0.5,
+			"ret": 0.25,
+			"winPct": 0
+		},
+		{
+			"name": "hunter",
+			"games": 4,
+			"scoreMean": 602.5,
+			"rawMean": 502.5010819064147,
+			"diskT": 70.50000000001805,
+			"rate": 6.353217649499591,
+			"locks": 22,
+			"lost": 0.75,
+			"ret": 0,
+			"winPct": 100
+		}
+	]
+}

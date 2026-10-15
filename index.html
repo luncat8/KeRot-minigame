@@ -164,13 +164,17 @@
 	<p>The same settings are URL parameters:
 	<code>?preset=stones</code>, or by hand
 	<code>?schema=rim6&amp;seats=human,hunter,keeper&amp;mass=8&amp;omega=1.2</code>.
-	A named <code>preset</code> applies first and the rest override it:
+	A named <code>preset</code> applies first and the rest override it, and the link
+	is kept as you typed it — including those overrides — so a refresh opens the same
+	board. Touch a control and the address bar switches to the settings that differ
+	from the shipped table, which is the link of what you see now.
 	<code>preset</code>, <code>omega</code>, <code>muk</code>, <code>mus</code>,
 	<code>mass</code> (kg), <code>schema</code> (classic | circles | rim6),
 	<code>recycle</code> (none | zones | advance), <code>theme</code> (classic | kerot),
 	<code>seats</code> (a comma list of seat types), <code>balls</code>,
-	<code>ring</code>, <code>ghost</code> (0|1). Unknown keys are ignored and numbers
-	are clamped to the slider ranges — a hand-typed link always opens.</p>
+	<code>ring</code>, <code>ghost</code> (0|1). Names are case-insensitive. Unknown
+	keys are ignored and numbers are clamped to the slider ranges — a hand-typed link
+	always opens.</p>
 </aside>
 <script src="js/cfg.js"></script>
 <script src="js/field.js"></script>

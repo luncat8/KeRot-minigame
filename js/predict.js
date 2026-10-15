@@ -19,6 +19,8 @@ function createPredictor(cfg) {
 		sampleRates: new Float64Array(seats),
 		scoreBySeat: new Float64Array(seats),
 		finalRates: new Float64Array(seats),
+		stableBase: new Float64Array(seats), // locked/asleep rate before the throw
+		stableRates: new Float64Array(seats), // locked/asleep rate after it has had time to capture
 		endX: 0, endY: 0, endV: 0, dScore: 0, locked: false, removed: false,
 		recoveryDelta: 0, ownLost: 0, enemyLost: 0, duration: 0, t: 0,
 	};
@@ -61,7 +63,8 @@ function predictStroke(pred, src, i, vx, vy, maxT, evaluate) {
 	pred.n = 0; pred.removed = false; pred.locked = false;
 	pred.endX = src.x[i]; pred.endY = src.y[i]; pred.endV = 0;
 	pred.duration = 0; pred.t = 0; pred.recoveryDelta = 0; pred.ownLost = 0; pred.enemyLost = 0;
-	pred.scoreBySeat.fill(0); pred.finalRates.fill(0);
+	pred.scoreBySeat.fill(0); pred.finalRates.fill(0); pred.stableRates.fill(0);
+	if (evaluate) stableRates(src, pred.stableBase);
 	cloneInto(w, src);
 	throwPuck(w, i, vx, vy);
 	let tracked = i, lastX = w.x[i], lastY = w.y[i];
@@ -109,8 +112,30 @@ function predictStroke(pred, src, i, vx, vy, maxT, evaluate) {
 	if (evaluate) {
 		scoreRates(w, pred.finalRates);
 		pred.dScore = pred.finalRates[owner] - rate0;
+		// The handoff window is what the score integral covers. A puck still sliding then
+		// may lock a moment later or be flung — follow it, but only while something is
+		// still on the disk or heading back toward it, and only for a short tail. Recovery
+		// and losses stay the handoff ones: that is when the game would hand the turn over.
+		const cap = Math.ceil(cfg.maxResolve / cfg.h);
+		if (!isSettled(w) && steps < cap) followThrown(w, uid, steps, cap);
+		stableRates(w, pred.stableRates);
 	} else pred.dScore = scoreRate(w, owner) - rate0;
 	return pred;
+}
+// Extra steps after the scored window, so a capture that lands just past handoff is
+// priced as the lock it is. Only the thrown puck is waited on: following every slider
+// on a crowded board made each candidate pay for pucks this throw did not touch.
+function followThrown(w, uid, steps, cap) {
+	const cfg = w.cfg, R = cfg.diskR + cfg.puckR, R2 = R * R;
+	const hard = Math.min(cap, steps + Math.ceil(1.5 / cfg.h));
+	while (steps < hard) {
+		const i = findPuckUid(w, uid);
+		if (i < 0 || w.st[i] !== ST_SLIDE) return;
+		const dx = w.x[i] - cfg.diskX, dy = w.y[i] - cfg.diskY;
+		if (dx * dx + dy * dy > R2 && dx * w.vx[i] + dy * w.vy[i] >= 0) return;
+		stepWorld(w, cfg.h);
+		steps++;
+	}
 }
 
 if (typeof module !== 'undefined') module.exports = { createPredictor, cloneInto, predictStroke, PRED_SAMPLES, PRED_SCORE_EVERY, PRED_PATH_EVERY };

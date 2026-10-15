@@ -69,6 +69,30 @@ function modelGates() {
 	check(tp.world.theta > turn.theta + 0.5, 'prediction advances the rotating disk through the turn');
 	check(Math.abs(tp.scoreBySeat[0] - expected) < Math.max(0.02, expected * 0.01),
 		'locked-puck score opportunity stays in its rotating disk-local field');
+	// A puck that is only crossing red at handoff must not be priced as a capture.
+	// The feed below is the measured rim6 lock from the launch lane; the fast shot
+	// down the centre line is on the paint at 4 s and then leaves.
+	const prevSchema = CFG.diskSchema;
+	CFG.diskSchema = 'rim6';
+	const rim = createWorld(CFG), rp2 = createPredictor(CFG);
+	const pending3 = spawnPuck(rim, CFG.launchX, CFG.launchY, 0);
+	const feed = feedTangent(CFG, CFG.launchX, CFG.launchY, Math.min(0.82 * holdRadius(CFG), CFG.diskR - CFG.puckR - 0.01));
+	let feedStable = 0;
+	for (const kv of [0.86, 0.90, 0.94]) {
+		for (const da of [-0.02618, 0, 0.02618, 0.05236]) {
+			predictStroke(rp2, rim, pending3, Math.cos(feed.ang + da) * feed.v0 * kv, Math.sin(feed.ang + da) * feed.v0 * kv, CFG.handoffT, true);
+			if (rp2.stableRates[0] > feedStable) feedStable = rp2.stableRates[0];
+		}
+	}
+	check(feedStable > 5, 'a co-rotating rim feed is an annuity', feedStable.toFixed(2));
+	// 185° at 2.4 m/s crosses a lobe during the window (final rate ~8) and is flung.
+	// Straight down the centre at the same speed actually locks on the blue middle,
+	// which is a real capture — the gate has to use a shot that leaves.
+	const pass = 185 * Math.PI / 180;
+	predictStroke(rp2, rim, pending3, Math.cos(pass) * 2.4, Math.sin(pass) * 2.4, CFG.handoffT, true);
+	check(rp2.finalRates[0] > 5 && rp2.stableRates[0] < 1, 'a puck merely passing over red is not an annuity',
+		'final ' + rp2.finalRates[0].toFixed(2) + ' stable ' + rp2.stableRates[0].toFixed(2));
+	CFG.diskSchema = prevSchema;
 	return !fail;
 }
 

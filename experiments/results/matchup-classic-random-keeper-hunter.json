@@ -1,0 +1,49 @@
+{
+	"date": "2026-10-15T09:50:07.611Z",
+	"schema": "classic",
+	"games": 4,
+	"seed0": 20261013,
+	"seats": [
+		"random",
+		"keeper",
+		"hunter"
+	],
+	"bots": [
+		{
+			"name": "random",
+			"games": 4,
+			"scoreMean": 75.5,
+			"rawMean": 62.96048687521217,
+			"diskT": 10.841666666666372,
+			"rate": 5.000080304153827,
+			"locks": 0.5,
+			"lost": 1,
+			"ret": 0.25,
+			"winPct": 0
+		},
+		{
+			"name": "keeper",
+			"games": 4,
+			"scoreMean": 366.5,
+			"rawMean": 305.68189769183056,
+			"diskT": 40.07083333333826,
+			"rate": 7.240616290010698,
+			"locks": 7.5,
+			"lost": 1.25,
+			"ret": 0.25,
+			"winPct": 25
+		},
+		{
+			"name": "hunter",
+			"games": 4,
+			"scoreMean": 471.75,
+			"rawMean": 393.39066722792364,
+			"diskT": 46.68333333334352,
+			"rate": 7.555323306080556,
+			"locks": 9,
+			"lost": 0.75,
+			"ret": 0.25,
+			"winPct": 75
+		}
+	]
+}

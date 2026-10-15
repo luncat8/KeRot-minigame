@@ -165,6 +165,20 @@ function scoreRates(w, out) {
 	}
 	return out;
 }
+// What a seat will still be earning after this turn: locked pucks ride the disk, sleeping
+// ones have stopped. A puck that is merely sliding across red has not earned a future —
+// at the rim it is usually about to be flung — so it is not an annuity.
+function stableRates(w, out) {
+	out.fill(0);
+	setGeo(w);
+	for (let i = 0; i < w.n; i++) {
+		if (w.st[i] === ST_SLIDE) continue;
+		const owner = w.own[i];
+		if (owner >= out.length) continue;
+		rateOf(w, i); out[owner] += _rate.red;
+	}
+	return out;
+}
 // One pass over the pucks, every seat paid at once: O(pucks), not O(seats × pucks).
 // dt is simulated seconds, so the total is frame-rate independent.
 function scoreTick(w, roster, dt) {
@@ -191,4 +205,4 @@ function displayScore(cfg, seats, raw) {
 	return v < 0 ? 0 : v > cfg.scoreDisplayMax ? cfg.scoreDisplayMax : v;
 }
 
-if (typeof module !== 'undefined') module.exports = { scoreRate, scoreRates, scoreTick, puckRate, puckArea, scoreRef, displayScore, diskMeanRed, RED_MAX };
+if (typeof module !== 'undefined') module.exports = { scoreRate, scoreRates, stableRates, scoreTick, puckRate, puckArea, scoreRef, displayScore, diskMeanRed, RED_MAX };

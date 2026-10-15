@@ -392,7 +392,14 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	{
 		const historyCalls = [];
 		globalThis.history = { replaceState(a, b, url) { historyCalls.push(url); } };
+		globalThis.location = { pathname: '/index.html', hash: '', search: '' };
 		check(parseQuery('') === null && parseQuery('?nonsuch=1&muK=abc') === null, 'a query without usable keys changes nothing');
+		const mixed = parseQuery('?Preset=Stones&Schema=RIM6&seats=Human, Hunter&recycle=ZONES');
+		check(mixed && mixed.preset === 'stones' && mixed.schema === 'rim6' && mixed.recycle === 'zones' && mixed.seats.join() === 'human,hunter',
+			'names in a link are case-insensitive and seats tolerate a space', mixed && mixed.seats && mixed.seats.join());
+		UI.applySetup(parseQuery('?preset=stones&omega=2'));
+		check(historyCalls.length === 0, 'opening a link does not rewrite it, so preset overrides survive a refresh');
+		check(CFG.omega === 2 && Math.abs(CFG.puckM - 20) < 1e-9, 'a named preset applies first and individual keys override it', CFG.omega + '/' + CFG.puckM);
 		const seatCount = Game.roster.length;
 		UI.applySetup(parseQuery('?schema=rim6&seats=human,hunter&mass=8&muK=0.09&muS=0.002&ring=0&ghost=0'));
 		check(Math.abs(CFG.puckM - 8) < 1e-9 && CFG.muK === 0.09 && CFG.muS >= CFG.muK, 'URL parameters apply, μs is clamped to μk', CFG.muK + '/' + CFG.muS);
@@ -407,15 +414,17 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		check(Math.abs(CFG.puckM - 20) < 1e-9 && CFG.muS === 0.09 && CFG.omega === autoOmega(CFG),
 			'the stones preset sets only its keys and auto-ω solves for the applied mass', CFG.puckM + '/' + CFG.omega.toFixed(4));
 		check(els.preset.value === 'stones', 'the preset select shows the applied bundle');
-		check(historyCalls.length === 1 && historyCalls[0] === '?preset=stones', 'the preset is echoed into the address bar', historyCalls.join(','));
+		check(historyCalls.length === 1 && historyCalls[0] === '?preset=stones&ring=0&ghost=0', 'the preset is echoed into the address bar, with view toggles that differ', historyCalls.join(','));
 		check(els.omega.value === String(CFG.omega) && els.massVal.textContent.startsWith('20.00 kg'), 'sliders and readouts follow the preset');
 		els.omega.value = '1.5'; els.omega.on.input();
 		check(CFG.omega === 1.5 && els.preset.value === '', 'a manual touch marks the bundle as custom');
+		check(historyCalls[historyCalls.length - 1].indexOf('preset=') < 0 && historyCalls[historyCalls.length - 1].indexOf('omega=1.5') >= 0,
+			'leaving a preset rewrites the link to the settings that differ, not the stale bundle', historyCalls[historyCalls.length - 1]);
 		UI.applyPreset('default');
 		UI.update(Game.world);
 		check(Math.abs(CFG.puckM - 4) < 1e-9 && Math.abs(CFG.muK - 0.03) < 1e-9 && CFG.diskSchema === 'classic' && CFG.recycleMode === 'zones' &&
 			Game.seatTypes.join() === 'human,balanced,blackhole,retriever', 'the default preset restores the shipped table', Game.seatTypes.join());
-		check(document.body.dataset.theme === 'classic' && historyCalls[historyCalls.length - 1] === '?preset=default', 'scheme and link follow the default preset');
+		check(document.body.dataset.theme === 'classic' && historyCalls[historyCalls.length - 1] === '?preset=default&ring=0&ghost=0', 'scheme and link follow the default preset');
 		console.log('presets/url smoke: ' + Object.keys(PRESETS).length + ' presets, parameters applied and clamped, sliders pulled, roster swapped, link echoed');
 		els.chkRing.checked = true; els.chkPreview.checked = true;
 	}
