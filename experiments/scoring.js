@@ -1,11 +1,14 @@
 // How good and how cheap the red-area score is (js/score.js). Three questions:
-//   1. does the baked grid + the puck's sample pattern reproduce the exact integral
-//      ∫∫_{puck ∩ disk} R dA (fine midpoint quadrature) closely enough?
+//   1. does the baked grid + the puck's sample pattern (the lens quadrature, over the
+//      rim) reproduce the exact integral ∫∫_{puck ∩ disk} R dA (fine midpoint
+//      quadrature) closely enough — for every disk schema, the ring ones with their
+//      kinks included, and down to slivers over the rim?
 //   2. does the pattern reproduce the covered *area* (analytic circle-circle lens)?
 //   3. what does it cost per frame on a full board of maxPlayers × ballsPerPlayer?
 // Plus one end-to-end check: the displayed 0..999 has to mean the same thing for a
 // 1-seat game and an 8-seat game.
 Object.assign(globalThis,
+	require('../js/field.js'),
 	require('../js/physics.js'),
 	require('../js/score.js'),
 	require('../js/players.js'),
@@ -36,6 +39,21 @@ function refRate(cfg, theta, px, py, n) {
 	}
 	return cell * sum;
 }
+// The same mean red, times the exact covered area: counting cells would quantise the
+// area of a sliver over the rim, and that error would be the reference's own.
+function lensRef(cfg, theta, px, py, n) {
+	const step = 2 * r / n;
+	let sum = 0, cells = 0;
+	for (let j = 0; j < n; j++) {
+		const y = py - r + (j + 0.5) * step;
+		for (let i = 0; i < n; i++) {
+			const x = px - r + (i + 0.5) * step, dx = x - cfg.diskX, dy = y - cfg.diskY, qx = x - px, qy = y - py;
+			if (dx * dx + dy * dy > R * R || qx * qx + qy * qy > r * r) continue;
+			sum += fieldColor(fieldWorld(cfg, x, y, theta), rgb)[0]; cells++;
+		}
+	}
+	return cells ? lensArea(R, r, Math.hypot(px - cfg.diskX, py - cfg.diskY)) * sum / cells : 0;
+}
 // Analytic area of the intersection of two circles.
 function lensArea(Rr, rr, d) {
 	if (d >= Rr + rr) return 0;
@@ -48,7 +66,9 @@ function lensArea(Rr, rr, d) {
 
 // 1. The integral itself, sampled over the cases that matter: dead centre, on a hot
 // lobe, on a cold lobe, straddling the rim, and clear of it.
-{
+const schema0 = CFG.diskSchema;
+for (const schema of Object.keys(DISK_SCHEMAS)) {
+	CFG.diskSchema = schema;
 	const REF_N = 240;
 	const rng = makeRng(20261013);
 	const spots = [];
@@ -72,12 +92,28 @@ function lensArea(Rr, rr, d) {
 		}
 	}
 	let bias = (sumGot - sumRef) / sumRef;
-	console.log('integral vs ' + REF_N + '² quadrature over ' + checked + ' placements: worst |err| ' +
+	console.log(schema.padEnd(8) + ' integral vs ' + REF_N + '² quadrature over ' + checked + ' placements: worst |err| ' +
 		(100 * worst).toFixed(2) + ' %, mean bias ' + (100 * bias).toFixed(3) + ' %' +
 		(worstAt ? ' (worst at x=' + worstAt[0] + ' y=' + worstAt[1] + ' θ=' + worstAt[2] + ': ' + worstAt[3] + ' vs ' + worstAt[4] + ')' : ''));
-	check(worst < 0.01, 'score integral within 1 % of the fine quadrature', (100 * worst).toFixed(2) + ' %');
-	check(Math.abs(bias) < 0.002, 'no systematic bias in the score integral', (100 * bias).toFixed(3) + ' %');
+	check(worst < 0.01, schema + ': score integral within 1 % of the fine quadrature', (100 * worst).toFixed(2) + ' %');
+	check(Math.abs(bias) < 0.002, schema + ': no systematic bias in the score integral', (100 * bias).toFixed(3) + ' %');
+	// Pucks over the rim, where the covered lens runs down to a sliver. The error is in
+	// shares of one puck on full red — what a seat can actually gain or lose by it.
+	let edge = 0, sliver = Infinity;
+	for (let k = 0; k < 120; k++) {
+		const ang = rng() * Math.PI * 2, rad = R - r + rng() * 1.98 * r, theta = rng() * Math.PI * 2;
+		const px = CFG.diskX + Math.cos(ang) * rad, py = CFG.diskY + Math.sin(ang) * rad;
+		w.n = 0; w.theta = theta;
+		const got = puckRate(w, spawnPuck(w, px, py, 0)), ref = lensRef(CFG, theta, px, py, REF_N);
+		edge = Math.max(edge, Math.abs(got - ref) / (PUCK_A * RED_MAX));
+		if (rad > R + 0.9 * r) sliver = Math.min(sliver, got / ref);
+	}
+	console.log(schema.padEnd(8) + ' over the rim, 120 pucks: worst error ' + (100 * edge).toFixed(2) + ' % of a puck on full red; slivers (< 2 % covered) earn ' +
+		(100 * sliver).toFixed(1) + ' % of their due at worst');
+	check(edge < 0.005, schema + ': a puck over the rim is paid within 0.5 % of a full puck', (100 * edge).toFixed(2) + ' %');
+	check(sliver > 0.9, schema + ': a sliver over the rim earns its share (it used to earn nothing)', (100 * sliver).toFixed(1) + ' %');
 }
+CFG.diskSchema = schema0;
 
 // 2. The covered area. It is not counted in cells — a puck hanging over the rim would
 // be quantised to the cell size — but taken from the analytic lens, so this is exact

@@ -1,25 +1,67 @@
-// Canvas renderer. Textures/gradients/zone paths baked once (or on resize); per
-// frame it only does clipped drawImage calls, stroked paths and puck circles.
-// Never mutates the world.
+// Canvas renderer. Textures/gradients/zone paths baked once (or on resize, or when the
+// disk schema changes); per frame it only does clipped drawImage calls, stroked paths
+// and puck circles. Never mutates the world.
 const Render = (() => {
 	let cv, ctx, scale = 100, ox = 0, oy = 0, dpr = 1;
-	let texDisk = null, texFloor = null, puckGrad = null, wallPath = null;
-	let zoneFan = null, zoneAdv = null, hatchPath = null, sectorPath = null;
+	let texDisk = null, texSchema = '', ppmDisk = 96, puckGrad = null, wallPath = null, gridPath = null;
+	let zoneFan = null, zoneAdv = null, hatchPath = null, sectorPath = null, bandPath = null;
 	const Z_FILL = 'rgba(32,178,170,0.16)', Z_LINE = 'rgba(46,204,196,0.55)', Z_HATCH = 'rgba(46,204,196,0.16)';
 	const SECTOR_SHADE = 'rgba(45,52,54,0.42)'; // 3 of the 6 face sectors
-	let puckFont = '', labelRot = 0;
-	const HUD_FONT = 'bold 0.088px sans-serif';
+	let labelRot = 0;
 	const HUD_Y = 0.04, HUD_H = 0.23, HUD_GAP = 0.02, HUD_MAX = 0.46;
 	const RIM_W = 0.020; // puck ring; stroked inside the fill so the edge stays crisp
+	const KR_RIM = 0.012; // seat ring of the kerot-s puck, over the outline it replaces
 	const MAX_BACKING = 6e6; // device px the canvas may ask for, however big the window
+	const TAU = 2 * Math.PI, GOLDEN = 2.399963; // golden angle: per-puck rim marks never line up
+	const GHOST_CHUNKS = 6;
+	// Every per-frame string, made once: puck numbers and the kerot-s rate tags.
+	const NUM = [], PCT = [];
+	for (let k = 0; k <= MAX_PUCKS; k++) NUM.push(String(k + 1));
+	for (let k = 0; k <= 100; k++) PCT.push(k + '%');
+	// UI colour schemes. The game colours — the disk paint (it is the score map), seats,
+	// zones, black holes — are rules and stay put; a scheme restyles the board's chrome
+	// and the pucks. index.html restyles the page from body.dataset.theme.
+	const THEMES = {
+		classic: {
+			label: 'classic', bg: '#0b1c26', floor: ['#49586f'], grid: null,
+			wall: '#dfe6e9', wallW: 0.020, rim: '#dfe6e9', ring: '#ffffff', tick: '#2d3436',
+			hud: 'rgba(0,0,0,0.28)', hudLine: null,
+			ink: '255,234,167', text: '#dfe6e9', font: 'sans-serif', puck: drawPuckClassic,
+		},
+		// The kerot-s draft: navy ice under a faint grid, amber ink, monospace, cream pucks.
+		kerot: {
+			label: 'kerot-s', bg: '#070b10', floor: ['#131c27', '#0e1620', '#0a1119'], grid: 'rgba(120,160,200,0.07)',
+			wall: 'rgba(140,180,220,0.35)', wallW: 0.012, rim: '#080d13', ring: 'rgba(255,235,180,0.45)', tick: '#1a222c',
+			hud: 'rgba(15,22,31,0.82)', hudLine: '#24344a',
+			ink: '255,192,120', text: '#dce7f3', font: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', puck: drawPuckKerot,
+		},
+	};
+	let theme = THEMES.classic, themeName = '';
+	const font = { hud: '', label: '', zone: '', hole: '', num: '', tag: '' };
+	const ghostInk = [];
 	function setup(canvas) {
 		cv = canvas; ctx = cv.getContext('2d');
 		ctx.imageSmoothingEnabled = true;
 		ctx.imageSmoothingQuality = 'high';
 		puckGrad = ctx.createRadialGradient(-0.03, -0.03, 0.01, 0, 0, CFG.puckR);
 		puckGrad.addColorStop(0, '#f5f6fa'); puckGrad.addColorStop(0.7, '#b2bec3'); puckGrad.addColorStop(1, '#636e72');
+		for (const name in THEMES) {
+			const t = THEMES[name];
+			if (t.floor.length === 1) { t.floorFill = t.floor[0]; continue; }
+			t.floorFill = ctx.createLinearGradient(0, 0, 0, CFG.boardH);
+			for (let k = 0; k < t.floor.length; k++) t.floorFill.addColorStop(k / (t.floor.length - 1), t.floor[k]);
+		}
+		applyTheme('classic');
 		buildZonePaths();
 		resize();
+	}
+	function applyTheme(name) {
+		themeName = name; theme = THEMES[name];
+		const f = theme.font;
+		font.hud = 'bold 0.088px ' + f; font.label = '0.075px ' + f; font.zone = '0.09px ' + f;
+		font.hole = '0.045px ' + f; font.num = 'bold ' + (CFG.puckR * 0.55) + 'px ' + f; font.tag = '0.06px ' + f;
+		for (let c = 0; c < GHOST_CHUNKS; c++) ghostInk[c] = 'rgba(' + theme.ink + ',' + (0.10 + 0.07 * (GHOST_CHUNKS - c)).toFixed(3) + ')';
+		theme.inkSolid = 'rgb(' + theme.ink + ')';
 	}
 	function buildZonePaths() {
 		const z = RETURN_ZONES, v = ADVANCE_ZONES;
@@ -40,6 +82,19 @@ const Render = (() => {
 			sectorPath.arc(0, 0, 1, a0, a0 + Math.PI / 3);
 			sectorPath.closePath();
 		}
+		// kerot-s puck rim: two opposite quarters of the band 0.74…1, unit radius.
+		bandPath = new Path2D();
+		for (let k = 0; k < 2; k++) {
+			const a0 = k * Math.PI, a1 = a0 + Math.PI / 2;
+			bandPath.moveTo(Math.cos(a0), Math.sin(a0));
+			bandPath.arc(0, 0, 1, a0, a1);
+			bandPath.arc(0, 0, 0.74, a1, a0, true);
+			bandPath.closePath();
+		}
+		// kerot-s floor grid: 8 × 4 cells over the board.
+		gridPath = new Path2D();
+		for (let k = 1; k < 8; k++) { gridPath.moveTo(k * CFG.boardW / 8, 0); gridPath.lineTo(k * CFG.boardW / 8, CFG.boardH); }
+		for (let k = 1; k < 4; k++) { gridPath.moveTo(0, k * CFG.boardH / 4); gridPath.lineTo(CFG.boardW, k * CFG.boardH / 4); }
 		labelRot = Math.atan2(z.by - z.ay, z.bx - z.ax); // fan edge -> readable label angle
 	}
 	// The zone is the triangle (plus the launch lane, in 'advance') minus the on-disk
@@ -65,9 +120,8 @@ const Render = (() => {
 		else { v1x = t.ax; v1y = t.ay; v2x = t.bx; v2y = t.by; }
 		d1x = v1x - CFG.diskX; d1y = v1y - CFG.diskY;
 		d2x = v2x - CFG.diskX; d2y = v2y - CFG.diskY;
-		l1 = Math.hypot(d1x, d1y); l2 = Math.hypot(d2x, d2y);
-		a0 = Math.atan2(d1y, d1x); a1 = Math.atan2(d2y, d2x);
-		const TAU = 2 * Math.PI;
+		const l1 = Math.hypot(d1x, d1y), l2 = Math.hypot(d2x, d2y);
+		const a0 = Math.atan2(d1y, d1x), a1 = Math.atan2(d2y, d2x);
 		const sweep = (a1 - a0 + TAU) % TAU; // arc a0 -> a1 the +angle way
 		const am = Math.atan2(d1y / l1 + d2y / l2, d1x / l1 + d2x / l2);
 		const ccw = (am - a0 + TAU) % TAU > sweep; // interior lies off the +angle way
@@ -117,18 +171,18 @@ const Render = (() => {
 		bake();
 	}
 	function bake() {
-		const ppmDisk = Math.max(96, Math.min(512, 2 * scale / dpr));
-		texDisk = bakeDisk(ppmDisk);
-		texFloor = bakeFieldCanvas({ x: 0, y: 0, w: CFG.boardW, h: CFG.boardH }, 40, 0, CFG);
+		ppmDisk = Math.max(96, Math.min(512, 2 * scale / dpr));
+		bakeDisk();
 		wallPath = new Path2D();
 		wallPath.rect(0, 0, CFG.boardW, CFG.boardH);
-		puckFont = 'bold ' + (CFG.puckR * 0.55) + 'px sans-serif';
 	}
 	// The disk sprite is cut to the circle once, at bake time. Clipping the drawn image
 	// to an arc every frame costs more and reads worse: a clip edge is a hard edge,
 	// while a pre-cut sprite gets smoothed by the rotation and the bilinear filter.
-	function bakeDisk(ppm) {
-		const tex = bakeFieldCanvas({ x: -CFG.diskR, y: -CFG.diskR, w: 2 * CFG.diskR, h: 2 * CFG.diskR }, ppm, null, CFG);
+	// Rebaked when the disk schema changes (drawWorld compares texSchema).
+	function bakeDisk() {
+		const ppm = ppmDisk;
+		const tex = bakeFieldCanvas({ x: -CFG.diskR, y: -CFG.diskR, w: 2 * CFG.diskR, h: 2 * CFG.diskR }, ppm, CFG);
 		const cut = document.createElement('canvas');
 		cut.width = tex.width; cut.height = tex.height;
 		const g = cut.getContext('2d');
@@ -136,7 +190,7 @@ const Render = (() => {
 		g.globalCompositeOperation = 'destination-in';
 		g.fillStyle = '#ffffff';
 		g.beginPath(); g.arc(tex.width / 2, tex.height / 2, CFG.diskR * ppm, 0, Math.PI * 2); g.fill();
-		return cut;
+		texDisk = cut; texSchema = CFG.diskSchema;
 	}
 	function toWorld(clientX, clientY) {
 		const r = cv.getBoundingClientRect();
@@ -178,7 +232,7 @@ const Render = (() => {
 			ctx.strokeStyle = '#9b59b6'; ctx.lineWidth = 0.018; ctx.stroke();
 			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r * 0.58, 0, 2 * Math.PI);
 			ctx.strokeStyle = 'rgba(214, 165, 255, 0.7)'; ctx.lineWidth = 0.012; ctx.stroke();
-			ctx.fillStyle = '#e5c3ff'; ctx.font = '0.045px sans-serif';
+			ctx.fillStyle = '#e5c3ff'; ctx.font = font.hole;
 			ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('VOID', hole.x, hole.y + (i === 0 ? 0.10 : -0.10));
 		}
 		ctx.restore();
@@ -186,30 +240,30 @@ const Render = (() => {
 	function drawZoneLabel(x, y, rot) {
 		ctx.save();
 		ctx.translate(x, y); ctx.rotate(rot);
-		ctx.fillStyle = Z_LINE; ctx.font = '0.09px sans-serif';
+		ctx.fillStyle = Z_LINE; ctx.font = font.zone;
 		ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 		ctx.fillText('RETURN', 0, 0);
 		ctx.restore();
 	}
 	function drawGhost(pred, aim) {
 		if (!pred || pred.n < 2) return;
-		const path = pred.path, n = pred.n, chunks = 6, per = Math.ceil(n / chunks);
+		const path = pred.path, n = pred.n, per = Math.ceil(n / GHOST_CHUNKS);
 		ctx.save();
 		ctx.lineWidth = 0.014; ctx.lineCap = 'round';
-		for (let c = 0; c < chunks; c++) {
+		for (let c = 0; c < GHOST_CHUNKS; c++) {
 			const i0 = c * per, i1 = Math.min(n - 1, i0 + per);
 			if (i1 <= i0) break;
-			ctx.strokeStyle = 'rgba(255,234,167,' + (0.10 + 0.07 * (chunks - c)).toFixed(3) + ')';
+			ctx.strokeStyle = ghostInk[c];
 			ctx.beginPath();
 			ctx.moveTo(path[i0 * 2], path[i0 * 2 + 1]);
 			for (let k = i0 + 1; k <= i1; k++) ctx.lineTo(path[k * 2], path[k * 2 + 1]);
 			ctx.stroke();
 		}
 		ctx.globalAlpha = 0.35;
-		ctx.fillStyle = '#ffeaa7';
+		ctx.fillStyle = theme.inkSolid;
 		ctx.beginPath(); ctx.arc(pred.endX, pred.endY, CFG.puckR, 0, Math.PI * 2); ctx.fill();
 		if (pred.locked) {
-			ctx.globalAlpha = 0.8; ctx.strokeStyle = '#ffeaa7'; ctx.lineWidth = 0.012;
+			ctx.globalAlpha = 0.8; ctx.strokeStyle = theme.inkSolid; ctx.lineWidth = 0.012;
 			ctx.setLineDash([0.04, 0.03]);
 			ctx.beginPath(); ctx.arc(pred.endX, pred.endY, CFG.puckR * 1.5, 0, Math.PI * 2); ctx.stroke();
 			ctx.setLineDash([]);
@@ -220,26 +274,31 @@ const Render = (() => {
 	// mutates in place every frame, so drawing allocates nothing.
 	function drawWorld(view) {
 		const w = view.w, aim = view.aim, opts = view.opts, pred = view.pred;
+		if (opts.theme !== themeName) applyTheme(opts.theme);
+		if (CFG.diskSchema !== texSchema) bakeDisk();
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
-		ctx.fillStyle = '#0b1c26'; ctx.fillRect(0, 0, cv.width, cv.height);
+		ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, cv.width, cv.height);
 		ctx.setTransform(scale, 0, 0, scale, ox, oy);
-		// Floor: faint static field copy, then ice tint.
+		// Floor: plain ice in the scheme's tint. It used to carry a faint copy of the field
+		// frozen at θ = 0, which no longer matches once the disk turns — nor any schema
+		// but the one it was baked from.
 		ctx.save(); ctx.beginPath(); ctx.rect(0, 0, CFG.boardW, CFG.boardH); ctx.clip();
-		ctx.globalAlpha = 0.35; ctx.drawImage(texFloor, 0, 0, CFG.boardW, CFG.boardH); ctx.globalAlpha = 1;
+		ctx.fillStyle = theme.floorFill; ctx.fillRect(0, 0, CFG.boardW, CFG.boardH);
+		if (theme.grid) { ctx.strokeStyle = theme.grid; ctx.lineWidth = 0.006; ctx.stroke(gridPath); }
 		drawZones(opts.mode);
 		// Disk: field sprite rotated by theta. It is already cut to the circle, so this
 		// needs no clip — which is both cheaper and smoother on the rim.
 		ctx.save();
 		ctx.translate(CFG.diskX, CFG.diskY); ctx.rotate(w.theta);
 		ctx.drawImage(texDisk, -CFG.diskR, -CFG.diskR, 2 * CFG.diskR, 2 * CFG.diskR);
-		ctx.fillStyle = '#2d3436'; ctx.fillRect(0.55, -0.012, 0.22, 0.024); // spin tick
+		ctx.fillStyle = theme.tick; ctx.fillRect(0.55, -0.012, 0.22, 0.024); // spin tick
 		ctx.restore();
-		ctx.lineWidth = 0.015; ctx.strokeStyle = '#dfe6e9';
+		ctx.lineWidth = 0.015; ctx.strokeStyle = theme.rim;
 		ctx.beginPath(); ctx.arc(CFG.diskX, CFG.diskY, CFG.diskR, 0, Math.PI * 2); ctx.stroke();
 		if (opts.ring) {
 			const dh = holdRadius(CFG);
 			if (dh < CFG.diskR) {
-				ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = '#ffffff';
+				ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = theme.ring;
 				ctx.beginPath(); ctx.arc(CFG.diskX, CFG.diskY, dh, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
 			}
 		}
@@ -249,10 +308,10 @@ const Render = (() => {
 		ctx.strokeRect(CFG.launchMinX, CFG.launchMinY, CFG.launchMaxX - CFG.launchMinX, CFG.launchMaxY - CFG.launchMinY);
 		ctx.setLineDash([]);
 		ctx.restore();
-		ctx.lineWidth = 0.02; ctx.strokeStyle = '#dfe6e9'; ctx.stroke(wallPath);
+		ctx.lineWidth = theme.wallW; ctx.strokeStyle = theme.wall; ctx.stroke(wallPath);
 		if (opts.preview && aim && aim.hasStroke) drawGhost(pred, aim);
 		drawAim(w, aim);
-		for (let i = 0; i < w.n; i++) drawPuck(w, i, aim && aim.pending === i);
+		for (let i = 0; i < w.n; i++) theme.puck(w, i, aim && aim.pending === i);
 		drawHud(view);
 	}
 	// Scoreboard along the top of the board: one cell per seat — colour, balls left,
@@ -263,15 +322,16 @@ const Render = (() => {
 		const cw = Math.min(HUD_MAX, (CFG.boardW - 0.12) / n - HUD_GAP);
 		const x0 = (CFG.boardW - (n * cw + (n - 1) * HUD_GAP)) / 2;
 		ctx.save();
-		ctx.font = HUD_FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+		ctx.font = font.hud; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
 		for (let i = 0; i < n; i++) {
 			const x = x0 + i * (cw + HUD_GAP), col = seatColor(i), on = i === view.turn;
-			ctx.fillStyle = on ? 'rgba(255,255,255,0.13)' : 'rgba(0,0,0,0.28)';
+			ctx.fillStyle = on ? 'rgba(255,255,255,0.13)' : theme.hud;
 			ctx.fillRect(x, HUD_Y, cw, HUD_H);
 			if (on) { ctx.strokeStyle = col; ctx.lineWidth = 0.014; ctx.strokeRect(x, HUD_Y, cw, HUD_H); }
+			else if (theme.hudLine) { ctx.strokeStyle = theme.hudLine; ctx.lineWidth = 0.006; ctx.strokeRect(x, HUD_Y, cw, HUD_H); }
 			ctx.fillStyle = col;
 			ctx.beginPath(); ctx.arc(x + 0.055, HUD_Y + 0.072, 0.042, 0, Math.PI * 2); ctx.fill();
-			ctx.fillStyle = on ? '#ffffff' : '#dfe6e9';
+			ctx.fillStyle = on ? '#ffffff' : theme.text;
 			ctx.fillText(String(displayScore(CFG, n, seats[i].score)), x + 0.115, HUD_Y + 0.075);
 			for (let k = 0; k < CFG.ballsPerPlayer; k++) {
 				ctx.beginPath(); ctx.arc(x + 0.135 + k * 0.062, HUD_Y + 0.178, 0.022, 0, Math.PI * 2);
@@ -289,7 +349,7 @@ const Render = (() => {
 		}
 		ctx.restore();
 	}
-	function drawPuck(w, i, isPending) {
+	function drawPuckClassic(w, i, isPending) {
 		ctx.save();
 		ctx.translate(w.x[i], w.y[i]);
 		ctx.globalAlpha = isPending ? 0.65 : w.st[i] === ST_SLEEP ? 0.85 : 1;
@@ -305,9 +365,48 @@ const Render = (() => {
 		ctx.lineWidth = RIM_W; ctx.strokeStyle = seatColor(w.own[i]);
 		ctx.beginPath(); ctx.arc(0, 0, w.r[i] - RIM_W / 2, 0, Math.PI * 2); ctx.stroke();
 		ctx.globalAlpha *= 0.8;
-		ctx.fillStyle = '#2d3436'; ctx.font = puckFont;
+		ctx.fillStyle = '#2d3436'; ctx.font = font.num;
 		ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-		ctx.fillText(String(i + 1), 0, 0.004);
+		ctx.fillText(NUM[i], 0, 0.004);
+		ctx.restore();
+	}
+	// The kerot-s puck: a cream body on a drop shadow, a rim band whose two shaded
+	// quarters are glued to the puck (so its turning shows), and a centre gauge — the
+	// share of the best possible rate this puck earns right now, tagged above it while
+	// it earns. The reference's dark outline becomes the owner's seat ring.
+	function drawPuckKerot(w, i, isPending) {
+		const r = w.r[i];
+		ctx.save();
+		ctx.translate(w.x[i], w.y[i]);
+		ctx.fillStyle = 'rgba(0,0,0,0.35)';
+		ctx.beginPath(); ctx.arc(0.008, 0.011, r, 0, TAU); ctx.fill();
+		ctx.fillStyle = isPending ? '#ffd9a0' : '#f3ecdd';
+		ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+		ctx.save();
+		ctx.rotate(w.th[i] + w.uid[i] * GOLDEN); ctx.scale(r, r);
+		ctx.fillStyle = isPending ? 'rgba(150,95,25,0.45)' : 'rgba(120,88,52,0.45)';
+		ctx.fill(bandPath);
+		ctx.restore();
+		ctx.lineWidth = 0.005; ctx.strokeStyle = 'rgba(90,70,45,0.45)';
+		ctx.beginPath(); ctx.arc(0, 0, 0.74 * r, 0, TAU); ctx.stroke();
+		const share = puckRate(w, i) / (RED_MAX * Math.PI * r * r);
+		if (share > 0.005) {
+			const bw = 0.18 * r, bh = 0.5 * r * share;
+			ctx.fillStyle = 'rgba(186,50,34,0.95)';
+			ctx.fillRect(-bw / 2, -bh, bw, bh);
+		}
+		ctx.strokeStyle = 'rgba(70,60,45,0.5)'; ctx.lineWidth = 0.005;
+		ctx.beginPath(); ctx.moveTo(-0.45 * r, 0); ctx.lineTo(0.45 * r, 0); ctx.stroke();
+		ctx.lineWidth = KR_RIM; ctx.strokeStyle = seatColor(w.own[i]);
+		ctx.beginPath(); ctx.arc(0, 0, r - KR_RIM / 2, 0, TAU); ctx.stroke();
+		if (share > 0.005) { // outlined: the tag sits over any paint, pale included
+			const tag = PCT[Math.round(100 * share)];
+			ctx.font = font.tag; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+			ctx.lineJoin = 'round'; ctx.lineWidth = 0.016; ctx.strokeStyle = 'rgba(7,11,16,0.85)';
+			ctx.strokeText(tag, 0, -r - 0.012);
+			ctx.fillStyle = 'rgba(255,190,170,0.95)';
+			ctx.fillText(tag, 0, -r - 0.012);
+		}
 		ctx.restore();
 	}
 	function drawAim(w, aim) {
@@ -318,16 +417,16 @@ const Render = (() => {
 		const len = sp / CFG.vMax * CFG.dragFull;
 		const ux = aim.vx / sp, uy = aim.vy / sp;
 		ctx.save();
-		ctx.strokeStyle = '#ffeaa7'; ctx.fillStyle = '#ffeaa7'; ctx.lineWidth = 0.018;
+		ctx.strokeStyle = theme.inkSolid; ctx.fillStyle = theme.inkSolid; ctx.lineWidth = 0.018;
 		ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + ux * (len + 0.15), sy + uy * (len + 0.15)); ctx.stroke();
 		ctx.beginPath();
 		ctx.moveTo(sx + ux * (len + 0.28), sy + uy * (len + 0.28));
 		ctx.lineTo(sx + ux * (len + 0.12) - uy * 0.05, sy + uy * (len + 0.12) + ux * 0.05);
 		ctx.lineTo(sx + ux * (len + 0.12) + uy * 0.05, sy + uy * (len + 0.12) - ux * 0.05);
 		ctx.closePath(); ctx.fill();
-		ctx.font = '0.075px sans-serif';
-		ctx.fillText(sp.toFixed(2) + ' m/s, stops ~' + (sp * sp / (2 * CFG.muK * CFG.g)).toFixed(1) + ' m', sx + ux * (len + 0.45), sy + uy * (len + 0.45));
+		ctx.font = font.label;
+		ctx.fillText(sp.toFixed(2) + ' m/s, stops ~' + stopDistance(CFG, sp).toFixed(1) + ' m', sx + ux * (len + 0.45), sy + uy * (len + 0.45));
 		ctx.restore();
 	}
-	return { setup, resize, drawWorld, toWorld };
+	return { setup, resize, drawWorld, toWorld, themes: THEMES };
 })();

@@ -1,34 +1,62 @@
-// Numeric field report + a PNG preview (tiny zlib-based encoder, no deps).
+// Every disk schema (js/field.js): how much of the disk is red / pale / blue, what a
+// puck earns on average — over the whole disk and over the part a riding puck can
+// hold — plus a PNG preview each (tiny zlib-based encoder, no deps). Gates the two
+// things a new schema could break: the palette's red channel has to rise with the
+// field value (score = red channel), and the bots' aim points have to be holdable red.
 const fs = require('fs'), zlib = require('zlib');
-const { CFG } = require('../js/cfg.js');
-const { fieldLocal, fieldWorld, fieldColor } = require('../js/field.js');
+const { CFG, holdRadius } = require('../js/cfg.js');
+const { DISK_SCHEMAS, fieldLocal, fieldColor } = require('../js/field.js');
+const R = CFG.diskR, rgb = [0, 0, 0];
+let fail = 0;
+function check(ok, name, extra) { if (!ok) { console.log('FAIL ' + name + (extra ? ' — ' + extra : '')); fail = 1; } }
+const pay = v => fieldColor(v, rgb)[0] / 255;
+
+{
+	let prev = -Infinity, rising = true;
+	for (let k = 0; k <= 2000; k++) { const r = fieldColor(-1 + k / 1000, rgb)[0]; if (r < prev) rising = false; prev = r; }
+	console.log('palette pays: blue ' + pay(-1).toFixed(3) + ' · pale ' + pay(0).toFixed(3) + ' · red ' + pay(1).toFixed(3) + ' of the maximum');
+	check(rising, 'the palette\'s red channel never falls as the field value rises');
+}
+// Puck centres a riding puck can hold: inside the hold radius and wholly on the disk.
+const hold = Math.min(holdRadius(CFG), R - CFG.puckR);
 const N = 200;
-let above = 0, sat = 0, inDisk = 0, vMin = 1, vMax = -1;
-for (let gy = 0; gy < N; gy++) for (let gx = 0; gx < N; gx++) {
-	const ux = -CFG.diskR + 2 * CFG.diskR * gx / (N - 1), uy = -CFG.diskR + 2 * CFG.diskR * gy / (N - 1);
-	if (ux * ux + uy * uy > CFG.diskR * CFG.diskR) continue;
-	inDisk++;
-	const v = fieldLocal(CFG, ux, uy);
-	if (v > 0.5) above++;
-	if (v >= 0.999) sat++;
-	vMin = Math.min(vMin, v); vMax = Math.max(vMax, v);
+function png(file) {
+	const W = 220, raw = Buffer.alloc((W * 3 + 1) * W);
+	for (let py = 0; py < W; py++) for (let px = 0; px < W; px++) {
+		const x = -R + 2 * R * (px + 0.5) / W, y = -R + 2 * R * (py + 0.5) / W, o = py * (W * 3 + 1) + 1 + px * 3;
+		if (x * x + y * y > R * R) { raw[o] = 11; raw[o + 1] = 28; raw[o + 2] = 38; continue; }
+		fieldColor(fieldLocal(CFG, x, y), rgb);
+		raw[o] = rgb[0]; raw[o + 1] = rgb[1]; raw[o + 2] = rgb[2];
+	}
+	function chunk(type, data) { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const body = Buffer.concat([Buffer.from(type), data]); const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(body) >>> 0); return Buffer.concat([len, body, crc]); }
+	const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(W, 4); ihdr[8] = 8; ihdr[9] = 2;
+	fs.writeFileSync(file, Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]));
 }
-// V=0 crossing along local +x
-let cross = -1;
-for (let d = 0; d <= CFG.diskR; d += 0.001) if (fieldLocal(CFG, d, 0) <= 0) { cross = d; break; }
-console.log('disk area V>0.5: ' + (100 * above / inDisk).toFixed(1) + '%  saturated(+1): ' + (100 * sat / inDisk).toFixed(1) + '%');
-console.log('V range on disk: [' + vMin.toFixed(2) + ', ' + vMax.toFixed(2) + ']  V(rim,+x)=' + fieldLocal(CFG, CFG.diskR, 0).toFixed(2) + '  far floor=' + fieldWorld(CFG, 3.5, 2.1, 0).toFixed(2));
-console.log('V=0 crossing on +x at ' + cross.toFixed(3) + ' m (d_hold=' + (0.9 * CFG.diskR).toFixed(3) + ' m)');
-// PNG of the whole board at theta=0
-const W = 360, H = 220, rgb = [0, 0, 0], raw = Buffer.alloc((W * 3 + 1) * H);
-for (let py = 0; py < H; py++) for (let px = 0; px < W; px++) {
-	fieldColor(fieldWorld(CFG, px / 100, py / 100, 0), rgb);
-	const o = py * (W * 3 + 1) + 1 + px * 3;
-	raw[o] = rgb[0]; raw[o + 1] = rgb[1]; raw[o + 2] = rgb[2];
-}
-function chunk(type, data) { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const body = Buffer.concat([Buffer.from(type), data]); const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(body) >>> 0); return Buffer.concat([len, body, crc]); }
-const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4); ihdr[8] = 8; ihdr[9] = 2;
-const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 fs.mkdirSync(__dirname + '/logs', { recursive: true });
-fs.writeFileSync(__dirname + '/logs/field.png', png);
-console.log('wrote experiments/logs/field.png');
+const schema0 = CFG.diskSchema;
+console.log('schema        disk: red  pale  blue   mean pay: disk  holdable (centre ≤ ' + (hold / R).toFixed(2) + ' R)');
+for (const name of Object.keys(DISK_SCHEMAS)) {
+	CFG.diskSchema = name;
+	let n = 0, red = 0, blue = 0, sum = 0, hn = 0, hs = 0, vMin = 1, vMax = -1;
+	for (let gy = 0; gy < N; gy++) for (let gx = 0; gx < N; gx++) {
+		const x = -R + 2 * R * (gx + 0.5) / N, y = -R + 2 * R * (gy + 0.5) / N, d2 = x * x + y * y;
+		if (d2 > R * R) continue;
+		const v = fieldLocal(CFG, x, y), p = pay(v);
+		n++; sum += p;
+		if (v > 0.5) red++; else if (v < -0.5) blue++;
+		vMin = Math.min(vMin, v); vMax = Math.max(vMax, v);
+		if (d2 <= hold * hold) { hn++; hs += p; }
+	}
+	console.log(name.padEnd(13) + (100 * red / n).toFixed(0).padStart(10) + '%' + (100 * (n - red - blue) / n).toFixed(0).padStart(5) + '%' +
+		(100 * blue / n).toFixed(0).padStart(5) + '%' + (sum / n).toFixed(3).padStart(16) + (hs / hn).toFixed(3).padStart(10));
+	check(vMin >= -1 && vMax <= 1, name + ': the field stays in [−1, 1]', vMin.toFixed(3) + '…' + vMax.toFixed(3));
+	for (const a of DISK_SCHEMAS[name].aims) {
+		const d = Math.hypot(a.x, a.y), v = fieldLocal(CFG, a.x, a.y);
+		check(d <= hold && v > 0.5, name + ': every bot aim point is holdable and red', 'd ' + (d / R).toFixed(2) + ' R, v ' + v.toFixed(2));
+	}
+	png(__dirname + '/logs/field-' + name + '.png');
+}
+CFG.diskSchema = schema0;
+console.log('wrote experiments/logs/field-<schema>.png');
+console.log(fail ? 'FAIL' : 'OK (palette monotone, schemas in range, aims holdable)');
+process.exit(fail);

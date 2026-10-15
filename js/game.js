@@ -75,6 +75,18 @@ const Game = (() => {
 		invalidateGhost();
 	}
 	function invalidateGhost() { ghostDirty = true; predT = 0; } // re-sim on the next tick
+	// The mass slider retunes every puck on the board, not only the next throw: a
+	// setting that reached future pucks alone would look broken while you watch.
+	function setPuckMass(m) {
+		CFG.puckM = m;
+		for (let i = 0; i < w.n; i++) w.m[i] = m;
+	}
+	// A new paint is a new score map: a bot on turn re-aims, its stroke was chosen for
+	// the old one. (Slider drags do not: a re-aim per input event would stall the drag.)
+	function setDiskSchema(name) {
+		CFG.diskSchema = name;
+		if (state === 'aim' && pending >= 0 && isBot(roster[turn])) botPrep();
+	}
 	function commitThrow() {
 		if (state !== 'aim' || pending < 0 || !aim.hasStroke) return;
 		throwPuck(w, pending, aim.vx, aim.vy);
@@ -187,7 +199,7 @@ const Game = (() => {
 	return {
 		world: w, aim, pred, roster, reset, bindInput, beforeSteps, afterSteps, tick,
 		setStroke, setAimVel, commitThrow, setSeatType, addPlayer, removePlayer,
-		invalidateGhost, giveBack,
+		invalidateGhost, setPuckMass, setDiskSchema, giveBack,
 		queueThrow: ts => queue.push({ type: 'throw', timeStamp: ts }),
 		get state() { return state; },
 		// The game is over (disk spinning down, or scored): the board is spent until

@@ -4,13 +4,13 @@
 const UI = (() => {
 	const $ = id => document.getElementById(id);
 	const els = {};
-	const opts = { ring: true, preview: true, mode: 'zones' };
+	const opts = { ring: true, preview: true, mode: 'zones', theme: 'classic' };
 	const rows = []; // one per seat: {root, sel, balls, score, rm}
 	let lastText = {};
 	function setText(id, txt) { if (lastText[id] !== txt) { lastText[id] = txt; els[id].textContent = txt; } }
 	function setNode(el, txt) { if (el.textContent !== txt) el.textContent = txt; }
 	function bind(onReset) {
-		for (const id of ['omega', 'muK', 'muS', 'omegaVal', 'muKVal', 'muSVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'chkRing', 'chkPreview', 'roster', 'btnAdd'])
+		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme'])
 			els[id] = $(id);
 		// Every physics input invalidates the ghost: it is only valid for the settings
 		// it was simulated with, so a slider move must re-sim it on the next frame.
@@ -27,6 +27,15 @@ const UI = (() => {
 			sync(); onPhys();
 		});
 		els.muS.addEventListener('input', () => { CFG.muS = parseFloat(els.muS.value); sync(); onPhys(); });
+		// Mass spans 40× (a plastic disc to a curling stone), so the slider is log10 kg.
+		els.mass.min = String(Math.log10(CFG.massMin)); els.mass.max = String(Math.log10(CFG.massMax));
+		els.mass.value = String(Math.log10(CFG.puckM));
+		els.mass.addEventListener('input', () => { Game.setPuckMass(10 ** parseFloat(els.mass.value)); sync(); onPhys(); });
+		fillSelect(els.diskSchema, DISK_SCHEMAS, CFG.diskSchema);
+		els.diskSchema.addEventListener('change', () => Game.setDiskSchema(els.diskSchema.value));
+		fillSelect(els.theme, Render.themes, opts.theme);
+		els.theme.addEventListener('change', () => { opts.theme = els.theme.value; document.body.dataset.theme = opts.theme; });
+		paintLegend();
 		els.btnAuto.addEventListener('click', () => { CFG.omega = autoOmega(CFG); els.omega.value = String(CFG.omega); sync(); onPhys(); });
 		els.btnThrow.addEventListener('click', () => Game.queueThrow(performance.now()));
 		els.btnClear.addEventListener('click', () => { Game.aim.hasStroke = false; });
@@ -39,6 +48,25 @@ const UI = (() => {
 		}
 		syncRoster();
 		sync();
+	}
+	function fillSelect(sel, table, value) {
+		for (const key in table) {
+			const o = document.createElement('option');
+			o.value = key; o.textContent = table[key].label;
+			sel.appendChild(o);
+		}
+		sel.value = value;
+	}
+	// The paint's three anchors and what each pays, read off fieldColor itself.
+	function paintLegend() {
+		const rgb = [0, 0, 0], css = [], pays = [];
+		for (const v of [-1, 0, 1]) {
+			fieldColor(v, rgb);
+			css.push('rgb(' + rgb.map(Math.round).join(',') + ')');
+			pays.push(Math.round(100 * rgb[0] / RED_MAX) + ' %');
+		}
+		els.legendBar.style.background = 'linear-gradient(90deg, ' + css.join(', ') + ')';
+		els.legendText.textContent = 'pays: blue ' + pays[0] + ' · pale ' + pays[1] + ' · red ' + pays[2];
 	}
 	// A new seat joins as a human, unless every seat already is one — then it joins as
 	// a bot, so a solo player who removes the default bots still gets an opponent.
@@ -78,17 +106,21 @@ const UI = (() => {
 		els.roster.appendChild(root);
 		return { root: root, sel: sel, balls: balls, score: score, rm: rm };
 	}
+	// The μ sliders are the coefficients of a massRef puck; at any other mass the
+	// coefficients the board actually runs on follow the arrow.
+	function muText(mu, eff) { return Math.abs(eff - mu) < 0.0005 ? mu.toFixed(3) : mu.toFixed(3) + ' → ' + eff.toFixed(3); }
 	function sync() {
 		setText('omegaVal', CFG.omega.toFixed(3) + ' rad/s');
-		setText('muKVal', CFG.muK.toFixed(3));
-		setText('muSVal', CFG.muS.toFixed(3));
+		setText('muKVal', muText(CFG.muK, muKEff(CFG)));
+		setText('muSVal', muText(CFG.muS, muSEff(CFG)));
+		setText('massVal', CFG.puckM.toFixed(2) + ' kg · μ ×' + loadFactor(CFG, CFG.puckM).toFixed(2));
 		const dh = holdRadius(CFG), pct = dh === Infinity ? '∞' : (100 * dh / CFG.diskR).toFixed(0) + '%';
 		let warn = '';
 		if (dh > CFG.diskR) warn = ' (nothing is ever ejected)';
 		else if (dh < 0.2 * CFG.diskR) warn = ' (meat grinder)';
 		setText('hold', 'd_hold/R = ' + pct + warn);
 		setText('stop', 'speed range ' + CFG.vMin.toFixed(2) + '–' + CFG.vMax.toFixed(2) + ' m/s; max-throw stops in ~' +
-			(CFG.vMax * CFG.vMax / (2 * CFG.muK * CFG.g)).toFixed(1) + ' m');
+			stopDistance(CFG, CFG.vMax).toFixed(1) + ' m');
 	}
 	function ballDots(left) {
 		let s = '';

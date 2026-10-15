@@ -3,7 +3,10 @@ const CFG = {
 	g: 9.81,
 	boardW: 3.60, boardH: 2.20,
 	diskX: 1.10, diskY: 1.10, diskR: 0.80,
-	puckR: 0.10, puckM: 4.0,
+	puckR: 0.10,
+	// puckM is the mass slider; it applies to every puck on the board. The μ sliders are
+	// the coefficients of a massRef puck, and ice grips a heavier one less (loadFactor).
+	puckM: 4.0, massRef: 4.0, massMin: 0.5, massMax: 20,
 	launchX: 3.25, launchY: 1.10, launchMinX: 3.05, launchMaxX: 3.45, launchMinY: 0.95, launchMaxY: 1.25,
 	muK: 0.030, muS: 0.045,
 	muEdge: 0.10, // puck-puck contact friction (edge rub -> spin exchange)
@@ -24,6 +27,7 @@ const CFG = {
 	maxThrows: 96, // hard game cap: a board that keeps handing pucks back still ends
 	scoreDisplayMax: 999, // scores are shown as 0..scoreDisplayMax per game
 	recycleMode: 'zones', // 'none' | 'zones' | 'advance' (radio group)
+	diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
 	botDelay: 0.7, // seconds a bot "thinks" (aim shown) before throwing
 	settleTime: 3,
 	dragFull: 0.90,
@@ -51,14 +55,6 @@ const ADVANCE_ZONES = {
 	cx: CFG.diskX, cy: CFG.diskY,
 	lx: CFG.launchMinX, lw: CFG.boardW - CFG.launchMinX, // launch lane, floor to ceiling
 };
-// Field sources in disk-local meters (see field.js). BIAS cools the whole plane.
-const FIELD_SOURCES = [
-	{ x: 0.00, y: 0.00, w: 1.25, sigma: 0.256 },
-	{ x: 0.36, y: 0.00, w: 0.85, sigma: 0.240 },
-	{ x: -0.36, y: 0.36, w: -0.85, sigma: 0.240 },
-	{ x: -0.36, y: -0.36, w: -0.85, sigma: 0.240 },
-];
-const FIELD_BIAS = -0.30;
 // Semicircular capture zones along the left map edge, above and below the disk.
 // A puck is absorbed when its centre enters BLACK_HOLES[k].r + puckR.
 const BLACK_HOLES = [
@@ -68,7 +64,16 @@ const BLACK_HOLES = [
 const MAX_PUCKS = 40;
 const ST_SLIDE = 0, ST_LOCKED = 1, ST_SLEEP = 2;
 
-function holdRadius(cfg) { return cfg.omega > 0 ? cfg.muS * cfg.g / (cfg.omega * cfg.omega) : Infinity; }
-function autoOmega(cfg) { return Math.sqrt(cfg.muS * cfg.g / (0.9 * cfg.diskR)); }
+// Ice friction falls with load. With a Hertzian real contact area A ∝ N^(2/3) and a
+// constant interfacial shear strength τ, μ = τA/N ∝ N^(−1/3), for static and kinetic
+// friction alike. This is the only way mass reaches a lone puck: under load-independent
+// Coulomb friction the deceleration μ·m·g/m and the hold limit ω²d ≤ μs·g cancel it.
+function loadFactor(cfg, m) { return Math.cbrt(cfg.massRef / m); }
+// The slider mass applies to every puck, so these describe the whole board.
+function muKEff(cfg) { return cfg.muK * loadFactor(cfg, cfg.puckM); }
+function muSEff(cfg) { return cfg.muS * loadFactor(cfg, cfg.puckM); }
+function holdRadius(cfg) { return cfg.omega > 0 ? muSEff(cfg) * cfg.g / (cfg.omega * cfg.omega) : Infinity; }
+function autoOmega(cfg) { return Math.sqrt(muSEff(cfg) * cfg.g / (0.9 * cfg.diskR)); }
+function stopDistance(cfg, v) { return v * v / (2 * muKEff(cfg) * cfg.g); } // on bare ice
 
-if (typeof module !== 'undefined') module.exports = { CFG, RETURN_ZONES, ADVANCE_ZONES, FIELD_SOURCES, FIELD_BIAS, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, holdRadius, autoOmega, clamp };
+if (typeof module !== 'undefined') module.exports = { CFG, RETURN_ZONES, ADVANCE_ZONES, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, loadFactor, muKEff, muSEff, holdRadius, autoOmega, stopDistance, clamp };

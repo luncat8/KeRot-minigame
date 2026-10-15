@@ -2,7 +2,7 @@
 // its preferences differ, so recovery, reserve use and puck-loss risk are considered
 // by every bot. Node-safe and synchronous: predictor buffers and botOut are reused.
 if (typeof module !== 'undefined') Object.assign(globalThis,
-	require('./cfg.js'), require('./physics.js'), require('./predict.js'), require('./rules.js'));
+	require('./cfg.js'), require('./field.js'), require('./physics.js'), require('./predict.js'), require('./rules.js'));
 
 const BOT_GROUPS = 4;
 const BOT_LEVELS = 4;
@@ -29,9 +29,16 @@ function setTarget(group, x, y) { botTargets[group * 2] = x; botTargets[group * 
 function strategicTargets(w, cfg, i) {
 	const owner = w.own[i];
 	setTarget(0, cfg.diskX, cfg.diskY);
-	const hot = FIELD_SOURCES[1], c = Math.cos(w.theta), s = Math.sin(w.theta);
-	setTarget(1, cfg.diskX + c * hot.x - s * hot.y, cfg.diskY + s * hot.x + c * hot.y);
-	let best = Infinity, targetX = cfg.diskX, targetY = cfg.diskY;
+	// The schema's hot spot nearest the puck at the current disk angle.
+	const aims = DISK_SCHEMAS[cfg.diskSchema].aims, c = Math.cos(w.theta), s = Math.sin(w.theta);
+	let best = Infinity;
+	for (let k = 0; k < aims.length; k++) {
+		const ax = cfg.diskX + c * aims[k].x - s * aims[k].y, ay = cfg.diskY + s * aims[k].x + c * aims[k].y;
+		const d = Math.hypot(ax - w.x[i], ay - w.y[i]);
+		if (d < best) { best = d; setTarget(1, ax, ay); }
+	}
+	best = Infinity;
+	let targetX = cfg.diskX, targetY = cfg.diskY;
 	for (let j = 0; j < w.n; j++) {
 		if (j === i || w.own[j] !== owner || puckWouldRecycle(w, j, cfg.recycleMode)) continue;
 		const ox = w.x[j] - cfg.diskX, oy = w.y[j] - cfg.diskY;

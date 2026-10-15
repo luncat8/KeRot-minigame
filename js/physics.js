@@ -190,7 +190,8 @@ for (let j = 0; j < FR_RAYS; j++) {
 // against μs·(1−a), and the moment of that force about the puck's centre against the
 // floor patch's own moment capacity μs·(1−a)·λ — the same normalisation the sliding law
 // uses. Used only to decide that a stopped puck may sleep: a sliver of overlap is held
-// (and ends the round), while a puck the disk can still torque away is not.
+// (and ends the round), while a puck the disk can still torque away is not. Only the
+// ratio μk/μs enters, so the puck's load factor cancels out of it.
 function holdable(cfg, a, ov) {
 	if (a >= 1) return false;
 	const drive = cfg.muK * a, cap = cfg.muS * (1 - a);
@@ -199,7 +200,8 @@ function holdable(cfg, a, ov) {
 	return f * f + t * t <= 1;
 }
 function applyFriction(w, h) {
-	const cfg = w.cfg, muKg = cfg.muK * cfg.g, R = cfg.diskR, dcx = cfg.diskX, dcy = cfg.diskY;
+	const cfg = w.cfg, muKg = cfg.muK * cfg.g, muSg = cfg.muS * cfg.g, R = cfg.diskR, dcx = cfg.diskX, dcy = cfg.diskY;
+	const boardLoad = loadFactor(cfg, cfg.puckM); // the slider mass: a cbrt per step, not per puck
 	for (let i = 0; i < w.n; i++) {
 		// A sleeping puck is at rest: it is skipped entirely, and only a contact that
 		// can move it brings it back (a puck hit wakes it explicitly). Nothing on the
@@ -207,10 +209,12 @@ function applyFriction(w, h) {
 		// spinning the disk up changes the *direction* of the slip under it, not the
 		// force the floor's static friction has to hold (see holdable).
 		if (w.st[i] === ST_SLEEP) continue;
+		// Ice grips a heavier puck less (loadFactor): its own mass sets both coefficients.
+		const load = w.m[i] === cfg.puckM ? boardLoad : loadFactor(cfg, w.m[i]), holdG = muSg * load;
 		const a = diskOverlap(w, i, _ov);
 		if (w.st[i] === ST_LOCKED) {
 			// Ride ends when the puck slides past the rim or beyond the hold radius.
-			if (a >= 0.98 && w.omegaCur * w.omegaCur * _ov.d <= cfg.muS * cfg.g) {
+			if (a >= 0.98 && w.omegaCur * w.omegaCur * _ov.d <= holdG) {
 				if (w.omegaCur === 0) { w.st[i] = ST_SLEEP; w.vx[i] = 0; w.vy[i] = 0; w.om[i] = 0; continue; }
 				w.om[i] = w.omegaCur; // riding = co-rotating in both senses
 				surfVelAt(w, w.x[i], w.y[i], _sv); w.vx[i] = _sv[0]; w.vy[i] = _sv[1];
@@ -222,7 +226,7 @@ function applyFriction(w, h) {
 		// the disk's surface, the rest against the still floor, and the ones the disk
 		// covers are what give a partially-intersected puck its rotation.
 		const r = w.r[i], x = w.x[i], y = w.y[i], vx0 = w.vx[i], vy0 = w.vy[i], om0 = w.om[i];
-		const cell = muKg * h / FR_N; // per unit mass, per sample
+		const cell = muKg * load * h / FR_N; // per unit mass, per sample
 		let fx = 0, fy = 0, tq = 0;
 		for (let k = 0; k < FR_RINGS; k++) {
 			const rad = FR_RAD[k] * r;
@@ -249,7 +253,7 @@ function applyFriction(w, h) {
 		surfVelAt(w, x, y, _sv);
 		const rvx = w.vx[i] - _sv[0], rvy = w.vy[i] - _sv[1];
 		const rv = Math.sqrt(rvx * rvx + rvy * rvy);
-		if (a >= 0.999 && rv <= cfg.epsLock && w.omegaCur * w.omegaCur * _ov.d <= cfg.muS * cfg.g) {
+		if (a >= 0.999 && rv <= cfg.epsLock && w.omegaCur * w.omegaCur * _ov.d <= holdG) {
 			w.st[i] = ST_LOCKED; w.vx[i] = _sv[0]; w.vy[i] = _sv[1]; w.om[i] = w.omegaCur;
 			continue;
 		}

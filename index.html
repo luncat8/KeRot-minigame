@@ -5,54 +5,74 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>KeRot — rotating disk curling</title>
 <style>
+	/* Colour schemes: the classic look is the default; js/ui.js sets body[data-theme]
+	   to pick another, and js/render.js restyles the board to match. */
+	:root {
+		--bg: #0b1c26; --panel: #122b3a; --line: #2d4a5c; --txt: #dfe6e9; --dim: #7f8c8d; --soft: #b2bec3; --acc: #74b9ff;
+		--btn: #0984e3; --btn-txt: #fff; --btn-hi: #74b9ff; --btn-hi-txt: #2d3436; --btn-border: 0;
+		--go: #27ae60; --go-hi: #2ecc71; --go-hi-txt: #0b1c26; --on: rgba(255,255,255,0.10);
+		--drawer: rgba(11, 32, 44, 0.97); --tab-hi: #1b3d52; --range: auto;
+		--font: system-ui, sans-serif; --fs: 13px;
+	}
+	/* The kerot-s draft: navy, monospace, amber accent; the throw button stays green. */
+	body[data-theme=kerot] {
+		--bg: #070b10; --panel: #0f161f; --line: #24344a; --txt: #dce7f3; --dim: #8298b1; --soft: #a9bbd0; --acc: #ffc078;
+		--btn: #1b2836; --btn-txt: #dce7f3; --btn-hi: #24384d; --btn-hi-txt: #dce7f3; --btn-border: 1px solid #24344a;
+		--go: #2c6e4a; --go-hi: #36875b; --go-hi-txt: #dce7f3; --on: rgba(255,192,120,0.10);
+		--drawer: rgba(15, 22, 31, 0.97); --tab-hi: #24384d; --range: #4f8fd6;
+		--font: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; --fs: 12px;
+	}
+	body[data-theme=kerot] #help h1 { text-transform: uppercase; letter-spacing: 0.14em; font-size: 14px; }
 	html, body { height: 100%; }
-	body { margin: 0; overflow: hidden; overscroll-behavior: none; font-family: system-ui, sans-serif; background: #0b1c26; color: #dfe6e9; }
+	body { margin: 0; overflow: hidden; overscroll-behavior: none; font-family: var(--font); background: var(--bg); color: var(--txt); }
 	#app { display: flex; gap: 12px; height: 100vh; height: 100dvh; align-items: stretch; box-sizing: border-box;
 		padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
 			max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); }
 	#boardWrap { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 	canvas { display: block; border-radius: 8px; }
-	#panel { flex: 0 0 320px; box-sizing: border-box; background: #122b3a; border-radius: 8px; padding: 14px; overflow-y: auto; overscroll-behavior: contain; }
-	.row { margin: 10px 0; font-size: 13px; }
+	#panel { flex: 0 0 320px; box-sizing: border-box; background: var(--panel); border-radius: 8px; padding: 14px; overflow-y: auto; overscroll-behavior: contain; }
+	.row { margin: 10px 0; font-size: var(--fs); }
 	.row label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
-	input[type=range] { width: 100%; }
-	select { background: #0984e3; color: #fff; border: 0; border-radius: 6px; padding: 5px; }
-	button { background: #0984e3; color: #fff; border: 0; border-radius: 6px; padding: 7px 10px; margin: 2px; cursor: pointer; }
-	button:hover { background: #74b9ff; color: #2d3436; }
-	button.go { background: #27ae60; padding: 9px 14px; font-weight: 600; }
-	button.go:hover { background: #2ecc71; color: #0b1c26; }
-	.readout { font-variant-numeric: tabular-nums; font-size: 13px; line-height: 1.5; }
-	#breakdown { font-size: 13px; margin-top: 6px; }
-	.dim { color: #7f8c8d; }
+	input[type=range] { width: 100%; accent-color: var(--range); }
+	select { background: var(--btn); color: var(--btn-txt); border: var(--btn-border); border-radius: 6px; padding: 5px; font-family: inherit; }
+	button { background: var(--btn); color: var(--btn-txt); border: var(--btn-border); border-radius: 6px; padding: 7px 10px; margin: 2px; cursor: pointer; font-family: inherit; }
+	button:hover { background: var(--btn-hi); color: var(--btn-hi-txt); }
+	button.go { background: var(--go); padding: 9px 14px; font-weight: 600; }
+	button.go:hover { background: var(--go-hi); color: var(--go-hi-txt); }
+	.readout { font-variant-numeric: tabular-nums; font-size: var(--fs); line-height: 1.5; }
+	#breakdown { font-size: var(--fs); margin-top: 6px; }
+	.dim { color: var(--dim); }
+	.legend { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11.5px; }
+	.legend i { flex: 0 0 56px; height: 8px; border-radius: 4px; }
 	#roster { margin: 6px 0; }
-	.prow { display: flex; align-items: center; gap: 6px; margin: 4px 0; padding: 2px 4px; border-radius: 6px; font-size: 13px; }
-	.prow.on { background: rgba(255,255,255,0.10); }
+	.prow { display: flex; align-items: center; gap: 6px; margin: 4px 0; padding: 2px 4px; border-radius: 6px; font-size: var(--fs); }
+	.prow.on { background: var(--on); }
 	.prow .sw { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
 	.prow select { flex: 1 1 auto; min-width: 0; padding: 3px; }
-	.pballs { letter-spacing: 2px; color: #dfe6e9; }
+	.pballs { letter-spacing: 2px; color: var(--txt); }
 	.pscore { font-variant-numeric: tabular-nums; min-width: 3em; text-align: right; }
 	button.px { padding: 3px 7px; margin: 0; }
-	fieldset { border: 1px solid #2d4a5c; border-radius: 6px; margin: 10px 0; }
+	fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 10px 0; }
 	fieldset label { display: flex; justify-content: flex-start; gap: 6px; margin: 3px 0; }
 	/* Help drawer: parked off the left edge, slides in on a pointer near that edge or
 	   on a swipe in from it. It is an overlay — the board keeps running underneath. */
 	#help { position: fixed; left: 0; top: 0; bottom: 0; z-index: 20; width: min(370px, 88vw); overflow-y: auto;
-		overscroll-behavior: contain; box-sizing: border-box; background: rgba(11, 32, 44, 0.97);
-		border-right: 1px solid #2d4a5c; box-shadow: 8px 0 28px rgba(0,0,0,0.45);
+		overscroll-behavior: contain; box-sizing: border-box; background: var(--drawer);
+		border-right: 1px solid var(--line); box-shadow: 8px 0 28px rgba(0,0,0,0.45);
 		transform: translateX(-101%); transition: transform 0.22s ease;
 		padding: 16px 18px 26px max(18px, env(safe-area-inset-left, 0px)); }
 	#help.open { transform: none; }
 	#help h1 { font-size: 18px; margin: 0 0 10px; padding-right: 30px; }
-	#help h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: #74b9ff; margin: 16px 0 5px; }
-	#help p, #help li { font-size: 12.5px; line-height: 1.55; color: #b2bec3; margin: 5px 0; }
+	#help h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--acc); margin: 16px 0 5px; }
+	#help p, #help li { font-size: 12.5px; line-height: 1.55; color: var(--soft); margin: 5px 0; }
 	#help ul { margin: 4px 0; padding-left: 19px; }
-	#help b { color: #dfe6e9; }
-	#help kbd { background: #0b1c26; border: 1px solid #2d4a5c; border-radius: 4px; padding: 0 4px; color: #dfe6e9; font: inherit; }
+	#help b { color: var(--txt); }
+	#help kbd { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; color: var(--txt); font: inherit; }
 	#helpClose { position: absolute; right: 8px; top: 10px; margin: 0; }
 	#helpTab { position: fixed; left: 0; top: 50%; z-index: 19; width: 26px; height: 48px; margin: 0; padding: 0;
 		font-size: 16px; line-height: 1; transform: translateY(-50%); border-radius: 0 8px 8px 0;
-		background: #122b3a; color: #74b9ff; border: 1px solid #2d4a5c; border-left: 0; }
-	#helpTab:hover { background: #1b3d52; color: #dfe6e9; }
+		background: var(--panel); color: var(--acc); border: 1px solid var(--line); border-left: 0; }
+	#helpTab:hover { background: var(--tab-hi); color: var(--txt); }
 	@media (hover: none) { #helpTab { top: auto; bottom: 16px; transform: none; height: 42px; width: 34px; } }
 	@media (prefers-reduced-motion: reduce) { #help { transition: none; } }
 	@media (max-width: 760px) { #app { flex-direction: column; } #panel { flex: 0 1 auto; max-height: 46%; } }
@@ -72,15 +92,19 @@
 			<label><input type="radio" name="recycle" value="zones" id="recZones" checked> eject fan (disk centre → far corners)</label>
 			<label><input type="radio" name="recycle" value="advance" id="recAdvance"> wedge + lane (behind the disk, launch strip)</label>
 		</fieldset>
+		<div class="row"><label>disk pattern <select id="diskSchema"></select></label>
+			<div class="legend"><i id="legendBar"></i><span id="legendText" class="dim"></span></div></div>
 		<div class="row"><label>disk ω <span id="omegaVal"></span></label><input type="range" id="omega" min="0" max="4" step="0.001" value="0.7831"></div>
 		<div class="row"><label>kinetic friction μk <span id="muKVal"></span></label><input type="range" id="muK" min="0.005" max="0.3" step="0.001" value="0.03"></div>
 		<div class="row"><label>static friction μs <span id="muSVal"></span></label><input type="range" id="muS" min="0.03" max="0.5" step="0.001" value="0.045"></div>
+		<div class="row"><label>puck mass <span id="massVal"></span></label><input type="range" id="mass" step="0.001"></div>
 		<div class="row">
 			<button id="btnThrow" class="go">Throw ␣</button><button id="btnClear">Clear stroke</button>
 			<button id="btnAuto">auto-ω (90%)</button><button id="btnReset">Reset board</button><button id="btnPause">Pause</button>
 		</div>
 		<div class="row"><label><span><input type="checkbox" id="chkRing" checked> eject ring</span></label>
 		<label><span><input type="checkbox" id="chkPreview" checked> ghost trajectory</span></label></div>
+		<div class="row"><label>colour scheme <select id="theme"></select></label></div>
 		<div class="readout">
 			<div id="hold"></div><div id="stop"></div><div id="simTime"></div>
 			<div id="puckCount"></div><div id="liveScore"></div><div id="state"></div>
@@ -107,6 +131,17 @@
 	<p>From the push, each seat earns <i>dt × the red area of the big disk its pucks cover</i>
 	while the board resolves; the red field rotates with the disk. Scores are shown
 	normalised to 0–999 per game, so the number means the same thing for 2 seats and for 8.</p>
+	<p>"Red" is the red channel of the paint: blue pays about a fifth, pale and red pay
+	nearly the same — the legend under <b>disk pattern</b> has the numbers.</p>
+	<h2>disk pattern</h2>
+	<p><b>soft lobes</b> (the original), <b>3 red circles</b> of different sizes, or
+	<b>6 rim hemispheres</b> — the richest red sits at the rim, right where pucks are
+	flung off. The pattern is the score map, so it can be switched mid-game.</p>
+	<h2>puck mass</h2>
+	<p>Ice grips a heavy puck less: friction falls as mass<sup>−1/3</sup>. Heavier pucks
+	slide farther and are flung off sooner — the eject ring shrinks — while light ones
+	stop short and stick. <b>auto-ω</b> re-solves the 90 % rule for the current mass. The
+	slider acts on every puck on the board.</p>
 	<h2>return pucks</h2>
 	<p>The shaded eject fan and the <b>wedge + lane</b> rule return spent pucks to their
 	owner's stock — pick one in the side panel.</p>
@@ -116,6 +151,9 @@
 	<h2>bots</h2>
 	<p>Try the retriever, black-hole, or balanced bots to compare recovery and attack
 	strategies. A seat can be switched between human and bot at any time.</p>
+	<h2>colour scheme</h2>
+	<p><b>classic</b>, or <b>kerot-s</b>: navy ice and cream pucks whose centre gauge and
+	tag show the share of the best possible rate each puck is earning right now.</p>
 </aside>
 <script src="js/cfg.js"></script>
 <script src="js/field.js"></script>

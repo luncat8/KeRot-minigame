@@ -103,3 +103,41 @@
   puck. When a roster is spliced, remove the departing owner's entities first, then
   reindex every surviving `own[]` entry and owner-indexed counter; test that a survivor
   still scores afterward.
+- Under load-independent Coulomb friction a lone puck's **mass cancels** — from the
+  deceleration (μ·m·g/m) and from the hold limit (ω²d ≤ μs·g) — and a slider that sets
+  every mass equal cancels it from collisions too. kerot-s shipped exactly that no-op. A
+  mass control needs a physical door: ice friction falls with load (Hertzian contact
+  area A ∝ N^(2/3), constant shear strength → μ ∝ m^(−1/3)). Gate it as an equivalence
+  (mass m on μ ≡ the reference mass on μ·loadFactor(m), to 1e-16) plus the effects
+  (stop ∝ m^(1/3), hold radius ∝ m^(−1/3)), and pick the reference so the default is
+  bit-identical. Take the shared factor once per step: a `cbrt` per puck cost 15 %.
+- Real frames without a browser: `experiments/render-frames.js` renders the actual
+  `js/render.js` through `@napi-rs/canvas` (`cd experiments/tools && npm install` once;
+  `node_modules` is git-ignored), one PNG per colour scheme × disk schema, which
+  `read_file` shows. A pixel diff against a frame from a worktree of the previous commit
+  proves claims like "only the floor changed" (count the differing pixels per region).
+- Evaluate browser files in **strict mode** in the node smoke test (`eval('"use strict";'
+  + src)`): an assignment to an undeclared name — a silent `window` global in a classic
+  script — throws on the spot. It found `bakeZone`'s leaked `l1, l2, a0, a1`. And make
+  the guard-stripping regex global (`/gm`): with `/m` alone only the first
+  `if (typeof module …)` line goes, and a file's bottom `module.exports = …` then runs
+  inside the eval and overwrites the *harness's* exports.
+- `node -e "const CFG = …; require('./js/field.js')"` → "CFG is not defined" inside the
+  module: the script's top-level `const CFG` shadows the `globalThis.CFG` the classic-
+  script modules publish. A test artifact, not a bug — use other names in one-liners.
+- Checking an estimator over a puck that hangs over the rim: a cell-count reference
+  quantises a *sliver's* area and becomes the larger error (constant "1.00 %" whatever
+  the estimator did). Use exact lens area × fine-grid mean, and judge slivers in
+  absolute terms (shares of one full puck), not relative ones.
+- Integrating over a circle-circle lens: rays from the puck centre clipped to the disk
+  are smooth in angle *except* where the two circles cross, and a fixed fan converges
+  slowly through those kinks (32 rays 2.4 %, 128 rays 0.4 %). Split the angle at the two
+  crossings (`acos((R² − d² − r²)/(2rd))` around the outward direction) and use Gauss in
+  angle per arc and along each ray (≥ 4 radial points for piecewise-linear paint).
+- A finer lookup table is not automatically better: with a sparse sample pattern on top,
+  a coarse bilinear grid low-passes sharp paint edges for it. On the ring schemas the
+  whole-puck error *grew* from 96 → 160 → 192 cells; measure, then pick (128).
+- Shell: `while pgrep -f "script args"; do sleep 1; done` matches its own command line
+  and never ends. Wait on PIDs (`cmd & pid=$!; wait $pid`) instead.
+- `cd dir && (a) & (b)` runs `b` in the *old* directory: the `&` takes the whole
+  `cd && (a)` list into the background.

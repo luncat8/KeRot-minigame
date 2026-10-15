@@ -1,6 +1,8 @@
 // Deterministic headless comparison of all strategic profiles.
-// Run: node experiments/bot-strategies.js [games] [seed0]
+// Run: node experiments/bot-strategies.js [games] [seed0] [disk schema]
+// The classic disk writes results/bot-strategies.json, any other bot-strategies-<schema>.json.
 Object.assign(globalThis,
+	require('../js/field.js'),
 	require('../js/physics.js'),
 	require('../js/score.js'),
 	require('../js/players.js'),
@@ -12,6 +14,9 @@ const path = require('path');
 
 const GAMES = parseInt(process.argv[2], 10) || 12;
 const SEED0 = parseInt(process.argv[3], 10) || 20261014;
+const SCHEMA = process.argv[4] || CFG.diskSchema;
+if (!DISK_SCHEMAS[SCHEMA]) { console.log('unknown disk schema ' + SCHEMA + ' — one of ' + Object.keys(DISK_SCHEMAS).join(', ')); process.exit(1); }
+CFG.diskSchema = SCHEMA;
 const BOTS = ['random', 'keeper', 'hunter', 'retriever', 'blackhole', 'balanced'];
 const TICK = 8;
 let fail = 0;
@@ -52,7 +57,7 @@ function modelGates() {
 	check(rp.scoreBySeat[0] === 0, 'recovery prediction does not pretend an off-disk puck scored');
 
 	const turn = createWorld(CFG), tp = createPredictor(CFG);
-	const hot = FIELD_SOURCES[1];
+	const hot = DISK_SCHEMAS[CFG.diskSchema].aims[0];
 	const locked = spawnPuck(turn, CFG.diskX + hot.x, CFG.diskY + hot.y, 0);
 	turn.st[locked] = ST_LOCKED;
 	turn.vx[locked] = -CFG.omega * (turn.y[locked] - CFG.diskY);
@@ -155,14 +160,15 @@ const started = Date.now();
 const result = run();
 const output = {
 	date: new Date().toISOString(),
-	config: { games: GAMES, seed0: SEED0, seats: BOTS.length, ballsPerPlayer: CFG.ballsPerPlayer,
+	config: { games: GAMES, seed0: SEED0, diskSchema: SCHEMA, seats: BOTS.length, ballsPerPlayer: CFG.ballsPerPlayer,
 		blackHoles: BLACK_HOLES, recycleMode: CFG.recycleMode, samplesPerAction: BOT_SAMPLES,
 		scoreSampleHz: 1 / (PRED_SCORE_EVERY * CFG.h),
 		note: 'Seats rotate every game. Score includes turn-integrated red area; recovery is a return to the active rule; black-hole captures permanently consume a ball.' },
 	bots: result.bots,
 	game: { throws: result.throws, recycled: result.recycled, permanentlyLost: result.lost, simTime: result.time },
 };
-const resultPath = path.join(__dirname, 'results', 'bot-strategies.json');
+const resultFile = SCHEMA === 'classic' ? 'bot-strategies.json' : 'bot-strategies-' + SCHEMA + '.json';
+const resultPath = path.join(__dirname, 'results', resultFile);
 fs.mkdirSync(path.dirname(resultPath), { recursive: true });
 fs.writeFileSync(resultPath, JSON.stringify(output, null, '\t') + '\n');
 console.log('bot        score 0..' + CFG.scoreDisplayMax + '     win%  recovered   lost   kills  ms/action');
@@ -174,5 +180,5 @@ for (const b of result.bots) {
 }
 console.log('game: ' + result.throws.mean.toFixed(1) + ' throws, ' + result.recycled.mean.toFixed(1)
 	+ ' returned, ' + result.lost.mean.toFixed(1) + ' lost to holes, ' + result.time.mean.toFixed(1) + ' s simulated');
-console.log(fail ? 'FAIL' : 'OK (' + GAMES + ' seeded games in ' + ((Date.now() - started) / 1000).toFixed(1) + ' s) -> experiments/results/bot-strategies.json');
+console.log(fail ? 'FAIL' : 'OK (' + GAMES + ' seeded games on ' + SCHEMA + ' in ' + ((Date.now() - started) / 1000).toFixed(1) + ' s) -> experiments/results/' + resultFile);
 process.exit(fail);

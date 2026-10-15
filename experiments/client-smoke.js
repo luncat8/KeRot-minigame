@@ -10,16 +10,18 @@ let fail = 0;
 function check(ok, name, extra) { if (!ok) { console.log('FAIL ' + name + (extra ? ' — ' + extra : '')); fail = 1; } }
 
 const ops = [];
+let bakes = 0; // createImageData calls: one per field texture baked
 function makeCtx() {
 	return {
-		fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', globalAlpha: 1, textAlign: '', textBaseline: '', lineCap: '',
+		fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', globalAlpha: 1, textAlign: '', textBaseline: '', lineCap: '', lineJoin: '',
 		save() { }, restore() { }, translate() { }, rotate(a) { ops.push('rotate' + (a === undefined ? '' : ':' + a.toFixed(3))); }, scale() { }, setTransform() { },
 		beginPath() { }, closePath() { }, moveTo() { }, lineTo() { }, arc() { }, rect() { }, strokeRect() { ops.push('strokeRect'); }, fillRect() { ops.push('fillRect'); },
 		stroke() { ops.push('stroke'); }, fill(p, rule) { ops.push('fill' + (rule ? ':' + rule : '')); },
 		clip(p, rule) { ops.push('clip' + (rule ? ':' + rule : '')); }, setLineDash() { }, drawImage() { },
-		fillText(t) { ops.push('text:' + t); },
+		fillText(t) { ops.push('text:' + t); }, strokeText(t) { ops.push('outline:' + t); },
 		createRadialGradient() { return { addColorStop() { } }; },
-		createImageData(w, h) { return { data: new Uint8ClampedArray(w * h * 4) }; },
+		createLinearGradient() { return { addColorStop() { } }; },
+		createImageData(w, h) { bakes++; return { data: new Uint8ClampedArray(w * h * 4) }; },
 		putImageData() { },
 	};
 }
@@ -45,13 +47,15 @@ globalThis.window = { devicePixelRatio: 2, addEventListener(type, fn) { (winList
 function fireWindow(type, ev) { for (const fn of winListeners[type] || []) fn(ev); }
 globalThis.document = { createElement: () => makeCanvas(), getElementById: () => null };
 // Browser layer files as they run on the page: classic scripts, no modules, their
-// top-level consts become real globals (node would keep them module-local).
+// top-level consts become real globals (node would keep them module-local). Strict
+// mode turns an assignment to an undeclared name — a silent implicit global in a
+// classic script — into a ReferenceError the moment the code runs.
 for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/render.js', '../js/game.js', '../js/ui.js', '../js/help.js']) {
 	const src = fs.readFileSync(require('path').join(__dirname, f), 'utf8')
-		.replace(/^if \(typeof module !== 'undefined'\).*$/m, '') // node-only export guard
+		.replace(/^if \(typeof module !== 'undefined'\).*$/gm, '') // node-only require/export guards
 		.replace(/\bconst (Render|Game|UI|Help|SEAT_COLORS|SEAT_TYPES|SEAT_LABELS|SEAT_NAMES|SC_LUT_N|SC_LUT_W|RED_MAX) =/, 'globalThis.$1 =')
 		.replace(/\bfunction bakeFieldCanvas/, 'globalThis.bakeFieldCanvas = function bakeFieldCanvas');
-	eval(src);
+	eval('"use strict";' + src);
 }
 
 // Render: zones on/off, every puck state, the ghost path, the seat HUD and the fan paths.
@@ -68,7 +72,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	const aim = { pending: d, hasStroke: true, vx: -1.4, vy: 0.1 };
 	const roster = createRoster(['human', 'hunter'], CFG.ballsPerPlayer);
 	roster[1].score = 123.4;
-	const view = { w: w, aim: aim, opts: { ring: true, preview: true, mode: 'zones' }, pred: pred, roster: roster, turn: 1, resolveT: 1.5, state: 'resolve' };
+	const view = { w: w, aim: aim, opts: { ring: true, preview: true, mode: 'zones', theme: 'classic' }, pred: pred, roster: roster, turn: 1, resolveT: 1.5, state: 'resolve' };
 	ops.length = 0;
 	Render.drawWorld(view);
 	const withZones = ops.length;
@@ -85,7 +89,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(bars >= 2 * 2 + 2, 'seat cells and the turn-window bar are filled', String(bars));
 	// The other return rule: same hole, plus the launch lane, and two labels.
 	ops.length = 0;
-	view.opts = { ring: false, preview: false, mode: 'advance' };
+	view.opts = { ring: false, preview: false, mode: 'advance', theme: 'classic' };
 	Render.drawWorld(view);
 	const wedge = ops.length;
 	check(ops.includes('fill:evenodd') && ops.includes('clip:evenodd'), 'wedge+lane drawn with the on-disk hole (evenodd)');
@@ -97,7 +101,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(lanes.some(p => p.ops.some(o => o === 'arc:' + num(CFG.diskX) + ',' + num(CFG.diskY) + ',' + num(CFG.diskR + CFG.puckR))),
 		'the lane shares the fan\'s on-disk guard');
 	ops.length = 0;
-	view.opts = { ring: false, preview: false, mode: 'none' };
+	view.opts = { ring: false, preview: false, mode: 'none', theme: 'classic' };
 	Render.drawWorld(view);
 	check(!ops.includes('text:RETURN') && ops.length > 0, 'mode none draws no zone, still renders');
 	check(withZones > ops.length, 'zones mode costs extra draw calls only');
@@ -117,6 +121,36 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(wide.width <= 1200 * 3, 'the backing store is capped by a pixel budget', String(wide.width));
 	console.log('render smoke: ' + withZones + ' ops with the fan, ' + wedge + ' with wedge+lane, ' + ops.length +
 		' without, board fitted to ' + cssW + 'x' + cssH + ' css px, no exceptions');
+	// Every colour scheme over every disk schema. A schema change rebakes the disk
+	// texture once, on the next frame, and nothing else; a scheme change rebakes nothing.
+	const schema0 = CFG.diskSchema;
+	view.opts = { ring: true, preview: true, mode: 'zones', theme: 'classic' };
+	Render.drawWorld(view);
+	let rebakes = 0, schemeBakes = 0;
+	for (const theme of Object.keys(Render.themes)) {
+		view.opts.theme = theme;
+		let b0 = bakes;
+		Render.drawWorld(view);
+		schemeBakes += bakes - b0;
+		for (const schema of Object.keys(DISK_SCHEMAS)) {
+			if (schema === CFG.diskSchema) continue;
+			CFG.diskSchema = schema;
+			b0 = bakes;
+			ops.length = 0;
+			Render.drawWorld(view);
+			Render.drawWorld(view);
+			rebakes += bakes - b0;
+			check(bakes - b0 === 1, 'a disk schema change rebakes the disk texture exactly once', theme + '/' + schema + ': ' + (bakes - b0));
+			const tags = ops.filter(o => o.startsWith('outline:') && o.endsWith('%')).length;
+			if (theme === 'kerot') check(tags >= 2, 'kerot-s pucks on the disk carry their outlined rate tag', theme + '/' + schema + ': ' + tags);
+			else check(tags === 0, 'classic pucks carry no rate tag', schema);
+		}
+	}
+	check(schemeBakes === 0, 'a colour scheme change rebakes nothing', String(schemeBakes));
+	CFG.diskSchema = schema0;
+	Render.drawWorld(view);
+	console.log('scheme smoke: ' + Object.keys(Render.themes).length + ' colour schemes × ' + Object.keys(DISK_SCHEMAS).length +
+		' disk schemas drawn, ' + rebakes + ' disk rebakes on schema change, none on scheme change');
 }
 // Scoring: off the disk nothing is earned, on it the rate is the covered red area,
 // and the integral does not care how the frame loop is chopped up.
@@ -268,6 +302,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		createElement: tag => makeEl(tag),
 		getElementById: id => ids.has(id) ? (els[id] = els[id] || makeEl(id)) : null,
 		querySelectorAll: () => radios,
+		body: Object.assign(makeEl('body'), { dataset: {} }),
 	};
 	UI.bind(() => Game.reset());
 	UI.update(Game.world); // the game above ended in SCORED
@@ -317,6 +352,37 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	fireWindow('touchmove', { touches: [{ clientX: 240, clientY: 305 }], timeStamp: 2100 });
 	check(!help.cls.open, 'a swipe left on it closes it');
 	console.log('help smoke: drawer opens, pins and closes, no exceptions');
+	// Disk pattern, colour scheme and puck mass — the three controls this round added.
+	const schemaKeys = els.diskSchema.children.map(o => o.value), themeKeys = els.theme.children.map(o => o.value);
+	check(schemaKeys.join() === Object.keys(DISK_SCHEMAS).join(), 'the disk pattern select lists every schema', schemaKeys.join());
+	check(themeKeys.join() === Object.keys(Render.themes).join(), 'the colour scheme select lists every scheme', themeKeys.join());
+	check((els.legendBar.style.background.match(/rgb\(/g) || []).length === 3 && els.legendText.textContent.includes('pays'),
+		'the legend shows the three paint anchors and what they pay', els.legendText.textContent);
+	const probe = createWorld(CFG), pi = spawnPuck(probe, CFG.diskX, CFG.diskY, 0); // dead centre
+	const rateClassic = puckRate(probe, pi);
+	els.diskSchema.value = 'rim6'; els.diskSchema.on.change();
+	check(CFG.diskSchema === 'rim6', 'picking a pattern sets the schema');
+	const rateRim = puckRate(probe, pi);
+	check(rateRim < 0.5 * rateClassic, 'the score map follows the pattern (the rim schema pays little at the centre)',
+		rateClassic.toFixed(2) + ' -> ' + rateRim.toFixed(2));
+	els.diskSchema.value = 'classic'; els.diskSchema.on.change();
+	check(puckRate(probe, pi) === rateClassic, 'switching back restores the original score map exactly');
+	els.theme.value = 'kerot'; els.theme.on.change();
+	check(document.body.dataset.theme === 'kerot' && UI.opts().theme === 'kerot', 'picking a scheme restyles the page and the board');
+	els.theme.value = 'classic'; els.theme.on.change();
+	const holdRef = holdRadius(CFG), m0 = CFG.puckM, live = Game.world.n;
+	check(Math.abs(10 ** parseFloat(els.mass.value) - CFG.puckM) < 1e-9, 'the mass slider starts on the configured mass', els.mass.value);
+	els.mass.value = String(Math.log10(20)); els.mass.on.input();
+	let allHeavy = live > 0;
+	for (let i = 0; i < Game.world.n; i++) if (Math.abs(Game.world.m[i] - 20) > 1e-9) allHeavy = false;
+	check(Math.abs(CFG.puckM - 20) < 1e-9 && allHeavy, 'the mass slider retunes every puck on the board', live + ' pucks');
+	check(holdRadius(CFG) < holdRef, 'a heavier puck is held less: the eject ring shrinks', holdRef.toFixed(3) + ' -> ' + holdRadius(CFG).toFixed(3));
+	check(els.massVal.textContent.startsWith('20.00 kg') && els.muKVal.textContent.includes('→'),
+		'the readouts show the mass and the coefficients it runs on', els.massVal.textContent + ' | ' + els.muKVal.textContent);
+	Game.setPuckMass(m0); UI.update(Game.world);
+	check(holdRadius(CFG) === holdRef && !els.muKVal.textContent.includes('→'), 'back at the reference mass nothing is rescaled');
+	console.log('controls smoke: ' + schemaKeys.length + ' patterns, ' + themeKeys.length + ' schemes, mass 4 → 20 kg moves d_hold ' +
+		holdRef.toFixed(3) + ' → ' + (holdRef * Math.cbrt(m0 / 20)).toFixed(3) + ' m');
 	console.log('ui smoke: ' + els.roster.children.length + ' rows, breakdown ' +
 		(els.breakdown.innerHTML ? 'filled' : 'empty') + ', no exceptions');
 }
