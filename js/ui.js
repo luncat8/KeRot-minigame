@@ -10,14 +10,14 @@ const UI = (() => {
 	function setText(id, txt) { if (lastText[id] !== txt) { lastText[id] = txt; els[id].textContent = txt; } }
 	function setNode(el, txt) { if (el.textContent !== txt) el.textContent = txt; }
 	function bind(onReset) {
-		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme'])
+		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend'])
 			els[id] = $(id);
 		// Every physics input invalidates the ghost: it is only valid for the settings
 		// it was simulated with, so a slider move must re-sim it on the next frame.
 		// On a spent board (the disk has spun down after the game) the new setting
 		// would otherwise never be seen — the disk is stopped and only a reset starts
 		// it again — so restart the board as well.
-		const onPhys = () => { if (Game.roundEnded) onReset(); Game.invalidateGhost(); };
+		const onPhys = () => { if (Game.roundEnded) onReset(); Game.invalidateGhost(); markCustom(); };
 		els.omega.max = String(CFG.omegaMax);
 		els.omega.addEventListener('input', () => { CFG.omega = parseFloat(els.omega.value); sync(); onPhys(); });
 		els.muK.addEventListener('input', () => {
@@ -29,25 +29,72 @@ const UI = (() => {
 		els.muS.addEventListener('input', () => { CFG.muS = parseFloat(els.muS.value); sync(); onPhys(); });
 		// Mass spans 40× (a plastic disc to a curling stone), so the slider is log10 kg.
 		els.mass.min = String(Math.log10(CFG.massMin)); els.mass.max = String(Math.log10(CFG.massMax));
-		els.mass.value = String(Math.log10(CFG.puckM));
 		els.mass.addEventListener('input', () => { Game.setPuckMass(10 ** parseFloat(els.mass.value)); sync(); onPhys(); });
 		fillSelect(els.diskSchema, DISK_SCHEMAS, CFG.diskSchema);
-		els.diskSchema.addEventListener('change', () => Game.setDiskSchema(els.diskSchema.value));
+		els.diskSchema.addEventListener('change', () => { Game.setDiskSchema(els.diskSchema.value); markCustom(); });
 		fillSelect(els.theme, Render.themes, opts.theme);
-		els.theme.addEventListener('change', () => { opts.theme = els.theme.value; document.body.dataset.theme = opts.theme; });
+		els.theme.addEventListener('change', () => { opts.theme = els.theme.value; document.body.dataset.theme = opts.theme; markCustom(); });
+		// The preset select keeps a placeholder until a bundle is picked, and goes back
+		// to it (markCustom) as soon as any control moves away from the bundle.
+		const ph = document.createElement('option');
+		ph.value = ''; ph.textContent = 'apply a preset…'; els.preset.appendChild(ph);
+		fillSelect(els.preset, PRESETS, '');
+		els.preset.addEventListener('change', () => { if (els.preset.value) applyPreset(els.preset.value); });
 		paintLegend();
 		els.btnAuto.addEventListener('click', () => { CFG.omega = autoOmega(CFG); els.omega.value = String(CFG.omega); sync(); onPhys(); });
 		els.btnThrow.addEventListener('click', () => Game.queueThrow(performance.now()));
 		els.btnClear.addEventListener('click', () => { Game.aim.hasStroke = false; });
 		els.btnReset.addEventListener('click', onReset);
 		els.btnPause.addEventListener('click', () => { els.btnPause.textContent = Game.togglePause() ? 'Resume' : 'Pause'; });
-		els.btnAdd.addEventListener('click', () => { Game.addPlayer(nextType()); syncRoster(); });
-		for (const r of document.querySelectorAll('input[name=recycle]')) {
-			r.addEventListener('change', () => { if (r.checked) { CFG.recycleMode = r.value; opts.mode = r.value; } });
-			if (r.checked) { CFG.recycleMode = r.value; opts.mode = r.value; }
+		els.btnAdd.addEventListener('click', () => { Game.addPlayer(nextType()); syncRoster(); markCustom(); });
+		for (const r of recycleRadios()) {
+			r.addEventListener('change', () => { if (r.checked) { CFG.recycleMode = r.value; opts.mode = r.value; markCustom(); } });
 		}
+		pullControls();
 		syncRoster();
 		sync();
+	}
+	function recycleRadios() { return document.querySelectorAll('input[name=recycle]'); }
+	// Any manual control change leaves the bundle the preset select last applied.
+	function markCustom() { if (els.preset) els.preset.value = ''; }
+	// The controls mirror CFG (after boot parameters and presets), never the stale
+	// HTML defaults: every writable control is written here.
+	function pullControls() {
+		els.omega.value = String(CFG.omega);
+		els.muK.value = String(CFG.muK);
+		els.muS.value = String(CFG.muS);
+		els.muS.min = String(CFG.muK);
+		els.mass.value = String(Math.log10(CFG.puckM));
+		els.diskSchema.value = CFG.diskSchema;
+		els.theme.value = opts.theme;
+		for (const r of recycleRadios()) r.checked = r.value === CFG.recycleMode;
+		opts.mode = CFG.recycleMode;
+	}
+	// A setup object (a preset by name, or the URL parameters) applied in one go:
+	// CFG first, then the table it asks for, then the looks. Any board-changing key
+	// starts a fresh board — a preset is a way to start over on purpose — and a
+	// named bundle is echoed into the address bar as its shareable link.
+	function applySetup(setup) {
+		if (!setup) return;
+		applyCfg(setup);
+		if (setup.theme && Render.themes[setup.theme]) { opts.theme = setup.theme; document.body.dataset.theme = opts.theme; }
+		if (setup.ring !== undefined) els.chkRing.checked = setup.ring;
+		if (setup.ghost !== undefined) els.chkPreview.checked = setup.ghost;
+		if (setup.seats && setup.seats.length) Game.setSeatTypes(setup.seats); // resets itself
+		else if (setup.omega !== undefined || setup.muK !== undefined || setup.muS !== undefined || setup.puckM !== undefined ||
+			setup.autoOmega || setup.balls !== undefined || setup.schema || setup.recycle) Game.reset();
+		pullControls();
+		syncRoster();
+		sync();
+		if (!setup.preset) return;
+		els.preset.value = setup.preset;
+		try { history.replaceState(null, '', '?' + presetQuery(setup.preset)); }
+		catch (e) { // the address bar may refuse (sandbox, some file:// setups) — the game is already set
+		}
+	}
+	function applyPreset(name) {
+		if (!PRESETS[name]) return;
+		applySetup(Object.assign({}, PRESETS[name], { preset: name }));
 	}
 	function fillSelect(sel, table, value) {
 		for (const key in table) {
@@ -96,12 +143,12 @@ const UI = (() => {
 			sel.appendChild(o);
 		}
 		sel.value = type;
-		sel.addEventListener('change', () => Game.setSeatType(i, sel.value));
+		sel.addEventListener('change', () => { Game.setSeatType(i, sel.value); markCustom(); });
 		const balls = document.createElement('span'); balls.className = 'pballs';
 		const score = document.createElement('span'); score.className = 'pscore';
 		const rm = document.createElement('button');
 		rm.className = 'px'; rm.textContent = '×'; rm.title = 'remove this player';
-		rm.addEventListener('click', () => { Game.removePlayer(i); syncRoster(); });
+		rm.addEventListener('click', () => { Game.removePlayer(i); syncRoster(); markCustom(); });
 		root.append(dot, sel, balls, score, rm);
 		els.roster.appendChild(root);
 		return { root: root, sel: sel, balls: balls, score: score, rm: rm };
@@ -118,6 +165,7 @@ const UI = (() => {
 		let warn = '';
 		if (dh > CFG.diskR) warn = ' (nothing is ever ejected)';
 		else if (dh < 0.2 * CFG.diskR) warn = ' (meat grinder)';
+		setText('ballsLegend', 'players — ' + CFG.ballsPerPlayer + ' balls each, one push per turn');
 		setText('hold', 'd_hold/R = ' + pct + warn);
 		setText('stop', 'speed range ' + CFG.vMin.toFixed(2) + '–' + CFG.vMax.toFixed(2) + ' m/s; max-throw stops in ~' +
 			stopDistance(CFG, CFG.vMax).toFixed(1) + ' m');
@@ -164,5 +212,5 @@ const UI = (() => {
 		opts.ring = els.chkRing.checked; opts.preview = els.chkPreview.checked;
 		return opts;
 	}
-	return { bind, update, opts: optsNow };
+	return { bind, update, opts: optsNow, applySetup, applyPreset };
 })();

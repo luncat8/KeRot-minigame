@@ -5,6 +5,9 @@
 	Game.reset();
 	Game.bindInput(cv);
 	UI.bind(() => Game.reset());
+	// URL parameters configure the boot (?schema=rim6&seats=human,hunter, see
+	// js/presets.js); no parameters, and this is exactly the page as shipped.
+	UI.applySetup(parseQuery(location.search));
 	Help.bind();
 	// The board is fitted to its box, so it has to be re-measured on every event that
 	// changes that box: window size, the panel's scrollbar, or a mobile URL bar.

@@ -46,6 +46,7 @@ const DISK_SCHEMAS = {
 		label: '6 rim hemispheres',
 		rings: rimRings(6, 0.42, 0.16, 0),
 		aims: rimAims(6, 0.78, 0),
+		lobes: 6, // six equivalent lobes: the bots lead rotating aims modulo one lobe period
 	},
 };
 DISK_SCHEMAS.circles.aims = centres(DISK_SCHEMAS.circles.rings);

@@ -3,7 +3,7 @@
 // "the frame loop throws" and input mapping regressions that the physics
 // experiments cannot see.
 Object.assign(globalThis, require('../js/physics.js'), require('../js/score.js'), require('../js/players.js'),
-	require('../js/rules.js'), require('../js/predict.js'), require('../js/bots.js'));
+	require('../js/rules.js'), require('../js/predict.js'), require('../js/bots.js'), require('../js/presets.js'));
 const fs = require('fs');
 const path = require('path');
 let fail = 0;
@@ -385,6 +385,40 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		holdRef.toFixed(3) + ' → ' + (holdRef * Math.cbrt(m0 / 20)).toFixed(3) + ' m');
 	console.log('ui smoke: ' + els.roster.children.length + ' rows, breakdown ' +
 		(els.breakdown.innerHTML ? 'filled' : 'empty') + ', no exceptions');
+	// Presets and URL parameters: the same setup objects applied at boot or from the
+	// panel — CFG clamped to the ranges, the controls pulled to what was applied,
+	// the roster swapped for a table preset, and a named bundle echoed into the
+	// address bar. Restored to the default preset afterwards.
+	{
+		const historyCalls = [];
+		globalThis.history = { replaceState(a, b, url) { historyCalls.push(url); } };
+		check(parseQuery('') === null && parseQuery('?nonsuch=1&muK=abc') === null, 'a query without usable keys changes nothing');
+		const seatCount = Game.roster.length;
+		UI.applySetup(parseQuery('?schema=rim6&seats=human,hunter&mass=8&muK=0.09&muS=0.002&ring=0&ghost=0'));
+		check(Math.abs(CFG.puckM - 8) < 1e-9 && CFG.muK === 0.09 && CFG.muS >= CFG.muK, 'URL parameters apply, μs is clamped to μk', CFG.muK + '/' + CFG.muS);
+		check(CFG.diskSchema === 'rim6' && Game.seatTypes.join() === 'human,hunter', 'URL sets the schema and swaps the roster', Game.seatTypes.join());
+		check(els.mass.value === String(Math.log10(8)) && els.diskSchema.value === 'rim6' && els.muS.value === String(CFG.muS),
+			'the controls are pulled to the applied values', els.muS.value);
+		check(!els.chkRing.checked && !els.chkPreview.checked, 'ring/ghost toggles apply to the view options');
+		check(Game.state === 'aim' && Game.roster.length === 2 && Game.roster[0].balls + Game.roster[1].balls === 2 * CFG.ballsPerPlayer - 1,
+			'a fresh board is dealt for the new table');
+		check(seatCount !== 2 || historyCalls.length === 0, 'an anonymous setup leaves the address bar alone');
+		UI.applyPreset('stones');
+		check(Math.abs(CFG.puckM - 20) < 1e-9 && CFG.muS === 0.09 && CFG.omega === autoOmega(CFG),
+			'the stones preset sets only its keys and auto-ω solves for the applied mass', CFG.puckM + '/' + CFG.omega.toFixed(4));
+		check(els.preset.value === 'stones', 'the preset select shows the applied bundle');
+		check(historyCalls.length === 1 && historyCalls[0] === '?preset=stones', 'the preset is echoed into the address bar', historyCalls.join(','));
+		check(els.omega.value === String(CFG.omega) && els.massVal.textContent.startsWith('20.00 kg'), 'sliders and readouts follow the preset');
+		els.omega.value = '1.5'; els.omega.on.input();
+		check(CFG.omega === 1.5 && els.preset.value === '', 'a manual touch marks the bundle as custom');
+		UI.applyPreset('default');
+		UI.update(Game.world);
+		check(Math.abs(CFG.puckM - 4) < 1e-9 && Math.abs(CFG.muK - 0.03) < 1e-9 && CFG.diskSchema === 'classic' && CFG.recycleMode === 'zones' &&
+			Game.seatTypes.join() === 'human,balanced,blackhole,retriever', 'the default preset restores the shipped table', Game.seatTypes.join());
+		check(document.body.dataset.theme === 'classic' && historyCalls[historyCalls.length - 1] === '?preset=default', 'scheme and link follow the default preset');
+		console.log('presets/url smoke: ' + Object.keys(PRESETS).length + ' presets, parameters applied and clamped, sliders pulled, roster swapped, link echoed');
+		els.chkRing.checked = true; els.chkPreview.checked = true;
+	}
 }
 console.log(fail ? 'FAIL' : 'OK (render + score + seats + ui smoke)');
 process.exit(fail);

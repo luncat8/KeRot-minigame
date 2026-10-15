@@ -129,7 +129,12 @@ const Game = (() => {
 		predT -= dt;
 		if (paused || state !== 'aim' || pending < 0 || !aim.hasStroke || !isBot(roster[turn])) return;
 		botT += dt;
-		if (botT >= CFG.botDelay) { botT = 0; commitThrow(); }
+		// The bot aims when armed (so its intent shows during the think time) and
+		// chooses again at the instant it throws: during the delay the disk has
+		// turned ~0.5 rad and the board has kept moving, so the armed stroke is
+		// stale for anything that rotates — the page must not play the bots worse
+		// than the experiments do (those throw at the angle they chose on).
+		if (botT >= CFG.botDelay) { botT = 0; botPrep(); commitThrow(); }
 	}
 	function bindInput(canvas) {
 		canvas.style.touchAction = 'none';
@@ -169,6 +174,13 @@ const Game = (() => {
 		rebase(aim.len, sp, e.shiftKey); // arrows and drag share the same anchor
 		setAimVel(Math.cos(ang) * sp, Math.sin(ang) * sp);
 	}
+	// Swap the whole roster at once (a table preset or URL `seats` list) — unlike the
+	// live seat-by-seat edits, a table swap restarts the board and deals fresh balls.
+	function setSeatTypes(types) {
+		roster.length = 0;
+		for (let i = 0; i < Math.min(types.length, CFG.maxPlayers); i++) roster.push(makeSeat(types[i], CFG.ballsPerPlayer));
+		reset();
+	}
 	// Roster edits, live: no reset, so trying a different number of seats is a click.
 	function setSeatType(i, type) {
 		const seat = roster[i];
@@ -198,7 +210,7 @@ const Game = (() => {
 	}
 	return {
 		world: w, aim, pred, roster, reset, bindInput, beforeSteps, afterSteps, tick,
-		setStroke, setAimVel, commitThrow, setSeatType, addPlayer, removePlayer,
+		setStroke, setAimVel, commitThrow, setSeatType, setSeatTypes, addPlayer, removePlayer,
 		invalidateGhost, setPuckMass, setDiskSchema, giveBack,
 		queueThrow: ts => queue.push({ type: 'throw', timeStamp: ts }),
 		get state() { return state; },
