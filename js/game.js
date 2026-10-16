@@ -147,8 +147,13 @@ const Game = (() => {
 	// A direct speed change (the panel slider, auto-ω, a preset or a URL), whatever the
 	// rule: the disk jumps there, and games start from it from now on.
 	function setOmega(v) {
+		const wasStill = w.omegaCur === 0;
 		CFG.omega = v; omegaBase = NaN;
 		stopSpinRamp(w);
+		if (!w.settling) {
+			w.omegaCur = v; w.alpha = 0;
+			if (wasStill && v !== 0) wakeOnDisk(w);
+		}
 	}
 	function setVoteOf(i, kind, value) { if (roster[i]) setVote(CFG, roster[i], kind, value); }
 	// A rule change applies from the next handoff on; switching the rule off closes a
@@ -290,6 +295,7 @@ const Game = (() => {
 		get resolveT() { return resolveT; }, // s into the resolve; the turn hands off at handoffT
 		get voteT() { return voteT; }, // s into a speed vote; it closes at CFG.voteT
 		get omegaStart() { return isNaN(omegaBase) ? CFG.omega : omegaBase; }, // the configured speed
+		get omegaNow() { return spinNow(w); }, // the motor's live speed, including a vote ramp
 		tally,
 		get pending() { return pending; },
 		get turn() { return turn; },

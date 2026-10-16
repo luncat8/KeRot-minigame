@@ -27,7 +27,7 @@ const UI = (() => {
 		// it again — so restart the board as well.
 		const onPhys = () => { if (Game.roundEnded) onReset(); Game.invalidateGhost(); markCustom(); };
 		els.omega.max = String(CFG.omegaMax);
-		els.omega.addEventListener('input', () => { Game.setOmega(parseFloat(els.omega.value)); shownOmega = CFG.omega; sync(); onPhys(); });
+		els.omega.addEventListener('input', () => { Game.setOmega(parseFloat(els.omega.value)); shownOmega = Game.omegaNow; sync(); onPhys(); });
 		els.muK.addEventListener('input', () => {
 			CFG.muK = parseFloat(els.muK.value);
 			els.muS.min = String(CFG.muK);
@@ -68,7 +68,7 @@ const UI = (() => {
 	}
 	function radios(name) { return document.querySelectorAll('input[name=' + name + ']'); }
 	function setRule(rule, mode) { Game.setSpeedRule(rule, mode); syncVotes(); markCustom(); }
-	function pullOmega() { shownOmega = CFG.omega; els.omega.value = String(CFG.omega); }
+	function pullOmega() { shownOmega = Game.omegaNow; els.omega.value = String(shownOmega); }
 	function numParam(v) { return String(Math.round(v * 1e6) / 1e6); }
 	function writeQuery(search) {
 		try { history.replaceState(null, '', search ? '?' + search : location.pathname + location.hash); }
@@ -272,8 +272,11 @@ const UI = (() => {
 	// coefficients the board actually runs on follow the arrow.
 	function muText(mu, eff) { return Math.abs(eff - mu) < 0.0005 ? mu.toFixed(3) : mu.toFixed(3) + ' → ' + eff.toFixed(3); }
 	function sync() {
-		const start = Game.omegaStart; // differs while a game's votes have moved the speed
-		setText('omegaVal', CFG.omega.toFixed(3) + ' rad/s' + (start !== CFG.omega ? ' (voted; set ' + start.toFixed(3) + ')' : ''));
+		const live = Game.omegaNow, set = CFG.omega, start = Game.omegaStart;
+		let omegaText = live.toFixed(3) + ' rad/s';
+		if (Math.abs(live - set) > 0.0005) omegaText += ' (ramping to ' + set.toFixed(3) + ')';
+		if (start !== set) omegaText += ' (voted; set ' + start.toFixed(3) + ')';
+		setText('omegaVal', omegaText);
 		setText('muKVal', muText(CFG.muK, muKEff(CFG)));
 		setText('muSVal', muText(CFG.muS, muSEff(CFG)));
 		setText('massVal', CFG.puckM.toFixed(2) + ' kg · μ ×' + loadFactor(CFG, CFG.puckM).toFixed(2));
@@ -304,7 +307,7 @@ const UI = (() => {
 		const roster = Game.roster, n = roster.length;
 		syncRoster();
 		syncVotes();
-		if (CFG.omega !== shownOmega) pullOmega(); // a tally moved it
+		if (Game.omegaNow !== shownOmega) pullOmega(); // follow the motor during a vote ramp
 		sync();
 		setText('simTime', 't = ' + w.t.toFixed(1) + ' s');
 		let lost = 0;

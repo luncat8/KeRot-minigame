@@ -42,6 +42,14 @@ const OM0 = CFG.omega, RULE0 = CFG.speedVote, MODE0 = CFG.voteMode, holdG = muSE
 	check(r[0].voteLabel === '1.20', 'an exact vote is labelled with its speed', r[0].voteLabel);
 	setVote(c, r[2], VOTE_SET, 9);
 	check(r[2].voteValue === c.omegaMax, 'an exact vote is clamped to omegaMax');
+	const grid = Object.assign({}, CFG, { omegaMax: 3.991 }), speeds = new Float64Array(256);
+	const n = fillVoteSpeeds(grid, 0.7831, true, speeds);
+	let current = false, ordered = speeds[0] === 0 && speeds[n - 1] === grid.omegaMax;
+	for (let i = 0; i < n; i++) {
+		if (speeds[i] === 0.7831) current = true;
+		if (i > 0 && speeds[i] <= speeds[i - 1]) ordered = false;
+	}
+	check(current && ordered, 'exact bot candidates include 0, omegaMax and current in sorted order');
 }
 // 2. When a vote is due.
 {
@@ -116,8 +124,31 @@ const OM0 = CFG.omega, RULE0 = CFG.speedVote, MODE0 = CFG.voteMode, holdG = muSE
 	// It starts from rest, so it lags while friction brings it up to the surface speed.
 	check(w.st[i] === ST_LOCKED && ang > 0.7, 'the puck on the disk wakes and rides', ang);
 	check(w.st[j] === ST_SLEEP && w.x[j] === xj && w.y[j] === yj, 'a sliver the floor holds stays asleep');
+	const startOmega = CFG.omega;
+	Game.reset(); Game.setOmega(0);
+	const carried = spawnPuck(Game.world, CFG.diskX + 0.40, CFG.diskY, 0);
+	Game.setOmega(0.5);
+	check(Game.world.st[carried] === ST_SLIDE, 'the direct slider path wakes a puck when it starts a still disk');
+	Game.setOmega(startOmega); Game.reset();
 }
-// 5. A bot's vote does on the board what the bot predicted. Seat 0 rides at 0.40 m,
+// 5. A vote cast during an older ramp prices the new ramp from the speed the motor
+//    will have when the vote closes, not from the stale setpoint.
+{
+	const c = Object.assign({}, CFG, { omega: 0.4, voteT: 0.1 });
+	const w = createWorld(c), i = spawnPuck(w, c.diskX + 0.55, c.diskY, 0);
+	w.st[i] = ST_LOCKED;
+	w.rampFrom = 0.83; w.rampTo = 0.4; w.rampT = 1; w.rampDur = 4; w.omegaCur = 0.72;
+	const start = voteStartSpeed(w, c), riders = gatherRiders(w, c, 0, BOT_PROFILES.keeper);
+	const stale = speedWorth(c, c.omega, 0, riders, 0, c.omega);
+	const live = speedWorth(c, c.omega, 0, riders, 0, start);
+	console.log('speed vote during prior ramp: new-ramp start ' + start.toFixed(3) +
+		', a zero-speed request values the 0.55 m red rider ' + stale.toFixed(2) + ' from setpoint vs ' + live.toFixed(2) + ' from live speed');
+	check(near(start, 0.71175), 'the vote predicts the old ramp at tally close', start);
+	check(riders === 1 && stale > live, 'a rider that survives the old ramp is judged against the actual new-ramp start');
+	c.omega = 1.0; w.rampFrom = 0.4; w.rampTo = 1.0; w.rampT = 1.5; w.rampDur = 2; w.omegaCur = 0.85;
+	check(gatherRiders(w, c, 0, BOT_PROFILES.keeper) === 0, 'a rider the older ramp ejects before closure is not priced as still present');
+}
+// 6. A bot's vote does on the board what the bot predicted. Seat 0 rides at 0.40 m,
 //    seat 1 near the hold radius at 0.69 m, and seat 2 throws next.
 {
 	const c = Object.assign({}, CFG, { speedVote: 'turn', voteMode: 'delta' });
@@ -137,7 +168,13 @@ const OM0 = CFG.omega, RULE0 = CFG.speedVote, MODE0 = CFG.voteMode, holdG = muSE
 	check(chooseVote('keeper', empty, c, 0, roster, 0, rng).kind === VOTE_KEEP, 'its own throw next, at full room: keep');
 	const deny = chooseVote('hunter', empty, c, 0, roster, 2, rng);
 	check(deny.kind === VOTE_SET && deny.value > 0, 'an enemy throw next: the hunter asks for less room (faster)', deny.value);
-	const w = board();
+	const exposed = createWorld(c), red = spawnPuck(exposed, c.diskX + 0.68, c.diskY, 0);
+	exposed.st[red] = ST_LOCKED; stepWorld(exposed, c.h);
+	const redRate = puckRate(exposed, red), protect = chooseVote('blackhole', exposed, c, 0, roster, 2, rng);
+	check(redRate > 7 && (protect.kind !== VOTE_SET || protect.value <= 0),
+		'a black hole does not speed up through its own high-scoring rider when the ramp would eject it', voteLabel(c, protect.kind, protect.value));
+	const w = board(), ownRate = puckRate(w, 0);
+	check(ownRate > 7, 'the hunter\'s rider is itself scoring in the red zone', ownRate);
 	const hv = chooseVote('hunter', w, c, 0, roster, 2, rng), hunterVote = { kind: hv.kind, value: hv.value };
 	const kv = chooseVote('keeper', w, c, 1, roster, 2, rng);
 	console.log('bot votes: hunter (rider at 0.40 m, enemy at 0.69 m) ' + voteLabel(c, hunterVote.kind, hunterVote.value) +

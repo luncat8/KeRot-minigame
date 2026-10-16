@@ -78,6 +78,21 @@ function holdableRate(cfg, omega) {
 	return prof[Math.min(prof.length - 1, Math.floor(dh / HOLD_BIN))];
 }
 
+// The old ramp may still be running while the vote window is open. Price a new
+// request from the speed it will actually have when the vote closes, not its old
+// setpoint or the speed at which the bot happened to cast its vote.
+function voteStartSpeed(w, cfg) {
+	if (w.rampDur <= 0) return w.omegaCur;
+	const t = Math.min(w.rampDur, w.rampT + cfg.voteT);
+	return w.rampFrom + (w.rampTo - w.rampFrom) * (t / w.rampDur);
+}
+function voteExistingReach(w, cfg) {
+	if (w.rampDur <= 0) return Infinity;
+	const top = Math.max(spinNow(w), voteStartSpeed(w, cfg));
+	const alpha = (w.rampTo - w.rampFrom) / w.rampDur;
+	return muSEff(cfg) * cfg.g / Math.hypot(top * top, alpha);
+}
+
 // --- Bot votes --------------------------------------------------------------------
 // A bot weighs every speed it could ask for — the current one ± voteDeltaMax, or the
 // whole range for an exact vote — by the two things a speed decides:
@@ -87,6 +102,10 @@ function holdableRate(cfg, omega) {
 // - the throws before the next vote: a slower disk holds more of itself, so a throw
 //   has more red to land on (holdableRate). Own throws want that; enemy throws are
 //   denied it.
+// A speed-up is not a free attack: a red-scoring rider belongs in that same balance,
+// and is charged at its score rate if the candidate ramp sheds it. In 'turn' mode the
+// next throw is a targeted contest; 'round' mode compares one own throw with the mean
+// enemy throw, so the bot does not treat every opponent as a separate room to deny.
 // A flat landscape is "don't care". Otherwise the bot picks the best speed — of equal
 // ones the nearest, as a change also shakes everything it did not aim at — and takes
 // the plateau of speeds about as good around it: if that includes the current speed
@@ -98,16 +117,19 @@ const VOTE_FLAT = 0.02; // × the mean parked rate: a smaller spread is no reaso
 const VOTE_MOVE = 0.01; // × the mean parked rate per rad/s of change: the tie-break
 const _vote = { kind: VOTE_NONE, value: 0 };
 const _riderD = new Float64Array(MAX_PUCKS), _riderPay = new Float64Array(MAX_PUCKS);
-let _worth = new Float64Array(256);
+let _speeds = new Float64Array(256), _worth = new Float64Array(256), _currentK = 0;
 
 // The riders on the disk: how far out each rides, and what it pays seat s.
 function gatherRiders(w, cfg, s, p) {
+	const existingReach = voteExistingReach(w, cfg);
 	let n = 0;
 	for (let i = 0; i < w.n; i++) {
 		if (w.st[i] !== ST_LOCKED) continue;
+		const dx = w.x[i] - cfg.diskX, dy = w.y[i] - cfg.diskY, d = Math.hypot(dx, dy);
+		if (d > existingReach) continue;
 		const pay = puckRate(w, i) * (w.own[i] === s ? p.opportunity : -p.denial);
 		if (pay === 0) continue;
-		_riderD[n] = Math.hypot(w.x[i] - cfg.diskX, w.y[i] - cfg.diskY);
+		_riderD[n] = d;
 		_riderPay[n++] = pay;
 	}
 	return n;
@@ -127,28 +149,58 @@ function throwWeight(cfg, s, roster, next, p) {
 	}
 	return sum;
 }
-// Speed ω as a red rate for the bot: the riders kept on the ramp from ω0, plus what
-// the coming throws can park on.
-function speedWorth(cfg, om0, om, riders, throwW) {
-	const top = Math.max(om0, om), alpha = (om - om0) / cfg.spinRampT;
+// Speed ω as a red rate for the bot: the riders kept on the ramp from `omFrom`,
+// plus the room the coming throws can park on. Existing pucks are judged against the
+// actual ramp start; candidate exact votes include both endpoints and the current
+// setting, even when the interval does not divide evenly into VOTE_STEP_EXACT.
+function speedWorth(cfg, om0, om, riders, throwW, omFrom) {
+	const from = omFrom === undefined ? om0 : omFrom;
+	const top = Math.max(from, om), alpha = (om - from) / cfg.spinRampT;
 	const reach = muSEff(cfg) * cfg.g / Math.hypot(top * top, alpha);
 	let v = throwW * VOTE_PARK * holdableRate(cfg, om);
 	for (let k = 0; k < riders; k++) if (_riderD[k] <= reach) v += _riderPay[k];
 	return v;
+}
+function fillVoteSpeeds(cfg, om0, exact, out) {
+	if (!exact) {
+		const step = VOTE_STEP_DELTA, lo = Math.max(0, om0 - cfg.voteDeltaMax), hi = Math.min(cfg.omegaMax, om0 + cfg.voteDeltaMax);
+		const jLo = Math.ceil((lo - om0) / step - 1e-9), n = Math.floor((hi - om0) / step + 1e-9) - jLo + 1;
+		if (_speeds.length < n) _speeds = new Float64Array(n);
+		_currentK = -jLo;
+		for (let k = 0; k < n; k++) { _speeds[k] = om0 + (jLo + k) * step; if (out) out[k] = _speeds[k]; }
+		return n;
+	}
+	const intervals = Math.max(1, Math.ceil(cfg.omegaMax / VOTE_STEP_EXACT));
+	const step = cfg.omegaMax / intervals;
+	let n = intervals + 1, hasCurrent = false;
+	for (let k = 0; k <= intervals; k++) {
+		const speed = k === intervals ? cfg.omegaMax : k * step;
+		if (Math.abs(speed - om0) < 1e-9) hasCurrent = true;
+	}
+	if (!hasCurrent) n++;
+	if (_speeds.length < n) _speeds = new Float64Array(n);
+	let at = 0;
+	_currentK = -1;
+	for (let k = 0; k <= intervals; k++) {
+		let speed = k === intervals ? cfg.omegaMax : k * step;
+		if (Math.abs(speed - om0) < 1e-9) { speed = om0; _currentK = at; }
+		else if (speed > om0 && _currentK < 0) { _speeds[at] = om0; _currentK = at++; }
+		_speeds[at++] = speed;
+	}
+	if (_currentK < 0) { _currentK = at; _speeds[at++] = om0; }
+	if (out) for (let k = 0; k < at; k++) out[k] = _speeds[k];
+	return at;
 }
 // Seat s's vote, `next` being the seat that throws after the vote. Returns a scratch
 // record { kind, value }, valid until the next call.
 function chooseVote(name, w, cfg, s, roster, next, rng) {
 	const p = BOT_PROFILES[name] || BOT_PROFILES.balanced, om0 = cfg.omega, exact = cfg.voteMode === 'exact';
 	const riders = gatherRiders(w, cfg, s, p), throwW = throwWeight(cfg, s, roster, next, p);
-	// Candidates ω0 + j·step, so the current speed is always one of them (j = 0).
-	const step = exact ? VOTE_STEP_EXACT : VOTE_STEP_DELTA;
-	const lo = exact ? 0 : Math.max(0, om0 - cfg.voteDeltaMax), hi = exact ? cfg.omegaMax : Math.min(cfg.omegaMax, om0 + cfg.voteDeltaMax);
-	const jLo = Math.ceil((lo - om0) / step - 1e-9), n = Math.floor((hi - om0) / step + 1e-9) - jLo + 1;
+	const omFrom = voteStartSpeed(w, cfg), n = fillVoteSpeeds(cfg, om0, exact);
 	if (_worth.length < n) _worth = new Float64Array(n);
 	let vMin = Infinity, vMax = -Infinity;
 	for (let k = 0; k < n; k++) {
-		const v = speedWorth(cfg, om0, om0 + (jLo + k) * step, riders, throwW);
+		const v = speedWorth(cfg, om0, _speeds[k], riders, throwW, omFrom);
 		_worth[k] = v; vMin = Math.min(vMin, v); vMax = Math.max(vMax, v);
 	}
 	_vote.kind = VOTE_NONE; _vote.value = 0;
@@ -157,18 +209,18 @@ function chooseVote(name, w, cfg, s, roster, next, rng) {
 	// The pick carries the noise coin, scaled like chooseStroke's; the plateau does not.
 	let kBest = 0, best = -Infinity;
 	for (let k = 0; k < n; k++) {
-		let v = _worth[k] - VOTE_MOVE * r0 * Math.abs(jLo + k) * step;
+		let v = _worth[k] - VOTE_MOVE * r0 * Math.abs(_speeds[k] - om0);
 		if (p.noise > 0) v += (rng() - 0.5) * p.noise * r0;
 		if (v > best) { best = v; kBest = k; }
 	}
 	let kL = kBest, kR = kBest;
 	while (kL > 0 && _worth[kL - 1] >= _worth[kBest] - flat) kL--;
 	while (kR < n - 1 && _worth[kR + 1] >= _worth[kBest] - flat) kR++;
-	if (-jLo >= kL && -jLo <= kR) { _vote.kind = VOTE_KEEP; return _vote; }
-	const j = jLo + ((kL + kR) >> 1);
+	if (_currentK >= kL && _currentK <= kR) { _vote.kind = VOTE_KEEP; return _vote; }
+	const target = exact ? 0.5 * (_speeds[kL] + _speeds[kR]) : _speeds[(kL + kR) >> 1];
 	_vote.kind = VOTE_SET;
-	_vote.value = exact ? om0 + j * step : j * step;
+	_vote.value = exact ? target : target - om0;
 	return _vote;
 }
 
-if (typeof module !== 'undefined') module.exports = { clampVote, voteLabel, setVote, clearVotes, tallySpeed, tallyDue, holdProfile, holdableRate, speedWorth, chooseVote };
+if (typeof module !== 'undefined') module.exports = { clampVote, voteLabel, setVote, clearVotes, tallySpeed, tallyDue, holdProfile, holdableRate, voteStartSpeed, gatherRiders, speedWorth, fillVoteSpeeds, chooseVote };

@@ -436,8 +436,12 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		UI.update(Game.world);
 		console.log('panel vote: ' + Game.tally.labels.join(' / ') + ' -> ω ' + Game.tally.from.toFixed(3) + ' -> ' + Game.tally.to.toFixed(3) +
 			'; readout "' + els.omegaVal.textContent + '"');
-		check(CFG.omega !== om0 && els.omega.value === String(CFG.omega) && els.omegaVal.textContent.includes('voted'),
-			'a tally moves the ω slider and the readout says it was voted', els.omegaVal.textContent);
+		check(CFG.omega !== om0 && els.omega.value === String(Game.omegaNow) && els.omegaVal.textContent.includes('ramping to') && els.omegaVal.textContent.includes('voted'),
+			'a tally keeps the slider on live speed and labels the voted setpoint', els.omegaVal.textContent);
+		for (let s = 0; s < 240; s++) stepWorld(Game.world, CFG.h);
+		UI.update(Game.world);
+		check(Math.abs(Game.omegaNow - om0) > 1e-4 && Math.abs(Game.omegaNow - CFG.omega) > 1e-4 && els.omega.value === String(Game.omegaNow),
+			'the ω slider follows the motor halfway through its ramp', els.omega.value + ' vs ' + Game.omegaNow.toFixed(3));
 		check(els.voteStatus.textContent.startsWith('last vote') && noneBox.checked && range.value === '0',
 			'after the tally the row is back at don\'t care and the status reports it', els.voteStatus.textContent);
 		pick('voteMode', 'exact');

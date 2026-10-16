@@ -160,11 +160,22 @@
   preset are overrides; collapsing them makes a refresh drop what the link said.
   Fold names (`Preset=Stones`, `seats=Human, Hunter`) or a hand-typed link misses.
 - Profile weights summed over every enemy are right for targeted effects (one
-  enemy's puck knocked off) and wrong for symmetric ones. The room every thrower
-  gets from a disk speed is the same for all seats. Summing denial over N − 1
+  enemy's puck knocked off) and wrong for a symmetric room effect across a round.
+  Every thrower gets the same room from disk speed. Summing denial over N − 1
   enemies made hunters and black holes vote the disk up every round: ω 1.45 rad/s,
-  48 throws, 35 votes in one 4-seat game. Weigh a symmetric effect against the mean
-  enemy (denial / (N − 1)), so only the profile's lean is left.
+  48 throws, 35 votes in one 4-seat game. For the round-wide room comparison, weigh
+  denial against the mean enemy (denial / (N − 1)) so only the profile's lean remains.
+  A `turn` vote is different: only the next throw is exposed, so its targeted denial
+  incentive can still produce a majority speed-up. Keep that rule optional unless
+  that adversarial effect is wanted.
+- When a vote closes after a timed window, evaluate the next ramp from the motor speed
+  expected at closure, not the speed at vote-open or the previous target. If an old
+  ramp can overlap the window, project its end-of-window speed before pricing rider
+  retention.
+- A candidate grid centered on the current setting can miss both ends of an exact
+  range. Include the current setting and closed-range endpoints, sort them, and
+  compute an exact-vote plateau midpoint from actual speeds. Keep delta-vote requests
+  on their 0.01 rad/s grid so displayed values match what gets tallied.
 - A value landscape over a candidate grid with i.i.d. per-candidate noise fragments
   every plateau into random spikes. Find the plateau on noiseless values; put the
   noise (and a tiny cost of change, as the tie-break) on the pick only.
