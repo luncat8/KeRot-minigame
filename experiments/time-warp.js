@@ -8,8 +8,8 @@
 //
 //	1 the copy's turn is the game's turn, bit for bit, at the handoff
 //	2 the line the search settles on is never worse than the greedy line on its own measure
-//	3 warpTries counts the lines played out, and a met warpGoal stops the search early
-//	4 a frame slice stays in budget and where the frames are cut does not change the pick
+//	3 every ranked line is played out, and warpGoal buys the ladder (warpTries = budget)
+//	4 a frame slice is one frame of the copy and where the frames are cut does not change the pick
 //	5 a look-ahead with one line to look at is the same game as no look-ahead at all
 //	6 a frozen board is frozen, and a table of bots plays a whole game with it on
 //
@@ -155,15 +155,21 @@ function limitGate() {
 	const A = mkGame({ warp: false, botDelay: 5 });
 	const W = createWarp();
 	const { rank } = aimLine(A);
+	// The comparison is the whole search: a goal of nothing still plays out every ranked
+	// line, and it is the ladder it skips. A goal out of reach buys the ladder as well,
+	// which is the budget warpTries caps — the shortlist first, the rest around its
+	// winner (the ladder has WARP_LADDER.length strokes to offer).
+	A.cfg.warpGoal = 0;
 	W.begin(A, A.turn, rank);
-	const lines = W.lines;
-	for (const [goal, want, why] of [[0, 1, 'a goal of nothing stops on the first line'],
-		[99, Math.min(TRIES, lines), 'a goal out of reach plays out every try']]) {
-		A.cfg.warpGoal = goal;
-		W.begin(A, A.turn, rank);
-		W.runAll();
-		ok(why, W.tries === want && lines >= want, W.tries + ' tries of ' + lines + ' lines');
-	}
+	W.runAll();
+	const lines = W.lines, tried0 = W.tries;
+	A.cfg.warpGoal = 99;
+	W.begin(A, A.turn, rank);
+	W.runAll();
+	ok('a goal of nothing plays out the ranked lines and skips the ladder',
+		tried0 === Math.min(TRIES, lines), tried0 + ' tries of ' + lines + ' ranked lines');
+	ok('a goal out of reach plays out every try', W.tries === Math.min(TRIES, lines + WARP_LADDER.length),
+		W.tries + ' tries of ' + Math.min(TRIES, lines + WARP_LADDER.length) + ' on offer (' + lines + ' ranked + ladder)');
 	A.cfg.warpGoal = GOAL;
 	const pick = [];
 	for (let r = 0; r < 2; r++) {
@@ -183,10 +189,19 @@ function limitGate() {
 }
 
 // --- 4 the frame budget -------------------------------------------------------------
+// A slice is bounded by the copy's indivisible units of work, not by a number picked by
+// hand: one simulated frame (8 physics steps) and, at most, one seat answering it — a
+// seat answers when it is armed, and arming happens in the frame that ends the turn
+// before. Both are measured here on the board the search is about to work on, so the
+// gate says what the units cost instead of asserting a figure that goes stale.
 function frameGate() {
 	const A = mkGame({ warp: false, botDelay: 5 });
 	const W = createWarp();
 	const { rank } = aimLine(A);
+	const physics = timed(() => { for (let j = 0; j < 8; j++) stepWorld(A.world, A.cfg.h); });
+	const answer = timed(() => {
+		for (let k = 0; k < 4; k++) chooseStroke(A.roster[A.turn].type, A.world, A.cfg, A.pending, A.pred, makeRng(k + 1), A.roster, null, true);
+	}) / 4;
 	let worst = 0, slices = 0;
 	W.begin(A, A.turn, rank);
 	while (true) {
@@ -198,7 +213,9 @@ function frameGate() {
 	const pick = { vx: W.vx, vy: W.vy, tries: W.tries };
 	W.begin(A, A.turn, rank);
 	W.runAll();
-	ok('a frame slice stays inside what it was given', worst < 20, worst.toFixed(1) + ' ms worst of ' + slices + ' slices');
+	ok('a frame slice stays inside one frame of the copy', worst < physics + 2 * answer,
+		worst.toFixed(1) + ' ms worst of ' + slices + ' slices, against a frame of ' + physics.toFixed(1) +
+		' ms of physics and a ' + answer.toFixed(1) + ' ms answer');
 	ok('where the frames are cut does not change the pick',
 		Math.abs(pick.vx - W.vx) < 1e-12 && Math.abs(pick.vy - W.vy) < 1e-12 && pick.tries === W.tries,
 		pick.tries + ' tries either way');
@@ -235,17 +252,17 @@ function liveGate() {
 }
 
 // A frozen board per snapshot: each one is walked a turn deeper than the last with the
-// quick policy (cheap) and handed the search the game would run (not cheap), so the list
-// covers a whole game without one test waiting on another.
-function quickLine(g) {
+// light search (an answer, not a decision) and handed the search the game would run, so
+// the list covers a whole game without one test waiting on another.
+function lightLine(g) {
 	toAim(g);
-	return chooseStrokeQuick(g.roster[g.turn].type, g.world, g.cfg, g.pending, makeRng(3), g.roster);
+	return chooseStroke(g.roster[g.turn].type, g.world, g.cfg, g.pending, g.pred, makeRng(3), g.roster, null, true);
 }
 function snapshots() {
 	const out = [];
 	for (let k = 0; k < SNAPS; k++) {
 		const A = mkGame({ warp: false, botDelay: 5 });
-		for (let d = 0; d < k; d++) playTurn(A, quickLine(A));
+		for (let d = 0; d < k; d++) playTurn(A, lightLine(A));
 		const { rank, v } = aimLine(A);
 		if (rank.n >= 2) out.push({ g: A, rank: rank, v: v, ruler: ballValue(A.cfg, ballsLeft(A)) });
 	}
@@ -276,13 +293,15 @@ function calibrate() {
 function slateGate() {
 	const A = mkGame({ warp: false, botDelay: 5 });
 	const W = createWarp();
-	const { rank, v } = aimLine(A);
-	A.cfg.warpGoal = 0; // accept the first line: the search reads exactly the line measured
+	const { rank } = aimLine(A);
 	W.begin(A, A.turn, rank);
 	const searched = W.runAll().gain;
-	const after = W.tryOne(v.vx, v.vy, TURNS); // and a measurement between two tries changes nothing
-	ok('a line costs the same measured or searched', Math.abs(searched - after) < 1e-12 && W.tries === 1,
-		searched.toFixed(6) + ' vs ' + after.toFixed(6) + ', ' + W.tries + ' tries');
+	// Whatever the search settled on has to be worth, measured on its own, exactly what
+	// the search said it was worth: every line in a slate is read on the snapshot it was
+	// launched from, so the winner's number cannot depend on how many lines it beat.
+	const after = W.tryOne(W.vx, W.vy, TURNS);
+	ok('a line costs the same measured or searched', Math.abs(searched - after) < 1e-12 && W.tries > 1,
+		searched.toFixed(6) + ' vs ' + after.toFixed(6) + ', the pick of ' + W.tries + ' tries');
 }
 function quantiles(list) {
 	const a = list.slice().sort((x, y) => x - y);

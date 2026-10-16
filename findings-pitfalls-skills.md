@@ -249,3 +249,21 @@
   count so the rotation is even. A good-enough bar over the snapshot stops the search
   on the greedy line whenever greedy looks good — log how often it takes another
   line, or a whole variant can be byte-identical games that prove nothing.
+- A ranking is sold by its *pick*, not by its agreement. Over 48 boards the light
+  rollout ordered a shortlist much as the game did (mean τ +0.38, positive on 40) and
+  still chose a line worth −0.114 of a ball against the greedy line the seat already
+  throws (best line on the board +0.404; sd 0.617, se 0.089, so the pick is not
+  distinguishable from greedy). τ spreads its weight over the whole ordering while a
+  bounded shortlist is decided at the top of it: price the pick, on a ruler that is not
+  the picker's own, against the line the pick has to beat.
+- A sample must vary the game, not the depth. Boards taken by walking one deterministic
+  game a turn deeper each time (5 usable) read +0.263 of a ball for the ruler's pick;
+  the same file with a fresh game per board and a per-board seed read −0.114 over 48.
+  The planner's `begin`/shortlist guards silently drop boards (`W.begin` false,
+  shortlists under three lines), so print what survived the filters and give every
+  sample its own game before believing a mean.
+- A one-profile `warp-wins.js` table is a solo game: the seat wins every one of the 12
+  games (5.3 throws, ~2.9 s/game) whatever the search does, so the wins column says
+  nothing and only the score moves (+15, noise). A wins gate needs at least two seats;
+  when one profile's cell needs more power, run the same multi-seat table with more
+  games rather than a narrower table.

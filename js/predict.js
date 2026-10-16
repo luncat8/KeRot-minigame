@@ -139,4 +139,4 @@ function followThrown(w, uid, steps, cap) {
 	}
 }
 
-if (typeof module !== 'undefined') module.exports = { createPredictor, cloneInto, predictStroke, PRED_SAMPLES, PRED_SCORE_EVERY, PRED_PATH_EVERY };
+if (typeof module !== 'undefined') module.exports = { createPredictor, cloneInto, predictStroke, recoverableCount, PRED_SAMPLES, PRED_SCORE_EVERY, PRED_PATH_EVERY };

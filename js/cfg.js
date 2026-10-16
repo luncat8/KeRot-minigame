@@ -48,7 +48,12 @@ const CFG = {
 	botDelay: 0.7, // seconds a bot "thinks" (aim shown) before throwing
 	settleTime: 3,
 	dragFull: 0.90,
-	preciseGain: 0.03125, // shift-held gain (precision mode): 1/32 of plain, on angle and speed alike
+	// Shift-held gains (precision mode). The two axes are not asked to be equally fine:
+	// a stroke's speed locks a landing spot and wants a very short leash (1/32 of plain),
+	// while an angle is a direction over 2π and a gain that low makes turning to the
+	// next lobe a chore — the aim is 4× the speed gain, so it still moves.
+	preciseGain: 0.03125, // shift-held speed gain: 1/32 of plain drag
+	preciseAimGain: 0.125, // shift-held aim gain: 1/8 of plain drag, 4× the speed's
 	endMode: 'settle',
 };
 function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }

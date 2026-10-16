@@ -208,8 +208,8 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	console.log('stroke mapping: half-drag ' + half.toFixed(3) + ', over-drag ' + over.toFixed(3) + ', full-drag ' + full.toFixed(3));
 	check(Math.abs(half - (CFG.vMin + CFG.vMax) / 2) < 1e-9, 'half drag = mid range');
 	check(over === CFG.vMax && full === CFG.vMax, 'over/at full drag clamp to vMax');
-	// Shift precision: a preciseGain share of further drag on speed and on aim alike,
-	// continuous across the press and release.
+	// Shift precision: a preciseGain share of further drag on speed, a preciseAimGain
+	// share on aim, continuous across the press and release on both.
 	Game.setStroke(-0.45, 0, false);
 	const base = speed();
 	Game.setStroke(-0.45 - 0.09, 0, false);
@@ -226,8 +226,8 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(Math.abs(speed() - (base + fine)) < 1e-9, 'fine slope acts after the press');
 	Game.setStroke(-0.45 - 0.09, 0, false);
 	check(Math.abs(speed() - (base + fine)) < 1e-9, 'no jump at the shift release');
-	// The aim, same ruler: a sideways step turns the stroke, and with shift only a
-	// preciseGain share of that turn counts.
+	// The aim, same shape but its own gain: a sideways step turns the stroke, and with
+	// shift only a preciseAimGain share of that turn counts.
 	const aimAng = () => Math.atan2(Game.aim.vy, Game.aim.vx);
 	Game.setStroke(-0.45, 0, false);
 	const baseAng = aimAng();
@@ -240,11 +240,12 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	const fineAng = aimAng() - baseAng;
 	console.log('aim precision: 0.09 m sideways -> ' + (coarseAng * 180 / Math.PI).toFixed(3) + '° plain, ' + (fineAng * 180 / Math.PI).toFixed(4) + '° with shift');
 	check(Math.abs(coarseAng - (Math.atan2(0.09, -0.45) - baseAng)) < 1e-9, 'plain aim follows the drag');
-	check(Math.abs(fineAng - coarseAng * CFG.preciseGain) < 1e-9, 'shift aim gain = preciseGain');
+	check(Math.abs(fineAng - coarseAng * CFG.preciseAimGain) < 1e-9, 'shift aim gain = preciseAimGain');
 	check(Math.abs(pressAng - baseAng) < 1e-9, 'no aim jump at the shift press');
 	Game.setStroke(-0.45, 0.09, false);
 	check(Math.abs(aimAng() - (baseAng + fineAng)) < 1e-9, 'no aim jump at the shift release');
-	// Arrow nudges, same gain: 1° / (2 % + 0.01 m/s) plain, a preciseGain share with shift.
+	// Arrow nudges, the same two gains: 1° / (2 % + 0.01 m/s) plain, the aim gain on the
+	// angle and the speed gain on the speed with shift.
 	Game.bindInput(makeCanvas());
 	const fireArrow = (key, shift) => fireWindow('keydown', { code: '', key: key, shiftKey: !!shift, preventDefault() { } });
 	Game.setStroke(-0.45, 0, false);
@@ -257,7 +258,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	const nFine = nBack - aimAng();
 	console.log('nudge aim: ← ' + (nPlain * 180 / Math.PI).toFixed(4) + '° plain, ' + (nFine * 180 / Math.PI).toFixed(5) + '° with shift');
 	check(Math.abs(nPlain - Math.PI / 180) < 1e-12, 'plain nudge step is 1°');
-	check(Math.abs(nFine - nPlain * CFG.preciseGain) < 1e-12, 'shift nudge aim gain = preciseGain');
+	check(Math.abs(nFine - nPlain * CFG.preciseAimGain) < 1e-12, 'shift nudge aim gain = preciseAimGain');
 	const sN0 = speed();
 	fireArrow('ArrowUp', false);
 	const sPlain = speed() - sN0;

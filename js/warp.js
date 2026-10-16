@@ -5,13 +5,18 @@
 // and taking it back is loading the snapshot again for the next candidate.
 //
 // What it searches is the shortlist js/bots.js puts on the table — the greedy pick, then
-// the best stroke of each other line of play — plus a ladder of perturbations around the
-// winner, so a deeper look can fine-tune as well as replace. Each try plays out
-// `warpTurns` turns: the seat's own throw, then the seats after it answering with the
-// quick policy (a full search per rollout seat would cost more than all the physics in
-// the rollout). A line is taken as soon as it is worth `warpGoal` of one ball's annuity
-// more than the position the search started from; otherwise the best of at most
-// `warpTries` lines is, and the board waits only as long as that.
+// the best stroke of each other line of play — and every line of it is played out: the
+// comparison is the point, and a search that stops at the first line to clear its bar
+// only ever shops on the turns where the greedy pick already looks bad (measured, in
+// wins, in archive/0.5.1-worklog.md). If the best of the ranked lines is still worth
+// less than `warpGoal` of one ball's annuity over the snapshot, the tries that are left
+// go to a ladder of perturbations around *that* winner, so the goal buys the extra look
+// and not a shortcut through the comparison. Each try plays out `warpTurns` turns: the
+// seat's own throw, then the seats after it answering with the *light* search (the same
+// policy at every other sample: a full search per rollout seat costs ~190 ms against a
+// rollout's ~13 ms a turn, and an answer that does not simulate at all is a weak one —
+// measured in experiments/warp-replies.js). The board waits only as long as `warpTries`
+// rollouts take.
 //
 // The search is spread over frames (warpFrameMs bounds one) while the real board is held
 // still, so a look-ahead never drops a frame and the stroke lands on exactly the state it
@@ -24,8 +29,9 @@ if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js')
 const WARP_TICK = 8; // physics steps per simulated frame — the 60 Hz batch js/main.js runs
 const WARP_MAX_TRIES = 16; // a longer list is a different setting, not a longer array
 const WARP_MAX_STEPS = 480 * 90; // the fuse: no rollout runs past a minute and a half of play
-// Around the greedy stroke, in increasing distance: half a degree of aim and 5 % of
-// speed first (a lock band is a few cm/s wide), a wider swing after that.
+// Around the winner of the comparison (the greedy stroke, when that is the winner), in
+// increasing distance: half a degree of aim and 5 % of speed first (a lock band is a few
+// cm/s wide), a wider swing after that.
 const WARP_LADDER = [[0.03, 1], [-0.03, 1], [0, 1.05], [0, 0.95], [0.09, 1], [-0.09, 1], [0.03, 1.05], [-0.03, 0.95]];
 
 const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -67,45 +73,70 @@ function createWarp() {
 	for (let k = 0; k < CFG.maxPlayers; k++) snapType.push('random');
 	const simScore = new Float64Array(CFG.maxPlayers), stable = new Float64Array(CFG.maxPlayers);
 	const candVx = new Float64Array(WARP_MAX_TRIES), candVy = new Float64Array(WARP_MAX_TRIES);
-	// The search, in the order step() walks it.
+	// The search, in the order step() walks it. `ladder` says which phase the search is
+	// in: the ranked lines first (never cut short), then the perturbations around the
+	// best of them if the goal is still unmet.
 	const run = {
-		live: null, seat: 0, n: 0, k: 0, tried: 0, turns: 0, steps: 0, rolling: false, done: true,
-		best: 0, bestK: 0, base: 0, future: 0, ball: 1, goal: 0, horizon: 3,
+		live: null, seat: 0, n: 0, lines: 0, cap: 1, k: 0, total: 0, tried: 0, turns: 0, steps: 0, rolling: false, ladder: false, done: true,
+		best: 0, bestK: 0, bestVx: 0, bestVy: 0, base: 0, future: 0, ball: 1, goal: 0, horizon: 3,
+		p: BOT_PROFILES.balanced, scale: 1, recPrice: 0, lifePrice: 0, urgency: 1,
 	};
 	const out = { vx: 0, vy: 0, status: '' };
 
-	// What a seat has to look forward to in a position: what it has banked, plus the
-	// annuity the pucks it holds still pay for the windows left, less the same for the
-	// mean enemy. The ball economy needs no term of its own — a rollout that loses a
-	// puck has fewer throws left to answer with — and `future` is the snapshot's, so
-	// every line is read on one ruler instead of on however much game was left when
-	// its own rollout happened to end.
+	// What a seat has to look forward to in a position: the terms js/bots.js prices a
+	// stroke on, read off a board instead of off a prediction. Banked score and the
+	// annuity the pucks it holds still pay for the windows left are weighted by the
+	// terms of the seat's *own* profile — score, opportunity — and the mean enemy by its
+	// denial, because a search that re-ranks every profile's lines on one generic "mine
+	// minus the mean enemy" share is not pricing the style it is playing: measured, the
+	// most style-bound profile (keeper: opportunity 1.2 against denial 0.15) was the one
+	// the look-ahead cost the most wins. A puck gone to a hole costs its seat the throws
+	// it would have had (risk) and gains the killer that much (kill), and a puck sitting
+	// where the recycle rule will return it is a throw coming back. `future` is the
+	// snapshot's, so every line is read on one ruler instead of on however much game was
+	// left when its own rollout happened to end.
 	function positionValue(w, score, s, future) {
+		const p = run.p;
 		stableRates(w, stable);
-		let other = 0, n = 0;
+		let other = 0, losses = 0, n = 0;
 		for (let i = 0; i < roster.length; i++) {
 			if (i === s) continue;
-			other += score[i] + stable[i] * future; n++;
+			other += score[i] + stable[i] * future;
+			losses += w.ownerLosses[i];
+			n++;
 		}
-		const own = score[s] + stable[s] * future;
-		return n > 0 ? own - other / n : own;
+		const mine = p.score * score[s] + p.opportunity * stable[s] * future;
+		let value = mine - (n > 0 ? p.denial * other / n : 0);
+		value += run.lifePrice * (p.kill * (n > 0 ? losses / n : 0) - p.risk * w.ownerLosses[s]);
+		value += run.recPrice * (p.recovery + p.reserve * run.urgency) * recoverableCount(w, s, cfg.recycleMode, -1);
+		// In the seat's own units, one ball is one parked puck's annuity *the way this
+		// seat prices its own play*: dividing by its opportunity weight makes that
+		// coefficient 1 for every profile, so `warpGoal` and the status line mean the
+		// same thing for a keeper (which weights its own play 1.2) and a random seat
+		// (0.1), and no profile's lines are read on a ruler whose bullets are 10× off.
+		return value * run.scale;
 	}
 	// Candidates: the ranked lines of play first, then the ladder around the best of
 	// them. A search that only refined would agree with the one-ply pick too often; one
 	// that only replaced it would throw the fine tuning away.
-	function fillCandidates(rank) {
+	function fillShortlist(rank, cap) {
+		const n = Math.min(rank.n, cap, WARP_MAX_TRIES);
+		for (let a = 0; a < n; a++) { candVx[a] = rank.vx[a]; candVy[a] = rank.vy[a]; }
+		return n;
+	}
+	// The ladder is built around a stroke that is already known, so it is filled when the
+	// phase turns over rather than up front: the winner of the comparison is not known
+	// until every ranked line has been played.
+	function fillLadder(vx, vy, cap) {
+		const ang0 = Math.atan2(vy, vx), sp0 = Math.hypot(vx, vy), top = Math.min(cap, WARP_MAX_TRIES);
 		let n = 0;
-		for (let a = 0; a < rank.n && n < WARP_MAX_TRIES; a++) { candVx[n] = rank.vx[a]; candVy[n] = rank.vy[a]; n++; }
-		if (rank.n > 0) {
-			const ang0 = Math.atan2(rank.vy[0], rank.vx[0]), sp0 = Math.hypot(rank.vx[0], rank.vy[0]);
-			for (let a = 0; a < WARP_LADDER.length && n < WARP_MAX_TRIES; a++) {
-				const sp = clamp(sp0 * WARP_LADDER[a][1], cfg.vMin, cfg.vMax);
-				if (sp <= 0) continue;
-				const ang = ang0 + WARP_LADDER[a][0];
-				candVx[n] = Math.cos(ang) * sp; candVy[n] = Math.sin(ang) * sp; n++;
-			}
+		for (let a = 0; a < WARP_LADDER.length && n < top; a++) {
+			const sp = clamp(sp0 * WARP_LADDER[a][1], cfg.vMin, cfg.vMax);
+			if (sp <= 0) continue;
+			const ang = ang0 + WARP_LADDER[a][0];
+			candVx[n] = Math.cos(ang) * sp; candVy[n] = Math.sin(ang) * sp; n++;
 		}
-		return Math.min(n, clamp(Math.round(cfg.warpTries), 1, WARP_MAX_TRIES));
+		return n;
 	}
 	// Snapshots the live game and gets ready. False when there is nothing to compare —
 	// then the caller simply throws the stroke its own search picked.
@@ -123,14 +154,26 @@ function createWarp() {
 			turns += roster[i].balls;
 		}
 		run.future = 2 + 0.9 * cfg.handoffT * turns;
-		run.base = positionValue(saved, snapScore, seat, run.future);
+		// The seat's own ruler (js/bots.js evaluateStroke): its profile's weights, the
+		// prices of a lost puck and of one coming back, and the urgency its stock gives
+		// the recovery terms. `run.ball` stays the generic ball annuity, so warpGoal and
+		// every status line are in the same units whatever seat is looking ahead.
+		run.p = BOT_PROFILES[roster[seat].type] || BOT_PROFILES.balanced;
+		run.scale = 1 / Math.max(0.05, run.p.opportunity);
 		run.ball = Math.PI * cfg.puckR * cfg.puckR * diskMeanRed(cfg) * run.future;
+		run.recPrice = 0.2 * run.ball;
+		run.lifePrice = run.ball / Math.max(1, roster.length);
+		run.urgency = 1 + (cfg.ballsPerPlayer - snapBalls[seat]) * 0.55;
+		run.base = positionValue(saved, snapScore, seat, run.future);
 		run.goal = clamp(live.cfg.warpGoal, 0, 8) * run.ball;
 		run.horizon = live.cfg.warpTurns > 0 ? Math.round(live.cfg.warpTurns) : 1e9;
-		run.n = fillCandidates(rank);
-		run.k = 0; run.tried = 0; run.turns = 0; run.steps = 0; run.rolling = false; run.done = false;
-		run.best = -Infinity; run.bestK = 0;
-		if (run.n < 2 || rank.n < 1) {
+		run.cap = clamp(Math.round(cfg.warpTries), 1, WARP_MAX_TRIES);
+		run.lines = fillShortlist(rank, run.cap);
+		run.n = run.lines;
+		run.total = run.lines;
+		run.k = 0; run.tried = 0; run.turns = 0; run.steps = 0; run.rolling = false; run.ladder = false; run.done = false;
+		run.best = -Infinity; run.bestK = 0; run.bestVx = 0; run.bestVy = 0;
+		if (run.cap < 2 || rank.n < 1) {
 			run.done = true;
 			if (rank.n > 0) { out.vx = candVx[0]; out.vy = candVy[0]; }
 			status('one line to look at');
@@ -172,17 +215,34 @@ function createWarp() {
 	function read() {
 		const gain = measure();
 		run.tried++;
-		if (gain > run.best) { run.best = gain; run.bestK = run.k; }
-		return gain >= run.goal;
+		if (gain > run.best) {
+			run.best = gain; run.bestK = run.k;
+			run.bestVx = candVx[run.k]; run.bestVy = candVy[run.k];
+		}
+		return gain;
 	}
 	function finish(reason) {
 		run.done = true;
-		out.vx = candVx[run.bestK]; out.vy = candVy[run.bestK];
+		out.vx = run.bestVx; out.vy = run.bestVy;
 		status(reason);
+	}
+	// What the end of a phase means. The shortlist is played to its last line — that is
+	// the comparison, and no goal cuts it short. The ladder is the extra: it is worth its
+	// frames only while the best ranked line is still short of what the seat asked for
+	// (warpGoal), and it is centred on that best line, not on the greedy one.
+	function afterRun() {
+		if (run.k < run.n) return;
+		if (run.ladder) { finish('best of them'); return; }
+		if (run.best >= run.goal) { finish('good enough'); return; }
+		if (run.tried >= run.cap) { finish('best of them'); return; }
+		run.n = fillLadder(run.bestVx, run.bestVy, run.cap - run.tried);
+		run.total = run.tried + run.n;
+		run.k = 0; run.ladder = true;
+		if (run.n < 1) finish('best of them');
 	}
 	function status(reason) {
 		const v = isFinite(run.best) ? run.best / run.ball : 0;
-		out.status = 'time-warp: ' + run.tried + ' of ' + run.n + ' lines played out · best ' +
+		out.status = 'time-warp: ' + run.tried + ' of ' + run.total + ' lines played out · best ' +
 			(v < 0 ? '−' : '+') + Math.abs(v).toFixed(2) + ' of a ball' +
 			(run.tried > 1 ? ' (line ' + (run.bestK + 1) + ')' : '') + ' · ' + reason;
 	}
@@ -197,9 +257,12 @@ function createWarp() {
 				else {
 					advance();
 					if (over()) {
-						if (read()) { finish('good enough'); return true; }
+						const gain = read();
 						run.k++; run.rolling = false;
-						if (run.k >= run.n) { finish('best of them'); return true; }
+						// A perturbation that clears the bar ends the ladder; the ranked
+						// lines are never cut short, so their reads never stop anything.
+						if (run.ladder && gain >= run.goal) finish('good enough');
+						else afterRun();
 					}
 				}
 				if (nowMs() >= stop) return false;
@@ -232,7 +295,9 @@ function createWarp() {
 		get vy() { return out.vy; },
 		get status() { return out.status; },
 		get tries() { return run.tried; },
-		get lines() { return run.n; },
+		// The ranked lines the comparison had to work through, whatever phase the search
+		// has since moved to.
+		get lines() { return run.lines; },
 		get gain() { return run.best; },
 		get done() { return run.done; },
 	};

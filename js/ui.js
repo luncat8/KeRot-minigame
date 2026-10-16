@@ -142,14 +142,16 @@ const UI = (() => {
 		els.warpGoal.value = String(CFG.warpGoal);
 		syncWarp();
 	}
-	// The look-ahead's own numbers: what a search is allowed to try, and what it stops
-	// on. The rows say "balls" because that is the unit the goal is priced in — one
+	// The look-ahead's own numbers: the lines it compares, the turns it plays each of
+	// them out for, and the bar under which it is worth looking further (the ranked lines
+	// are played whatever the goal says; the goal buys the fine tuning around their
+	// winner). The rows say "balls" because that is the unit the bar is priced in — one
 	// parked puck's remaining annuity, the same coin the bots' value function pays in.
 	function syncWarp() {
 		const tries = clamp(Math.round(CFG.warpTries) || 1, 1, WARP_MAX_TRIES);
 		setText('warpTriesVal', tries + ' line' + (tries === 1 ? '' : 's'));
 		setText('warpTurnsVal', CFG.warpTurns > 0 ? CFG.warpTurns + ' turn' + (CFG.warpTurns > 1 ? 's' : '') : 'to the end of the game');
-		setText('warpGoalVal', CFG.warpGoal > 0 ? CFG.warpGoal.toFixed(2) + ' ball' + (CFG.warpGoal === 1 ? '' : 's') : 'any line that gains');
+		setText('warpGoalVal', CFG.warpGoal > 0 ? CFG.warpGoal.toFixed(2) + ' ball' + (CFG.warpGoal === 1 ? '' : 's') : 'nothing');
 		els.warpRows.hidden = !CFG.warp;
 	}
 	// A setup object (a preset by name, or the URL parameters) applied in one go:

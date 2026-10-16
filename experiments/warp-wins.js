@@ -1,8 +1,8 @@
-// The look-ahead in wins, not in its own units. Its rollouts answer with the quick
-// policy while the real game plays searching bots, so the ball annuities it reports
-// to itself are an upper bound — this plays the same seeds with nobody searching, one
-// profile searching, and everybody searching, through the real game (createGame, fixed
-// speed, no bot delay), seats rotating, and reads who wins.
+// The look-ahead in wins, not in its own units. Its rollouts answer with the light search
+// while the real game plays the full one, so the ball annuities the planner reports to
+// itself are an estimate and not evidence — this plays the same seeds with nobody
+// searching, one profile searching, and everybody searching, through the real game
+// (createGame, fixed speed, no bot delay), seats rotating, and reads who wins.
 // Run: node experiments/warp-wins.js [games] [seed0] [schema] [table]
 Object.assign(globalThis,
 	require('../js/physics.js'),

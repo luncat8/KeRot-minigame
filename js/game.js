@@ -22,7 +22,8 @@ function createGame(env) {
 	const cfg = env.cfg || CFG;
 	const w = env.world || createWorld(cfg);
 	// A simulated copy: no input, no ghost, no planning of its own — and every seat
-	// plays itself with the quick policy, so a human opponent does not stall the clock.
+	// plays itself with the light search (js/bots.js), so a human opponent does not stall
+	// the clock and a rollout's answers are the same kind of move as the game's.
 	const sim = env.sim === true;
 	const pred = createPredictor(cfg);
 	// Default table: one human against the three profiles that differ the most — a
@@ -37,8 +38,8 @@ function createGame(env) {
 	let botT = 0, predT = 0, ghostDirty = false, seed = 1, rng = makeRng(seed);
 	// len/raw/anchor* implement precision mode (shift): the speed and angle mappings are
 	// rebased every time shift flips, so the stroke never jumps when it is pressed or
-	// released. Plain drag is absolute; a shift segment counts only a preciseGain share
-	// of further drag on either axis.
+	// released. Plain drag is absolute; a shift segment counts only a preciseGain (speed)
+	// or preciseAimGain (aim) share of further drag.
 	const aim = { pending: -1, hasStroke: false, vx: 0, vy: 0, dragging: false, len: 0, raw: 0, anchorLen: 0, anchorSp: cfg.vMin, anchorRaw: NaN, anchorAng: 0, precise: false };
 	const queue = []; // {type:'throw', timeStamp}
 	// The time-warp planner (js/warp.js) and the shortlist its search works through.
@@ -50,7 +51,7 @@ function createGame(env) {
 	// A returned puck goes back to the stock of the seat that threw it.
 	function giveBack(owner) { roster[owner].balls++; }
 	function botPrep() {
-		const s = sim ? chooseStrokeQuick(roster[turn].type, w, cfg, pending, rng, roster)
+		const s = sim ? chooseStroke(roster[turn].type, w, cfg, pending, pred, rng, roster, null, true)
 			: chooseStroke(roster[turn].type, w, cfg, pending, pred, rng, roster, rank);
 		aim.vx = s.vx; aim.vy = s.vy; aim.hasStroke = true;
 		botT = 0; invalidateGhost();
@@ -103,9 +104,10 @@ function createGame(env) {
 	function rebase(len, sp, precise) { aim.anchorLen = len; aim.anchorSp = sp; aim.precise = precise; aim.anchorRaw = NaN; }
 	function rawSpeed(len) { return clamp(cfg.vMin + len / cfg.dragFull * (cfg.vMax - cfg.vMin), cfg.vMin, cfg.vMax); }
 	// Drag 0..dragFull maps onto the stroke speed range cfg.vMin..cfg.vMax and the drag
-	// direction onto the aim; with shift held only a preciseGain share of further drag
-	// counts on either axis (precision mode). The angle anchor starts at the drag's own
-	// direction, so scaling the first event cannot turn an absolute angle into nonsense.
+	// direction onto the aim; with shift held only a preciseGain (speed) / preciseAimGain
+	// (aim) share of further drag counts — precision mode, finer on speed than on aim.
+	// The angle anchor starts at the drag's own direction, so scaling the first event
+	// cannot turn an absolute angle into nonsense.
 	function setStroke(dx, dy, precise) {
 		const len = Math.hypot(dx, dy);
 		if (len < 1e-6) { aim.hasStroke = false; return; }
@@ -119,9 +121,10 @@ function createGame(env) {
 			aim.anchorAng = raw;
 		}
 		const gain = precise ? cfg.preciseGain : 1;
+		const aimGain = precise ? cfg.preciseAimGain : 1;
 		const slope = (cfg.vMax - cfg.vMin) / cfg.dragFull * gain;
 		const sp = clamp(aim.anchorSp + (len - aim.anchorLen) * slope, cfg.vMin, cfg.vMax);
-		const ang = aim.anchorAng + angDelta(raw, aim.anchorRaw) * gain;
+		const ang = aim.anchorAng + angDelta(raw, aim.anchorRaw) * aimGain;
 		aim.len = len;
 		aim.raw = raw;
 		setAimVel(Math.cos(ang) * sp, Math.sin(ang) * sp);
@@ -336,8 +339,11 @@ function createGame(env) {
 			aim.anchorRaw = aim.raw; aim.anchorAng = Math.atan2(aim.vy, aim.vx);
 		}
 		let ang = Math.atan2(aim.vy, aim.vx), sp = Math.hypot(aim.vx, aim.vy);
-		const gain = e.shiftKey ? cfg.preciseGain : 1; // shift = fine on both axes, same gain as the drag
-		const da = gain * Math.PI / 180;
+		// Shift = fine, on the same two gains the drag uses: a coarser step for the aim
+		// (1° plain, the aim gain with shift) and the speed gain for the speed keys.
+		const gain = e.shiftKey ? cfg.preciseGain : 1;
+		const aimGain = e.shiftKey ? cfg.preciseAimGain : 1;
+		const da = aimGain * Math.PI / 180;
 		const dk = 1 + gain * 0.02, ds = gain * 0.01;
 		if (e.key === 'ArrowLeft') ang -= da;
 		if (e.key === 'ArrowRight') ang += da;

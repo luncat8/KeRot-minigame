@@ -117,7 +117,7 @@
 			<div id="warpRows">
 				<div class="row"><label>lines per turn <span id="warpTriesVal"></span></label><input type="range" id="warpTries" min="1" max="16" step="1"></div>
 				<div class="row"><label>played out per line <span id="warpTurnsVal"></span></label><input type="range" id="warpTurns" min="0" max="6" step="1"></div>
-				<div class="row"><label>good enough at <span id="warpGoalVal"></span></label><input type="range" id="warpGoal" min="0" max="3" step="0.05"></div>
+				<div class="row"><label>extra look under <span id="warpGoalVal"></span></label><input type="range" id="warpGoal" min="0" max="3" step="0.05"></div>
 			</div>
 			<div id="warpStatus" class="dim"></div>
 		</fieldset>
@@ -152,7 +152,7 @@
 	<ul>
 		<li><b>drag</b> on the board to set a stroke: direction + power, 0–3 m/s</li>
 		<li><kbd>Space</kbd> throws · <kbd>Esc</kbd> clears the stroke · <kbd>R</kbd> resets the board</li>
-		<li>hold <kbd>shift</kbd> while dragging for fine aim and speed (32× finer)</li>
+		<li>hold <kbd>shift</kbd> while dragging for fine control: speed 32× finer, aim 8×</li>
 		<li><kbd>←</kbd> <kbd>→</kbd> nudge the aim, <kbd>↑</kbd> <kbd>↓</kbd> the speed (shift = fine there too)</li>
 		<li>swipe in from the left edge for this panel</li>
 	</ul>
@@ -202,11 +202,12 @@
 	else's. <b>never touch the speed</b> leaves the voting to the others.</p>
 	<h2>time-warp</h2>
 	<p>On, a bot plays its turn out in a <b>copy of the game</b> before the real board commits to it: it
-	throws a candidate stroke, lets that turn and the answers to it play out, and takes the turn back &mdash;
-	the copy is simply reloaded &mdash; when the result is not good enough. It tries at most a few
-	<b>lines</b> per turn (its own ranking: the best stroke of each line of play, then small changes of
-	the winner), plays out a few <b>turns</b> per line, and stops at the first line worth a lead of <b>so
-	many balls</b> more than the position it started from. The board holds still while it looks, and the
+	throws a candidate stroke, lets that turn and the answers to it play out, and reloads the copy for
+	the next one. Every line of its own ranking is played out &mdash; at most those <b>lines per turn</b>,
+	a few <b>turns</b> each &mdash; and the best of them is what it throws, so looking ahead never plays
+	a worse line than the bot's own pick. If the best is still worth less than <b>so many balls</b> more
+	than the position it started from, the tries that are left go to small changes of that winner, and
+	the first of them to clear the bar ends the search. The board holds still while it looks, and the
 	only thing that reaches the real game is the stroke that survived. These are the game's own rules and
 	not a model of them: a look-ahead of one turn plays the turn bit for bit as the board would
 	(measured in <code>experiments/time-warp.js</code>).</p>
