@@ -4,7 +4,7 @@
 const UI = (() => {
 	const $ = id => document.getElementById(id);
 	const els = {};
-	const opts = { ring: true, preview: true, mode: 'zones', theme: 'classic' };
+	const opts = { ring: true, preview: true, mode: CFG.recycleMode, theme: 'classic' };
 	// What a link with no parameters opens. Taken now, before boot parameters or a
 	// preset move CFG — a shared link lists only what differs from this.
 	const SHIPPED = {

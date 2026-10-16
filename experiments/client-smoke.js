@@ -390,7 +390,11 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		querySelectorAll: sel => radioSets[/name=(\w+)/.exec(sel)[1]] || [],
 		body: Object.assign(makeEl('body'), { dataset: {} }),
 	};
+	check(CFG.recycleMode === 'advance', 'startup uses wedge + lane before binding controls');
+	const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+	check(/id="recAdvance" checked/.test(html) && !/id="recZones" checked/.test(html), 'HTML default matches wedge + lane');
 	UI.bind(() => Game.reset());
+	check(radioSets.recycle.find(r => r.checked).value === 'advance', 'startup radio selects wedge + lane');
 	UI.update(Game.world); // the game above ended in SCORED
 	check(els.roster.children.length === Game.roster.length, 'a panel row per seat', String(els.roster.children.length));
 	const options = els.roster.children[0].children[1].children.map(o => o.value);
@@ -408,7 +412,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(Game.roster.length === 4 && els.roster.children.length === 4, '× removes the row and the seat');
 	els.chkRing.checked = true; els.chkPreview.checked = true; // the stub cannot read the HTML attribute
 	const opts = UI.opts();
-	check(opts.ring && opts.preview && opts.mode === 'zones', 'the draw options are read from the checkboxes');
+	check(opts.ring && opts.preview && opts.mode === 'advance', 'the draw options are read from the checkboxes');
 	els.btnThrow.click();
 	Game.beforeSteps();
 	check(Game.state === 'aim' || Game.state === 'resolve', 'the throw button queues a throw');
@@ -561,11 +565,26 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		check(CFG.omega === 1.5 && els.preset.value === '', 'a manual touch marks the bundle as custom');
 		check(historyCalls[historyCalls.length - 1].indexOf('preset=') < 0 && historyCalls[historyCalls.length - 1].indexOf('omega=1.5') >= 0,
 			'leaving a preset rewrites the link to the settings that differ, not the stale bundle', historyCalls[historyCalls.length - 1]);
+		UI.applyPreset('speedplay');
+		UI.applyPreset('foresight');
+		check(CFG.botSpeed === 'park' && CFG.warp && CFG.warpTries === 8, 'special presets enable their bot settings');
+		UI.applySetup(parseQuery('?warpturns=6&warpgoal=3'));
 		UI.applyPreset('default');
 		UI.update(Game.world);
-		check(Math.abs(CFG.puckM - 4) < 1e-9 && Math.abs(CFG.muK - 0.03) < 1e-9 && CFG.diskSchema === 'classic' && CFG.recycleMode === 'zones' &&
+		check(Math.abs(CFG.puckM - 4) < 1e-9 && Math.abs(CFG.muK - 0.03) < 1e-9 && CFG.diskSchema === 'classic' && CFG.recycleMode === 'advance' &&
 			Game.seatTypes.join() === 'human,balanced,blackhole,retriever', 'the default preset restores the shipped table', Game.seatTypes.join());
 		check(document.body.dataset.theme === 'classic' && historyCalls[historyCalls.length - 1] === '?preset=default&ring=0&ghost=0', 'scheme and link follow the default preset');
+		check(CFG.botSpeed === 'auto' && !CFG.warp && CFG.warpTries === 6 && CFG.warpTurns === 3 && CFG.warpGoal === 0.5,
+			'default preset restores bot strategy and all look-ahead settings');
+		check(!els.chkWarp.checked && els.warpRows.hidden && els.botSpeed.value === 'auto', 'default bot controls match restored configuration');
+		UI.applySetup(parseQuery('?preset=default&recycle=zones&warp=1&botspeed=park'));
+		check(CFG.recycleMode === 'zones' && UI.opts().mode === 'zones' && CFG.warp && CFG.botSpeed === 'park', 'explicit URL keys override default preset');
+		check(radioSets.recycle.find(r => r.checked).value === 'zones', 'URL return override selects the matching radio');
+		pick('recycle', 'advance');
+		check(!historyCalls[historyCalls.length - 1].includes('recycle='), 'shipped return mode is omitted from custom links');
+		pick('recycle', 'zones');
+		check(historyCalls[historyCalls.length - 1].includes('recycle=zones'), 'non-default fan mode is preserved in custom links');
+		UI.applyPreset('default');
 		console.log('presets/url smoke: ' + Object.keys(PRESETS).length + ' presets, parameters applied and clamped, sliders pulled, roster swapped, link echoed');
 		els.chkRing.checked = true; els.chkPreview.checked = true;
 	}

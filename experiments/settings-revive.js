@@ -16,6 +16,8 @@ const fs = require('fs');
 eval(fs.readFileSync(require('path').join(__dirname, '../js/game.js'), 'utf8')
 	.replace(/^if \(typeof module !== 'undefined'\).*$/m, '')
 	.replace(/\bconst (Render|Game) =/, 'globalThis.$1 ='));
+// Wedge + lane can return many more throws before the stock is exhausted.
+const MAX_FRAMES = 40000;
 let fail = 0;
 function check(ok, name, extra) { if (!ok) { console.log('FAIL ' + name + (extra ? ' — ' + extra : '')); fail = 1; } }
 const ov = { a: 0, cx: 0, cy: 0, d: 0, qd: 0, qf: 0, px: 0, py: 0 };
@@ -61,7 +63,7 @@ const ov = { a: 0, cx: 0, cy: 0, d: 0, qd: 0, qf: 0, px: 0, py: 0 };
 	throwPuck(w, i0, 0, 0);
 	let frames = 0, movedAfterHandoff = 0, handoffSeen = 0, stillMovingAtScored = 0;
 	let guard = 0;
-	while (g.state !== 'scored' && guard++ < 6000) {
+	while (g.state !== 'scored' && guard++ < MAX_FRAMES) {
 		if (g.state === 'aim' && g.pending >= 0) { g.setAimVel(-1.6, 0.1); g.commitThrow(); }
 		g.beforeSteps();
 		const prev = g.state, wasSettled = isSettled(w), t0 = w.t;
@@ -97,7 +99,7 @@ const ov = { a: 0, cx: 0, cy: 0, d: 0, qd: 0, qf: 0, px: 0, py: 0 };
 	g.reset();
 	const w = g.world;
 	let guard = 0;
-	while (g.state !== 'scored' && guard++ < 6000) {
+	while (g.state !== 'scored' && guard++ < MAX_FRAMES) {
 		if (g.state === 'aim' && g.pending >= 0) { g.setAimVel(-1.6, 0.1); g.commitThrow(); }
 		g.beforeSteps();
 		for (let s = 0; s < 8; s++) stepWorld(w, CFG.h);

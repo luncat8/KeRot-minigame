@@ -18,9 +18,9 @@
 // measured in experiments/warp-replies.js). The board waits only as long as `warpTries`
 // rollouts take.
 //
-// The search is spread over frames (warpFrameMs bounds one) while the real board is held
-// still, so a look-ahead never drops a frame and the stroke lands on exactly the state it
-// was planned against. Where the frames are cut cannot change the outcome: a try is read
+// The search yields between simulated frames while the real board is held still.
+// An atomic reply search may exceed warpFrameMs; the stroke nevertheless lands on
+// exactly the state it was planned against. Where the frames are cut cannot change the outcome: a try is read
 // when its rollout ends, never when the budget does.
 //
 // Node-safe and synchronous; every buffer it uses is allocated here, once.

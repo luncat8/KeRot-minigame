@@ -26,7 +26,7 @@ const CFG = {
 	maxPlayers: 8, // roster cap: seats x balls pucks can be on the board at once
 	maxThrows: 96, // hard game cap: a board that keeps handing pucks back still ends
 	scoreDisplayMax: 999, // scores are shown as 0..scoreDisplayMax per game
-	recycleMode: 'zones', // 'none' | 'zones' | 'advance' (radio group)
+	recycleMode: 'advance', // 'none' | 'zones' | 'advance' (radio group)
 	diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
 	// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel
 	// slider alone; 'turn' — the seats vote before every turn; 'round' — before every
@@ -43,17 +43,13 @@ const CFG = {
 	// tries the next candidate. warpTries caps the tries, warpTurns is how much of the
 	// game one try plays out (0 = to the end of it), warpGoal is the lead over the
 	// position it started from — in ball annuities — that ends the search early, and
-	// warpFrameMs bounds the work one frame does, so looking ahead never drops a frame.
+	// warpFrameMs budgets each slice; an atomic reply search may exceed that budget.
 	warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, warpFrameMs: 8,
 	botDelay: 0.7, // seconds a bot "thinks" (aim shown) before throwing
 	settleTime: 3,
 	dragFull: 0.90,
-	// Shift-held gains (precision mode). The two axes are not asked to be equally fine:
-	// a stroke's speed locks a landing spot and wants a very short leash (1/32 of plain),
-	// while an angle is a direction over 2π and a gain that low makes turning to the
-	// next lobe a chore — the aim is 4× the speed gain, so it still moves.
-	preciseGain: 0.03125, // shift-held speed gain: 1/32 of plain drag
-	preciseAimGain: 0.125, // shift-held aim gain: 1/8 of plain drag, 4× the speed's
+	preciseGain: 0.03125, // shift-held speed gain: 1/32 of plain
+	preciseAimGain: 0.125, // shift-held aim gain: 1/8 of plain
 	endMode: 'settle',
 };
 function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }

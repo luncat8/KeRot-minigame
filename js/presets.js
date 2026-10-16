@@ -15,8 +15,9 @@ if (typeof module !== 'undefined') Object.assign(globalThis,
 // purpose — the way back from anywhere. `autoOmega` re-solves the 90 % rule after
 // the bundle's μ and mass are in, so every mass preset keeps its own eject ring.
 const PRESETS = {
-	default: { label: 'classic default', muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'zones',
-		vote: 'round', voteMode: 'delta', theme: 'classic', balls: 4, seats: ['human', 'balanced', 'blackhole', 'retriever'] },
+	default: { label: 'classic default', muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'advance',
+		vote: 'round', voteMode: 'delta', theme: 'classic', balls: 4,
+		botspeed: 'auto', warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, seats: ['human', 'balanced', 'blackhole', 'retriever'] },
 	slick: { label: 'slick ice · long slides', muK: 0.012, muS: 0.030, puckM: 4, autoOmega: true },
 	grippy: { label: 'grippy ice · short stops', muK: 0.080, muS: 0.120, puckM: 4, autoOmega: true },
 	stones: { label: 'curling stones · 20 kg', puckM: 20, autoOmega: true },

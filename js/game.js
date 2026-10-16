@@ -51,8 +51,7 @@ function createGame(env) {
 	// A returned puck goes back to the stock of the seat that threw it.
 	function giveBack(owner) { roster[owner].balls++; }
 	function botPrep() {
-		const s = sim ? chooseStroke(roster[turn].type, w, cfg, pending, pred, rng, roster, null, true)
-			: chooseStroke(roster[turn].type, w, cfg, pending, pred, rng, roster, rank);
+		const s = chooseStroke(roster[turn].type, w, cfg, pending, pred, rng, roster, sim ? null : rank, sim);
 		aim.vx = s.vx; aim.vy = s.vy; aim.hasStroke = true;
 		botT = 0; invalidateGhost();
 	}
