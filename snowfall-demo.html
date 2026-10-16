@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en" data-story="kerot-minigame-demo">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KeRot · Snowfall minigame demo</title>
+<style>
+	:root { color-scheme: dark; font: 16px/1.6 system-ui, sans-serif; background: #09101a; color: #dce7f3; }
+	body { margin: 0; }
+	#hud { position: sticky; top: 0; z-index: 3; padding: .6rem 1rem; border-bottom: 1px solid #24344a; background: rgba(9,16,26,.96); }
+	#hud b { color: #ffc078; }
+	#app { max-width: 52rem; margin: auto; padding: 1rem; }
+	section { min-height: 12rem; padding: 1.5rem 0; }
+	.spacer { height: var(--snow-vh, 100vh); }
+	a { color: #8dd7ff; }
+	code { color: #ffc078; }
+	#result { min-height: 2rem; color: #ffc078; }
+</style>
+</head>
+<body>
+<div id="hud">KeRot story result: <b id="result">no match yet</b></div>
+<main id="app">
+	<section id="opening">
+		<h1>The ice-road challenge</h1>
+		<p>A small curling disk turns beneath a field of red and blue. Drag from your stone toward the disk,
+			then throw. The red area your stones hold decides the match against a <code>balanced</code> opponent.</p>
+		<p>This page is a Snowfall story consumer: scroll to the match or jump past it. The game reports a
+			scalar result (win <code>1</code>, draw <code>0</code>, loss <code>-1</code>) through the engine's store.</p>
+	</section>
+	<div class="spacer"></div>
+	<section id="match-chapter">
+		<h2>The rotating rink</h2>
+		<p>The motor changes direction. Your first throw opens the round; make two throws and keep your stones
+			on the red while the rival tries to dislodge them.</p>
+		<div class="kerot-slot" id="kerot-match"><p>KeRot will start when this passage enters view.</p></div>
+		<script type="txt" event="view,skip">startKerot()</script>
+	</section>
+	<div class="spacer"></div>
+	<section id="epilogue">
+		<h2>After the throw</h2>
+		<p id="epilogue-text">A saved result can be read by later story scripts with <code>Snowfall.sum('kerot.')</code>.</p>
+		<p>The fallback for walking past is neutral (<code>0</code>); the callback's mode distinguishes it from a played draw.</p>
+	</section>
+</main>
+<script src="../snowfall-core/snowfall.js?v=439c0a6814"></script>
+<script src="../snowfall-core/snowfall-games.js?v=439c0a6814"></script>
+<script src="games/kerot.js"></script>
+<script>
+	window.startKerot = function() {
+		SnowfallGames.play('kerot', {
+			el: document.getElementById('kerot-match'),
+			key: 'kerot.chapter-one',
+			fallback: 0,
+			opts: { balls: 2, bot: 'balanced', schema: 'rim6' },
+			done: function(value, mode) {
+				var label = value > 0 ? 'win' : value < 0 ? 'loss' : 'draw';
+				document.getElementById('result').textContent = label + ' · ' + mode
+					+ ' · story total ' + Snowfall.sum('kerot.');
+			}
+		});
+	};
+</script>
+</body>
+</html>

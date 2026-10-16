@@ -1,0 +1,145 @@
+/* KeRot's Snowfall mount contract: put class="kerot-slot" on each story slot
+   before the engine's first measure. The reserved height is shared by live,
+   saved and skipped-result states, so later prose anchors never jump. */
+.kerot-slot {
+	box-sizing: border-box;
+	min-height: 44rem;
+	margin: 1rem 0;
+	padding: .65rem;
+	border: 1px solid #24344a;
+	border-radius: .85rem;
+	background: #070b10;
+	color: #dce7f3;
+}
+.kerot-game {
+	box-sizing: border-box;
+	min-height: 42.5rem;
+	display: flex;
+	flex-direction: column;
+	gap: .65rem;
+	padding: .6rem;
+	font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	color: #dce7f3;
+}
+.kerot-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: .75rem;
+	min-height: 1.7rem;
+}
+.kerot-title {
+	color: #ffc078;
+	font-size: .9rem;
+	letter-spacing: .12em;
+	text-transform: uppercase;
+}
+.kerot-status { color: #a9bbd0; text-align: right; }
+.kerot-board-wrap {
+	width: 100%;
+	max-width: 760px;
+	aspect-ratio: 3.6 / 2.2;
+	align-self: center;
+	overflow: hidden;
+	border: 1px solid #24344a;
+	border-radius: .55rem;
+	background: #070b10;
+}
+.kerot-board {
+	display: block;
+	max-width: 100%;
+	max-height: 100%;
+	touch-action: none;
+	outline: none;
+}
+.kerot-board:focus-visible {
+	outline: 2px solid #ffc078;
+	outline-offset: 2px;
+}
+.kerot-controls {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: .35rem 1rem;
+}
+.kerot-scoreline {
+	margin: 0;
+	color: #f3ecdd;
+	font-size: .95rem;
+	font-variant-numeric: tabular-nums;
+	letter-spacing: .04em;
+}
+.kerot-instructions {
+	grid-column: 1 / -1;
+	min-height: 1.45em;
+	margin: 0;
+	color: #8298b1;
+	font-size: .78rem;
+}
+.kerot-buttons {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: .4rem;
+}
+.kerot-buttons button {
+	min-height: 2.45rem;
+	padding: .5rem .8rem;
+	border: 1px solid #344c64;
+	border-radius: .45rem;
+	background: #101a26;
+	color: #dce7f3;
+	font: inherit;
+	cursor: pointer;
+}
+.kerot-buttons .kerot-throw {
+	border-color: #6e8d5a;
+	background: #27432f;
+	color: #f2f5e8;
+	font-weight: 700;
+}
+.kerot-buttons button:hover:not(:disabled) { border-color: #ffc078; }
+.kerot-buttons button:focus-visible {
+	outline: 2px solid #ffc078;
+	outline-offset: 2px;
+}
+.kerot-buttons button:disabled { opacity: .45; cursor: not-allowed; }
+.kerot-outcome {
+	min-height: 1.5em;
+	margin: 0;
+	color: #ffc078;
+	font-weight: 700;
+	letter-spacing: .06em;
+}
+.kerot-outcome[data-result="loss"] { color: #ff9a9a; }
+.kerot-outcome[data-result="draw"] { color: #a9bbd0; }
+.kerot-result-note {
+	min-height: 1.4em;
+	margin: 0;
+	color: #8298b1;
+	font-size: .78rem;
+}
+.kerot-result-body {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	flex: 1 1 auto;
+	min-height: 25rem;
+	padding: 1rem;
+	border: 1px solid #24344a;
+	border-radius: .6rem;
+	background: linear-gradient(145deg, #101a26, #090e15);
+}
+.kerot-result-body .kerot-outcome { font-size: clamp(1.2rem, 3vw, 2rem); }
+.kerot-result-body .kerot-scoreline { margin-top: .75rem; }
+@media (max-width: 560px) {
+	.kerot-slot { min-height: 36rem; padding: .35rem; }
+	.kerot-game { min-height: 34.5rem; padding: .35rem; }
+	.kerot-controls { grid-template-columns: 1fr; }
+	.kerot-instructions { grid-column: auto; }
+	.kerot-buttons { justify-content: flex-start; }
+	.kerot-buttons button { flex: 1 1 7rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.kerot-game *, .kerot-game *::before, .kerot-game *::after { scroll-behavior: auto !important; }
+}

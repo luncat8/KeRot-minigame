@@ -102,4 +102,4 @@ function bakeFieldCanvas(box, ppm, cfg) {
 	return cv;
 }
 
-if (typeof module !== 'undefined') module.exports = { DISK_SCHEMAS, fieldLocal, fieldWorld, fieldColor };
+if (typeof module !== 'undefined') module.exports = { DISK_SCHEMAS, fieldLocal, fieldWorld, fieldColor, bakeFieldCanvas };

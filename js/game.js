@@ -25,6 +25,8 @@ function createGame(env) {
 	// plays itself with the light search (js/bots.js), so a human opponent does not stall
 	// the clock and a rollout's answers are the same kind of move as the game's.
 	const sim = env.sim === true;
+	const lightBots = env.lightBots === true; // embedded surfaces can trade some aim search for less main-thread work
+	const ghost = env.ghost !== false; // a VN slot may omit the preview to keep its frame budget light
 	const pred = createPredictor(cfg);
 	// Default table: one human against the three profiles that differ the most — a
 	// scorer, an attacker and a recoverer — so the first game shows the whole spread.
@@ -51,7 +53,7 @@ function createGame(env) {
 	// A returned puck goes back to the stock of the seat that threw it.
 	function giveBack(owner) { roster[owner].balls++; }
 	function botPrep() {
-		const s = chooseStroke(roster[turn].type, w, cfg, pending, pred, rng, roster, sim ? null : rank, sim);
+		const s = chooseStroke(roster[turn].type, w, cfg, pending, pred, rng, roster, sim ? null : rank, sim || lightBots);
 		aim.vx = s.vx; aim.vy = s.vy; aim.hasStroke = true;
 		botT = 0; invalidateGhost();
 	}
@@ -284,7 +286,7 @@ function createGame(env) {
 	}
 	// Per-frame housekeeping: ghost re-sim (throttled) and bot throws.
 	function tick(dt) {
-		if (!sim && ghostDirty && predT <= 0 && state === 'aim' && aim.hasStroke && pending >= 0) {
+		if (!sim && ghost && ghostDirty && predT <= 0 && state === 'aim' && aim.hasStroke && pending >= 0) {
 			predictStroke(pred, w, pending, aim.vx, aim.vy, cfg.maxResolve);
 			ghostDirty = false; predT = PRED_COOLDOWN;
 		}

@@ -1,7 +1,8 @@
-// Canvas renderer. Textures/gradients/zone paths baked once (or on resize, or when the
-// disk schema changes); per frame it only does clipped drawImage calls, stroked paths
-// and puck circles. Never mutates the world.
-const Render = (() => {
+// Canvas renderer. Each board gets its own surfaces, textures and coordinate transform;
+// the default page uses one instance and an embedded minigame creates one per session.
+if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'), require('./field.js'), require('./physics.js'), require('./score.js'), require('./players.js'));
+function createRenderer() {
+	let cfg = CFG;
 	let cv, ctx, scale = 100, ox = 0, oy = 0, dpr = 1;
 	let texDisk = null, texSchema = '', ppmDisk = 96, puckGrad = null, wallPath = null, gridPath = null;
 	let zoneFan = null, zoneAdv = null, hatchPath = null, sectorPath = null, bandPath = null;
@@ -39,16 +40,17 @@ const Render = (() => {
 	let theme = THEMES.classic, themeName = '';
 	const font = { hud: '', label: '', zone: '', hole: '', num: '', tag: '' };
 	const ghostInk = [];
-	function setup(canvas) {
+	function setup(canvas, config) {
+		cfg = config || CFG;
 		cv = canvas; ctx = cv.getContext('2d');
 		ctx.imageSmoothingEnabled = true;
 		ctx.imageSmoothingQuality = 'high';
-		puckGrad = ctx.createRadialGradient(-0.03, -0.03, 0.01, 0, 0, CFG.puckR);
+		puckGrad = ctx.createRadialGradient(-0.03, -0.03, 0.01, 0, 0, cfg.puckR);
 		puckGrad.addColorStop(0, '#f5f6fa'); puckGrad.addColorStop(0.7, '#b2bec3'); puckGrad.addColorStop(1, '#636e72');
 		for (const name in THEMES) {
 			const t = THEMES[name];
 			if (t.floor.length === 1) { t.floorFill = t.floor[0]; continue; }
-			t.floorFill = ctx.createLinearGradient(0, 0, 0, CFG.boardH);
+			t.floorFill = ctx.createLinearGradient(0, 0, 0, cfg.boardH);
 			for (let k = 0; k < t.floor.length; k++) t.floorFill.addColorStop(k / (t.floor.length - 1), t.floor[k]);
 		}
 		applyTheme('classic');
@@ -59,7 +61,7 @@ const Render = (() => {
 		themeName = name; theme = THEMES[name];
 		const f = theme.font;
 		font.hud = 'bold 0.088px ' + f; font.label = '0.075px ' + f; font.zone = '0.09px ' + f;
-		font.hole = '0.045px ' + f; font.num = 'bold ' + (CFG.puckR * 0.55) + 'px ' + f; font.tag = '0.06px ' + f;
+		font.hole = '0.045px ' + f; font.num = 'bold ' + (cfg.puckR * 0.55) + 'px ' + f; font.tag = '0.06px ' + f;
 		for (let c = 0; c < GHOST_CHUNKS; c++) ghostInk[c] = 'rgba(' + theme.ink + ',' + (0.10 + 0.07 * (GHOST_CHUNKS - c)).toFixed(3) + ')';
 		theme.inkSolid = 'rgb(' + theme.ink + ')';
 	}
@@ -69,10 +71,10 @@ const Render = (() => {
 		// out of it, so the exemption is drawn instead of implied, plus the outline
 		// to stroke. The 'advance' rule adds the launch lane to its wedge.
 		zoneFan = bakeZone(z, null);
-		zoneAdv = bakeZone(v, [v.lx, 0, v.lw, CFG.boardH]);
+		zoneAdv = bakeZone(v, [v.lx, 0, v.lw, cfg.boardH]);
 		hatchPath = new Path2D();
-		for (let s = -CFG.boardH; s < CFG.boardW; s += 0.14) { // 45° stripes across the board
-			hatchPath.moveTo(s, 0); hatchPath.lineTo(s + CFG.boardH, CFG.boardH);
+		for (let s = -cfg.boardH; s < cfg.boardW; s += 0.14) { // 45° stripes across the board
+			hatchPath.moveTo(s, 0); hatchPath.lineTo(s + cfg.boardH, cfg.boardH);
 		}
 		// Puck face: 6 sectors, 3 shaded, unit radius (scaled per puck at draw time).
 		sectorPath = new Path2D();
@@ -93,8 +95,8 @@ const Render = (() => {
 		}
 		// kerot-s floor grid: 8 × 4 cells over the board.
 		gridPath = new Path2D();
-		for (let k = 1; k < 8; k++) { gridPath.moveTo(k * CFG.boardW / 8, 0); gridPath.lineTo(k * CFG.boardW / 8, CFG.boardH); }
-		for (let k = 1; k < 4; k++) { gridPath.moveTo(0, k * CFG.boardH / 4); gridPath.lineTo(CFG.boardW, k * CFG.boardH / 4); }
+		for (let k = 1; k < 8; k++) { gridPath.moveTo(k * cfg.boardW / 8, 0); gridPath.lineTo(k * cfg.boardW / 8, cfg.boardH); }
+		for (let k = 1; k < 4; k++) { gridPath.moveTo(0, k * cfg.boardH / 4); gridPath.lineTo(cfg.boardW, k * cfg.boardH / 4); }
 		labelRot = Math.atan2(z.by - z.ay, z.bx - z.ax); // fan edge -> readable label angle
 	}
 	// The zone is the triangle (plus the launch lane, in 'advance') minus the on-disk
@@ -107,26 +109,26 @@ const Render = (() => {
 	// the disk. The outline strokes the wedge's true boundary: its two sides, cut where
 	// they enter the guard, then the arc that closes the fill on the interior side.
 	function bakeZone(t, rect) {
-		const Rg = CFG.diskR + CFG.puckR;
+		const Rg = cfg.diskR + cfg.puckR;
 		// The apex is the table vertex that sits on the disk centre; the other two give
 		// the wedge's two edge directions.
-		const dx = t.ax - CFG.diskX, dy = t.ay - CFG.diskY;
+		const dx = t.ax - cfg.diskX, dy = t.ay - cfg.diskY;
 		const dd = dx * dx + dy * dy;
-		const ex = t.bx - CFG.diskX, ey = t.by - CFG.diskY, ee = ex * ex + ey * ey;
-		const fx = t.cx - CFG.diskX, fy = t.cy - CFG.diskY, ff = fx * fx + fy * fy;
+		const ex = t.bx - cfg.diskX, ey = t.by - cfg.diskY, ee = ex * ex + ey * ey;
+		const fx = t.cx - cfg.diskX, fy = t.cy - cfg.diskY, ff = fx * fx + fy * fy;
 		let v1x, v1y, v2x, v2y, d1x, d1y, d2x, d2y;
 		if (dd <= ee && dd <= ff) { v1x = t.bx; v1y = t.by; v2x = t.cx; v2y = t.cy; }
 		else if (ee <= ff) { v1x = t.ax; v1y = t.ay; v2x = t.cx; v2y = t.cy; }
 		else { v1x = t.ax; v1y = t.ay; v2x = t.bx; v2y = t.by; }
-		d1x = v1x - CFG.diskX; d1y = v1y - CFG.diskY;
-		d2x = v2x - CFG.diskX; d2y = v2y - CFG.diskY;
+		d1x = v1x - cfg.diskX; d1y = v1y - cfg.diskY;
+		d2x = v2x - cfg.diskX; d2y = v2y - cfg.diskY;
 		const l1 = Math.hypot(d1x, d1y), l2 = Math.hypot(d2x, d2y);
 		const a0 = Math.atan2(d1y, d1x), a1 = Math.atan2(d2y, d2x);
 		const sweep = (a1 - a0 + TAU) % TAU; // arc a0 -> a1 the +angle way
 		const am = Math.atan2(d1y / l1 + d2y / l2, d1x / l1 + d2x / l2);
 		const ccw = (am - a0 + TAU) % TAU > sweep; // interior lies off the +angle way
-		const p1x = CFG.diskX + Rg * d1x / l1, p1y = CFG.diskY + Rg * d1y / l1;
-		const p2x = CFG.diskX + Rg * d2x / l2, p2y = CFG.diskY + Rg * d2y / l2;
+		const p1x = cfg.diskX + Rg * d1x / l1, p1y = cfg.diskY + Rg * d1y / l1;
+		const p2x = cfg.diskX + Rg * d2x / l2, p2y = cfg.diskY + Rg * d2y / l2;
 		const fill = new Path2D(), line = new Path2D();
 		fill.moveTo(t.ax, t.ay); fill.lineTo(t.bx, t.by); fill.lineTo(t.cx, t.cy); fill.closePath();
 		// Outline: the wedge's true boundary — out along the first side to its vertex, the
@@ -134,13 +136,13 @@ const Render = (() => {
 		// closing the fill. Must be one subpath built in order: a rect()/closePath() in the
 		// middle makes canvas continue from *its* corner, which drew long stray diagonals.
 		line.moveTo(p1x, p1y); line.lineTo(v1x, v1y); line.lineTo(v2x, v2y); line.lineTo(p2x, p2y);
-		line.arc(CFG.diskX, CFG.diskY, Rg, a1, a0, !ccw);
+		line.arc(cfg.diskX, cfg.diskY, Rg, a1, a0, !ccw);
 		line.closePath();
 		if (rect) { fill.rect(rect[0], rect[1], rect[2], rect[3]); line.rect(rect[0], rect[1], rect[2], rect[3]); }
 		const hole = new Path2D();
-		hole.moveTo(CFG.diskX, CFG.diskY);
+		hole.moveTo(cfg.diskX, cfg.diskY);
 		hole.lineTo(p1x, p1y);
-		hole.arc(CFG.diskX, CFG.diskY, Rg, a0, a1, ccw);
+		hole.arc(cfg.diskX, cfg.diskY, Rg, a0, a1, ccw);
 		hole.closePath();
 		const path = new Path2D();
 		path.addPath(fill); path.addPath(hole);
@@ -153,8 +155,8 @@ const Render = (() => {
 	function resize() {
 		const box = cv.parentElement;
 		const availW = box.clientWidth || 960;
-		const availH = box.clientHeight || Math.round(availW * CFG.boardH / CFG.boardW);
-		const aspect = CFG.boardW / CFG.boardH;
+		const availH = box.clientHeight || Math.round(availW * cfg.boardH / cfg.boardW);
+		const aspect = cfg.boardW / cfg.boardH;
 		let wpx = availW, hpx = availW / aspect;
 		if (hpx > availH) { hpx = availH; wpx = availH * aspect; }
 		wpx = Math.max(1, Math.floor(wpx)); hpx = Math.max(1, Math.floor(hpx));
@@ -166,15 +168,15 @@ const Render = (() => {
 		if (bw === cv.width && bh === cv.height) return;
 		cv.style.width = wpx + 'px'; cv.style.height = hpx + 'px';
 		cv.width = bw; cv.height = bh;
-		scale = Math.min(cv.width / CFG.boardW, cv.height / CFG.boardH);
-		ox = (cv.width - CFG.boardW * scale) / 2; oy = (cv.height - CFG.boardH * scale) / 2;
+		scale = Math.min(cv.width / cfg.boardW, cv.height / cfg.boardH);
+		ox = (cv.width - cfg.boardW * scale) / 2; oy = (cv.height - cfg.boardH * scale) / 2;
 		bake();
 	}
 	function bake() {
 		ppmDisk = Math.max(96, Math.min(512, 2 * scale / dpr));
 		bakeDisk();
 		wallPath = new Path2D();
-		wallPath.rect(0, 0, CFG.boardW, CFG.boardH);
+		wallPath.rect(0, 0, cfg.boardW, cfg.boardH);
 	}
 	// The disk sprite is cut to the circle once, at bake time. Clipping the drawn image
 	// to an arc every frame costs more and reads worse: a clip edge is a hard edge,
@@ -182,15 +184,15 @@ const Render = (() => {
 	// Rebaked when the disk schema changes (drawWorld compares texSchema).
 	function bakeDisk() {
 		const ppm = ppmDisk;
-		const tex = bakeFieldCanvas({ x: -CFG.diskR, y: -CFG.diskR, w: 2 * CFG.diskR, h: 2 * CFG.diskR }, ppm, CFG);
+		const tex = bakeFieldCanvas({ x: -cfg.diskR, y: -cfg.diskR, w: 2 * cfg.diskR, h: 2 * cfg.diskR }, ppm, cfg);
 		const cut = document.createElement('canvas');
 		cut.width = tex.width; cut.height = tex.height;
 		const g = cut.getContext('2d');
 		g.drawImage(tex, 0, 0);
 		g.globalCompositeOperation = 'destination-in';
 		g.fillStyle = '#ffffff';
-		g.beginPath(); g.arc(tex.width / 2, tex.height / 2, CFG.diskR * ppm, 0, Math.PI * 2); g.fill();
-		texDisk = cut; texSchema = CFG.diskSchema;
+		g.beginPath(); g.arc(tex.width / 2, tex.height / 2, cfg.diskR * ppm, 0, Math.PI * 2); g.fill();
+		texDisk = cut; texSchema = cfg.diskSchema;
 	}
 	function toWorld(clientX, clientY) {
 		const r = cv.getBoundingClientRect();
@@ -211,20 +213,20 @@ const Render = (() => {
 			const v = ADVANCE_ZONES;
 			// upright in both halves: the wedge's live part is its left edge, the only
 			// stretch of it the disk guard does not cover, and the lane is the strip
-			drawZoneLabel(0.10, CFG.diskY, -Math.PI / 2);
-			drawZoneLabel(v.lx + v.lw / 2, CFG.diskY, -Math.PI / 2);
+			drawZoneLabel(0.10, cfg.diskY, -Math.PI / 2);
+			drawZoneLabel(v.lx + v.lw / 2, cfg.diskY, -Math.PI / 2);
 		} else {
 			drawZoneLabel(2.55, 0.75, labelRot); // inside the fan, along its edges
-			drawZoneLabel(2.55, CFG.boardH - 0.75, -labelRot);
+			drawZoneLabel(2.55, cfg.boardH - 0.75, -labelRot);
 		}
 		ctx.restore();
 	}
 	function drawBlackHoles() {
 		ctx.save();
-		ctx.beginPath(); ctx.rect(0, 0, CFG.boardW, CFG.boardH); ctx.clip();
+		ctx.beginPath(); ctx.rect(0, 0, cfg.boardW, cfg.boardH); ctx.clip();
 		for (let i = 0; i < BLACK_HOLES.length; i++) {
 			const hole = BLACK_HOLES[i];
-			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r + CFG.puckR, 0, 2 * Math.PI);
+			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r + cfg.puckR, 0, 2 * Math.PI);
 			ctx.strokeStyle = 'rgba(186, 104, 200, 0.65)'; ctx.lineWidth = 0.012; ctx.setLineDash([0.035, 0.025]); ctx.stroke();
 			ctx.setLineDash([]);
 			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r, 0, 2 * Math.PI);
@@ -261,11 +263,11 @@ const Render = (() => {
 		}
 		ctx.globalAlpha = 0.35;
 		ctx.fillStyle = theme.inkSolid;
-		ctx.beginPath(); ctx.arc(pred.endX, pred.endY, CFG.puckR, 0, Math.PI * 2); ctx.fill();
+		ctx.beginPath(); ctx.arc(pred.endX, pred.endY, cfg.puckR, 0, Math.PI * 2); ctx.fill();
 		if (pred.locked) {
 			ctx.globalAlpha = 0.8; ctx.strokeStyle = theme.inkSolid; ctx.lineWidth = 0.012;
 			ctx.setLineDash([0.04, 0.03]);
-			ctx.beginPath(); ctx.arc(pred.endX, pred.endY, CFG.puckR * 1.5, 0, Math.PI * 2); ctx.stroke();
+			ctx.beginPath(); ctx.arc(pred.endX, pred.endY, cfg.puckR * 1.5, 0, Math.PI * 2); ctx.stroke();
 			ctx.setLineDash([]);
 		}
 		ctx.restore();
@@ -275,37 +277,37 @@ const Render = (() => {
 	function drawWorld(view) {
 		const w = view.w, aim = view.aim, opts = view.opts, pred = view.pred;
 		if (opts.theme !== themeName) applyTheme(opts.theme);
-		if (CFG.diskSchema !== texSchema) bakeDisk();
+		if (cfg.diskSchema !== texSchema) bakeDisk();
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, cv.width, cv.height);
 		ctx.setTransform(scale, 0, 0, scale, ox, oy);
 		// Floor: plain ice in the scheme's tint. It used to carry a faint copy of the field
 		// frozen at θ = 0, which no longer matches once the disk turns — nor any schema
 		// but the one it was baked from.
-		ctx.save(); ctx.beginPath(); ctx.rect(0, 0, CFG.boardW, CFG.boardH); ctx.clip();
-		ctx.fillStyle = theme.floorFill; ctx.fillRect(0, 0, CFG.boardW, CFG.boardH);
+		ctx.save(); ctx.beginPath(); ctx.rect(0, 0, cfg.boardW, cfg.boardH); ctx.clip();
+		ctx.fillStyle = theme.floorFill; ctx.fillRect(0, 0, cfg.boardW, cfg.boardH);
 		if (theme.grid) { ctx.strokeStyle = theme.grid; ctx.lineWidth = 0.006; ctx.stroke(gridPath); }
 		drawZones(opts.mode);
 		// Disk: field sprite rotated by theta. It is already cut to the circle, so this
 		// needs no clip — which is both cheaper and smoother on the rim.
 		ctx.save();
-		ctx.translate(CFG.diskX, CFG.diskY); ctx.rotate(w.theta);
-		ctx.drawImage(texDisk, -CFG.diskR, -CFG.diskR, 2 * CFG.diskR, 2 * CFG.diskR);
+		ctx.translate(cfg.diskX, cfg.diskY); ctx.rotate(w.theta);
+		ctx.drawImage(texDisk, -cfg.diskR, -cfg.diskR, 2 * cfg.diskR, 2 * cfg.diskR);
 		ctx.fillStyle = theme.tick; ctx.fillRect(0.55, -0.012, 0.22, 0.024); // spin tick
 		ctx.restore();
 		ctx.lineWidth = 0.015; ctx.strokeStyle = theme.rim;
-		ctx.beginPath(); ctx.arc(CFG.diskX, CFG.diskY, CFG.diskR, 0, Math.PI * 2); ctx.stroke();
+		ctx.beginPath(); ctx.arc(cfg.diskX, cfg.diskY, cfg.diskR, 0, Math.PI * 2); ctx.stroke();
 		if (opts.ring) {
-			const dh = holdRadius(CFG);
-			if (dh < CFG.diskR) {
+			const dh = holdRadius(cfg);
+			if (dh < cfg.diskR) {
 				ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = theme.ring;
-				ctx.beginPath(); ctx.arc(CFG.diskX, CFG.diskY, dh, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+				ctx.beginPath(); ctx.arc(cfg.diskX, cfg.diskY, dh, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
 			}
 		}
 		drawBlackHoles();
 		// Launch zone
 		ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 0.01; ctx.setLineDash([0.04, 0.03]);
-		ctx.strokeRect(CFG.launchMinX, CFG.launchMinY, CFG.launchMaxX - CFG.launchMinX, CFG.launchMaxY - CFG.launchMinY);
+		ctx.strokeRect(cfg.launchMinX, cfg.launchMinY, cfg.launchMaxX - cfg.launchMinX, cfg.launchMaxY - cfg.launchMinY);
 		ctx.setLineDash([]);
 		ctx.restore();
 		ctx.lineWidth = theme.wallW; ctx.strokeStyle = theme.wall; ctx.stroke(wallPath);
@@ -320,8 +322,8 @@ const Render = (() => {
 	function drawHud(view) {
 		const seats = view.roster, n = seats.length;
 		if (!n) return;
-		const cw = Math.min(HUD_MAX, (CFG.boardW - 0.12) / n - HUD_GAP);
-		const x0 = (CFG.boardW - (n * cw + (n - 1) * HUD_GAP)) / 2;
+		const cw = Math.min(HUD_MAX, (cfg.boardW - 0.12) / n - HUD_GAP);
+		const x0 = (cfg.boardW - (n * cw + (n - 1) * HUD_GAP)) / 2;
 		ctx.save();
 		ctx.font = font.hud; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
 		for (let i = 0; i < n; i++) {
@@ -333,16 +335,16 @@ const Render = (() => {
 			ctx.fillStyle = col;
 			ctx.beginPath(); ctx.arc(x + 0.055, HUD_Y + 0.072, 0.042, 0, Math.PI * 2); ctx.fill();
 			ctx.fillStyle = on ? '#ffffff' : theme.text;
-			ctx.fillText(String(displayScore(CFG, n, seats[i].score)), x + 0.115, HUD_Y + 0.075);
-			for (let k = 0; k < CFG.ballsPerPlayer; k++) {
+			ctx.fillText(String(displayScore(cfg, n, seats[i].score)), x + 0.115, HUD_Y + 0.075);
+			for (let k = 0; k < cfg.ballsPerPlayer; k++) {
 				ctx.beginPath(); ctx.arc(x + 0.135 + k * 0.062, HUD_Y + 0.178, 0.022, 0, Math.PI * 2);
 				if (k < seats[i].balls) { ctx.fillStyle = col; ctx.fill(); }
 				else { ctx.strokeStyle = 'rgba(223,230,233,0.40)'; ctx.lineWidth = 0.009; ctx.stroke(); }
 			}
 		}
-		if (CFG.speedVote !== 'off') drawVotes(view, x0, cw);
+		if (cfg.speedVote !== 'off') drawVotes(view, x0, cw);
 		if (view.state === 'resolve') { // the 4 s window that is paying right now
-			const left = Math.max(0, 1 - view.resolveT / CFG.handoffT);
+			const left = Math.max(0, 1 - view.resolveT / cfg.handoffT);
 			const x = x0 + view.turn * (cw + HUD_GAP), y = HUD_Y + HUD_H + 0.022;
 			ctx.fillStyle = 'rgba(255,255,255,0.22)';
 			ctx.fillRect(x, y, cw, 0.026);
@@ -360,7 +362,7 @@ const Render = (() => {
 			if (seats[i].voteLabel) ctx.fillText(seats[i].voteLabel, x0 + i * (cw + HUD_GAP) + cw - 0.02, HUD_Y + 0.075);
 		}
 		if (view.state !== 'vote') return;
-		const left = Math.max(0, 1 - view.voteT / CFG.voteT), y = HUD_Y + HUD_H + 0.022, span = n * cw + (n - 1) * HUD_GAP;
+		const left = Math.max(0, 1 - view.voteT / cfg.voteT), y = HUD_Y + HUD_H + 0.022, span = n * cw + (n - 1) * HUD_GAP;
 		ctx.fillStyle = 'rgba(255,255,255,0.22)';
 		ctx.fillRect(x0, y, span, 0.026);
 		ctx.fillStyle = theme.inkSolid;
@@ -431,7 +433,7 @@ const Render = (() => {
 		const sx = w.x[aim.pending], sy = w.y[aim.pending];
 		const sp = Math.hypot(aim.vx, aim.vy);
 		if (sp < 1e-6) return;
-		const len = sp / CFG.vMax * CFG.dragFull;
+		const len = sp / cfg.vMax * cfg.dragFull;
 		const ux = aim.vx / sp, uy = aim.vy / sp;
 		ctx.save();
 		ctx.strokeStyle = theme.inkSolid; ctx.fillStyle = theme.inkSolid; ctx.lineWidth = 0.018;
@@ -442,8 +444,10 @@ const Render = (() => {
 		ctx.lineTo(sx + ux * (len + 0.12) + uy * 0.05, sy + uy * (len + 0.12) - ux * 0.05);
 		ctx.closePath(); ctx.fill();
 		ctx.font = font.label;
-		ctx.fillText(sp.toFixed(2) + ' m/s, stops ~' + stopDistance(CFG, sp).toFixed(1) + ' m', sx + ux * (len + 0.45), sy + uy * (len + 0.45));
+		ctx.fillText(sp.toFixed(2) + ' m/s, stops ~' + stopDistance(cfg, sp).toFixed(1) + ' m', sx + ux * (len + 0.45), sy + uy * (len + 0.45));
 		ctx.restore();
 	}
 	return { setup, resize, drawWorld, toWorld, themes: THEMES };
-})();
+}
+const Render = createRenderer();
+if (typeof module !== 'undefined') module.exports = { Render, createRenderer };
