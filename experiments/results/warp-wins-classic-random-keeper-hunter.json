@@ -1,0 +1,179 @@
+{
+	"date": "2026-10-16T04:40:22.283Z",
+	"config": {
+		"games": 8,
+		"seed0": 20261016,
+		"schema": "classic",
+		"table": [
+			"random",
+			"keeper",
+			"hunter"
+		],
+		"warpTries": 6,
+		"warpTurns": 3,
+		"warpGoal": 0.5,
+		"note": "same seeds in every variant; seats rotate every game; fixed speed, no bot delay"
+	},
+	"variants": [
+		{
+			"name": "none",
+			"searcher": null,
+			"bots": [
+				{
+					"type": "random",
+					"scoreMean": 75,
+					"scoreStd": 35.566838487557476,
+					"rawMean": 62.504232647783155,
+					"winPct": 0
+				},
+				{
+					"type": "keeper",
+					"scoreMean": 398.75,
+					"scoreStd": 96.02831613643967,
+					"rawMean": 332.6335890471328,
+					"winPct": 12.5
+				},
+				{
+					"type": "hunter",
+					"scoreMean": 529.625,
+					"scoreStd": 168.42204242616225,
+					"rawMean": 441.61024156238136,
+					"winPct": 87.5
+				}
+			],
+			"game": {
+				"msMean": 4088.6421603750205,
+				"heldMean": 0,
+				"throwsMean": 13.625
+			}
+		},
+		{
+			"name": "all",
+			"searcher": "*",
+			"bots": [
+				{
+					"type": "random",
+					"scoreMean": 213.875,
+					"scoreStd": 111.32097455107011,
+					"rawMean": 178.37524519029643,
+					"winPct": 0
+				},
+				{
+					"type": "keeper",
+					"scoreMean": 332.375,
+					"scoreStd": 88.27646557831821,
+					"rawMean": 277.4356308966786,
+					"winPct": 50
+				},
+				{
+					"type": "hunter",
+					"scoreMean": 398.625,
+					"scoreStd": 187.84031615976374,
+					"rawMean": 332.51064870983305,
+					"winPct": 50
+				}
+			],
+			"game": {
+				"msMean": 4292.67304087503,
+				"heldMean": 55.25,
+				"throwsMean": 12.75
+			}
+		},
+		{
+			"name": "random+warp",
+			"searcher": "random",
+			"bots": [
+				{
+					"type": "random",
+					"scoreMean": 237.875,
+					"scoreStd": 101.3008360034605,
+					"rawMean": 198.37118313194182,
+					"winPct": 0
+				},
+				{
+					"type": "keeper",
+					"scoreMean": 282,
+					"scoreStd": 59.418010737485986,
+					"rawMean": 235.2724948675782,
+					"winPct": 25
+				},
+				{
+					"type": "hunter",
+					"scoreMean": 418,
+					"scoreStd": 136.50366295451562,
+					"rawMean": 348.642572731761,
+					"winPct": 75
+				}
+			],
+			"game": {
+				"msMean": 4104.925287499995,
+				"heldMean": 27,
+				"throwsMean": 12.875
+			}
+		},
+		{
+			"name": "keeper+warp",
+			"searcher": "keeper",
+			"bots": [
+				{
+					"type": "random",
+					"scoreMean": 71.375,
+					"scoreStd": 34.054872999322725,
+					"rawMean": 59.57752041567284,
+					"winPct": 0
+				},
+				{
+					"type": "keeper",
+					"scoreMean": 410.875,
+					"scoreStd": 109.11626540071833,
+					"rawMean": 342.68568145808075,
+					"winPct": 25
+				},
+				{
+					"type": "hunter",
+					"scoreMean": 508.75,
+					"scoreStd": 158.00613121015272,
+					"rawMean": 424.148770496067,
+					"winPct": 75
+				}
+			],
+			"game": {
+				"msMean": 4077.1541942500044,
+				"heldMean": 10.75,
+				"throwsMean": 13.625
+			}
+		},
+		{
+			"name": "hunter+warp",
+			"searcher": "hunter",
+			"bots": [
+				{
+					"type": "random",
+					"scoreMean": 78.125,
+					"scoreStd": 24.685205589583408,
+					"rawMean": 65.10325194629873,
+					"winPct": 0
+				},
+				{
+					"type": "keeper",
+					"scoreMean": 413.625,
+					"scoreStd": 84.26437191957227,
+					"rawMean": 344.99927589099224,
+					"winPct": 25
+				},
+				{
+					"type": "hunter",
+					"scoreMean": 510.375,
+					"scoreStd": 198.01384894749154,
+					"rawMean": 425.70823720378075,
+					"winPct": 75
+				}
+			],
+			"game": {
+				"msMean": 4051.75465037502,
+				"heldMean": 10.125,
+				"throwsMean": 13.5
+			}
+		}
+	]
+}

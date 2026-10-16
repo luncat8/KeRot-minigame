@@ -208,21 +208,64 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	console.log('stroke mapping: half-drag ' + half.toFixed(3) + ', over-drag ' + over.toFixed(3) + ', full-drag ' + full.toFixed(3));
 	check(Math.abs(half - (CFG.vMin + CFG.vMax) / 2) < 1e-9, 'half drag = mid range');
 	check(over === CFG.vMax && full === CFG.vMax, 'over/at full drag clamp to vMax');
-	// Shift precision: 4x finer per metre, continuous across the press and release.
+	// Shift precision: a preciseGain share of further drag on speed and on aim alike,
+	// continuous across the press and release.
 	Game.setStroke(-0.45, 0, false);
 	const base = speed();
 	Game.setStroke(-0.45 - 0.09, 0, false);
 	const coarse = speed() - base;
 	Game.setStroke(-0.45, 0, false); // back to the anchor length
 	Game.setStroke(-0.45, 0, true); // shift down: rebase at the current speed, no jump
+	const press = speed();
 	Game.setStroke(-0.45 - 0.09, 0, true); // only now does the finer slope act
 	const fine = speed() - base;
 	console.log('precision: 0.09 m of drag -> ' + coarse.toFixed(4) + ' m/s plain, ' + fine.toFixed(4) + ' m/s with shift');
 	check(Math.abs(coarse - 0.09 * (CFG.vMax - CFG.vMin) / CFG.dragFull) < 1e-9, 'plain drag slope');
-	check(Math.abs(fine - coarse * CFG.preciseGain) < 1e-9, 'shift gain = preciseGain');
-	check(Math.abs(speed() - (base + fine)) < 1e-9, 'no jump at the shift press');
+	check(Math.abs(fine - coarse * CFG.preciseGain) < 1e-9, 'shift speed gain = preciseGain');
+	check(Math.abs(press - base) < 1e-9, 'no jump at the shift press');
+	check(Math.abs(speed() - (base + fine)) < 1e-9, 'fine slope acts after the press');
 	Game.setStroke(-0.45 - 0.09, 0, false);
 	check(Math.abs(speed() - (base + fine)) < 1e-9, 'no jump at the shift release');
+	// The aim, same ruler: a sideways step turns the stroke, and with shift only a
+	// preciseGain share of that turn counts.
+	const aimAng = () => Math.atan2(Game.aim.vy, Game.aim.vx);
+	Game.setStroke(-0.45, 0, false);
+	const baseAng = aimAng();
+	Game.setStroke(-0.45, 0.09, false);
+	const coarseAng = aimAng() - baseAng;
+	Game.setStroke(-0.45, 0, false);
+	Game.setStroke(-0.45, 0, true);
+	const pressAng = aimAng();
+	Game.setStroke(-0.45, 0.09, true);
+	const fineAng = aimAng() - baseAng;
+	console.log('aim precision: 0.09 m sideways -> ' + (coarseAng * 180 / Math.PI).toFixed(3) + '° plain, ' + (fineAng * 180 / Math.PI).toFixed(4) + '° with shift');
+	check(Math.abs(coarseAng - (Math.atan2(0.09, -0.45) - baseAng)) < 1e-9, 'plain aim follows the drag');
+	check(Math.abs(fineAng - coarseAng * CFG.preciseGain) < 1e-9, 'shift aim gain = preciseGain');
+	check(Math.abs(pressAng - baseAng) < 1e-9, 'no aim jump at the shift press');
+	Game.setStroke(-0.45, 0.09, false);
+	check(Math.abs(aimAng() - (baseAng + fineAng)) < 1e-9, 'no aim jump at the shift release');
+	// Arrow nudges, same gain: 1° / (2 % + 0.01 m/s) plain, a preciseGain share with shift.
+	Game.bindInput(makeCanvas());
+	const fireArrow = (key, shift) => fireWindow('keydown', { code: '', key: key, shiftKey: !!shift, preventDefault() { } });
+	Game.setStroke(-0.45, 0, false);
+	const n0 = aimAng();
+	fireArrow('ArrowLeft', false);
+	const nPlain = n0 - aimAng();
+	fireArrow('ArrowRight', false);
+	const nBack = aimAng();
+	fireArrow('ArrowLeft', true);
+	const nFine = nBack - aimAng();
+	console.log('nudge aim: ← ' + (nPlain * 180 / Math.PI).toFixed(4) + '° plain, ' + (nFine * 180 / Math.PI).toFixed(5) + '° with shift');
+	check(Math.abs(nPlain - Math.PI / 180) < 1e-12, 'plain nudge step is 1°');
+	check(Math.abs(nFine - nPlain * CFG.preciseGain) < 1e-12, 'shift nudge aim gain = preciseGain');
+	const sN0 = speed();
+	fireArrow('ArrowUp', false);
+	const sPlain = speed() - sN0;
+	Game.setAimVel(Math.cos(aimAng()) * sN0, Math.sin(aimAng()) * sN0);
+	fireArrow('ArrowUp', true);
+	const sFine = speed() - sN0;
+	console.log('nudge speed: ↑ ' + sPlain.toFixed(5) + ' m/s plain, ' + sFine.toFixed(6) + ' m/s with shift');
+	check(Math.abs(sFine - sPlain * CFG.preciseGain) < 1e-12, 'shift nudge speed gain = preciseGain');
 	// Ghost refresh: a physics change must re-simulate the preview.
 	Game.setStroke(-CFG.dragFull, 0.2, false);
 	Game.tick(1 / 60);

@@ -238,3 +238,14 @@
 - Keep a file's node require-header on one line: harnesses that eval the source strip
   `^if (typeof module …)$`, and with `/m` (not `/gm`) only the first line goes — the rest of
   a wrapped header is left as a syntax error in the evalled file.
+- A precision mode on an angle must scale deltas from an anchor, never the absolute
+  angle (180° at 1/32 gain is 6° of nonsense). Anchor the first event at its own
+  direction, rebase both axes on every shift flip, and plain-vs-precise stays
+  continuous in both directions — at the price of path dependence (returning the
+  pointer does not return the aim after a fine segment).
+- Measure a search in wins with an asymmetric harness: only one profile searches per
+  variant, toggled per turn by direct `cfg` assignment (`setWarp` cancels a running
+  plan), same per-game rng in every variant, and a game count divisible by the seat
+  count so the rotation is even. A good-enough bar over the snapshot stops the search
+  on the greedy line whenever greedy looks good — log how often it takes another
+  line, or a whole variant can be byte-identical games that prove nothing.

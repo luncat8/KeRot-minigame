@@ -48,7 +48,7 @@ const CFG = {
 	botDelay: 0.7, // seconds a bot "thinks" (aim shown) before throwing
 	settleTime: 3,
 	dragFull: 0.90,
-	preciseGain: 0.25, // shift-held drag gain (precision mode)
+	preciseGain: 0.03125, // shift-held gain (precision mode): 1/32 of plain, on angle and speed alike
 	endMode: 'settle',
 };
 function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }

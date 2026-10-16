@@ -16,6 +16,7 @@
 // global CFG, so a copy can run its own settings.
 if (typeof module !== 'undefined') { Object.assign(globalThis, require('./cfg.js'), require('./physics.js'), require('./score.js'), require('./players.js'), require('./rules.js'), require('./predict.js'), require('./bots.js'), require('./vote.js')); module.exports = { createGame }; }
 
+function angDelta(a, b) { return Math.atan2(Math.sin(a - b), Math.cos(a - b)); }
 function createGame(env) {
 	const PRED_COOLDOWN = 0.08; // s between ghost re-sims during a drag
 	const cfg = env.cfg || CFG;
@@ -34,9 +35,11 @@ function createGame(env) {
 	// The last tally, for the panel: the votes it counted and what came of them.
 	const tally = { count: 0, from: 0, to: 0, labels: [] };
 	let botT = 0, predT = 0, ghostDirty = false, seed = 1, rng = makeRng(seed);
-	// len/anchor* implement precision mode (shift): the speed mapping is rebased every
-	// time shift flips, so the stroke never jumps when it is pressed or released.
-	const aim = { pending: -1, hasStroke: false, vx: 0, vy: 0, dragging: false, len: 0, anchorLen: 0, anchorSp: cfg.vMin, precise: false };
+	// len/raw/anchor* implement precision mode (shift): the speed and angle mappings are
+	// rebased every time shift flips, so the stroke never jumps when it is pressed or
+	// released. Plain drag is absolute; a shift segment counts only a preciseGain share
+	// of further drag on either axis.
+	const aim = { pending: -1, hasStroke: false, vx: 0, vy: 0, dragging: false, len: 0, raw: 0, anchorLen: 0, anchorSp: cfg.vMin, anchorRaw: NaN, anchorAng: 0, precise: false };
 	const queue = []; // {type:'throw', timeStamp}
 	// The time-warp planner (js/warp.js) and the shortlist its search works through.
 	let planner = null, planning = false, rank = null, warpNote = '';
@@ -97,18 +100,31 @@ function createGame(env) {
 		rng = makeRng(++seed); // fresh seed per board: bot games differ, competitions stay reproducible
 		armTurn();
 	}
-	function rebase(len, sp, precise) { aim.anchorLen = len; aim.anchorSp = sp; aim.precise = precise; }
+	function rebase(len, sp, precise) { aim.anchorLen = len; aim.anchorSp = sp; aim.precise = precise; aim.anchorRaw = NaN; }
 	function rawSpeed(len) { return clamp(cfg.vMin + len / cfg.dragFull * (cfg.vMax - cfg.vMin), cfg.vMin, cfg.vMax); }
-	// Drag 0..dragFull maps onto the stroke speed range cfg.vMin..cfg.vMax; with shift
-	// held only a preciseGain share of further drag counts (precision mode).
+	// Drag 0..dragFull maps onto the stroke speed range cfg.vMin..cfg.vMax and the drag
+	// direction onto the aim; with shift held only a preciseGain share of further drag
+	// counts on either axis (precision mode). The angle anchor starts at the drag's own
+	// direction, so scaling the first event cannot turn an absolute angle into nonsense.
 	function setStroke(dx, dy, precise) {
 		const len = Math.hypot(dx, dy);
 		if (len < 1e-6) { aim.hasStroke = false; return; }
-		if (precise !== aim.precise) rebase(len, aim.hasStroke ? Math.hypot(aim.vx, aim.vy) : rawSpeed(len), precise);
-		const slope = (cfg.vMax - cfg.vMin) / cfg.dragFull * (precise ? cfg.preciseGain : 1);
+		const raw = Math.atan2(dy, dx);
+		if (precise !== aim.precise) {
+			rebase(len, aim.hasStroke ? Math.hypot(aim.vx, aim.vy) : rawSpeed(len), precise);
+			aim.anchorRaw = raw;
+			aim.anchorAng = aim.hasStroke ? Math.atan2(aim.vy, aim.vx) : raw;
+		} else if (isNaN(aim.anchorRaw)) {
+			aim.anchorRaw = raw;
+			aim.anchorAng = raw;
+		}
+		const gain = precise ? cfg.preciseGain : 1;
+		const slope = (cfg.vMax - cfg.vMin) / cfg.dragFull * gain;
 		const sp = clamp(aim.anchorSp + (len - aim.anchorLen) * slope, cfg.vMin, cfg.vMax);
+		const ang = aim.anchorAng + angDelta(raw, aim.anchorRaw) * gain;
 		aim.len = len;
-		setAimVel(dx / len * sp, dy / len * sp);
+		aim.raw = raw;
+		setAimVel(Math.cos(ang) * sp, Math.sin(ang) * sp);
 	}
 	function setAimVel(vx, vy) {
 		aim.vx = vx; aim.vy = vy; aim.hasStroke = true;
@@ -314,15 +330,21 @@ function createGame(env) {
 		});
 	}
 	function nudge(e) {
-		if (!aim.hasStroke) { setStroke(-cfg.dragFull * 0.5, 0, e.shiftKey); rebase(aim.len, Math.hypot(aim.vx, aim.vy), e.shiftKey); }
+		if (!aim.hasStroke) {
+			setStroke(-cfg.dragFull * 0.5, 0, e.shiftKey);
+			rebase(aim.len, Math.hypot(aim.vx, aim.vy), e.shiftKey);
+			aim.anchorRaw = aim.raw; aim.anchorAng = Math.atan2(aim.vy, aim.vx);
+		}
 		let ang = Math.atan2(aim.vy, aim.vx), sp = Math.hypot(aim.vx, aim.vy);
-		const da = (e.shiftKey ? 0.2 : 1) * Math.PI / 180; // shift = fine on both axes
-		const dk = e.shiftKey ? 1.005 : 1.020, ds = e.shiftKey ? 0.002 : 0.010;
+		const gain = e.shiftKey ? cfg.preciseGain : 1; // shift = fine on both axes, same gain as the drag
+		const da = gain * Math.PI / 180;
+		const dk = 1 + gain * 0.02, ds = gain * 0.01;
 		if (e.key === 'ArrowLeft') ang -= da;
 		if (e.key === 'ArrowRight') ang += da;
 		if (e.key === 'ArrowUp') sp = Math.min(cfg.vMax, sp * dk + ds);
 		if (e.key === 'ArrowDown') sp = Math.max(cfg.vMin, sp / dk - ds);
 		rebase(aim.len, sp, e.shiftKey); // arrows and drag share the same anchor
+		aim.anchorRaw = aim.raw; aim.anchorAng = ang;
 		setAimVel(Math.cos(ang) * sp, Math.sin(ang) * sp);
 	}
 	// Swap the whole roster at once (a table preset or URL `seats` list) — unlike the
