@@ -10,6 +10,7 @@ const UI = (() => {
 	const SHIPPED = {
 		omega: CFG.omega, muK: CFG.muK, muS: CFG.muS, puckM: CFG.puckM,
 		schema: CFG.diskSchema, recycle: CFG.recycleMode, vote: CFG.speedVote, voteMode: CFG.voteMode, balls: CFG.ballsPerPlayer,
+		botspeed: CFG.botSpeed, warp: !!CFG.warp, warpTries: CFG.warpTries, warpTurns: CFG.warpTurns, warpGoal: CFG.warpGoal,
 		theme: 'classic', seats: 'human,balanced,blackhole,retriever',
 	};
 	const rows = []; // one per seat: {root, sel, balls, score, rm}
@@ -18,7 +19,8 @@ const UI = (() => {
 	function setText(id, txt) { if (lastText[id] !== txt) { lastText[id] = txt; els[id].textContent = txt; } }
 	function setNode(el, txt) { if (el.textContent !== txt) el.textContent = txt; }
 	function bind(onReset) {
-		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus'])
+		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
+			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus'])
 			els[id] = $(id);
 		// Every physics input invalidates the ghost: it is only valid for the settings
 		// it was simulated with, so a slider move must re-sim it on the next frame.
@@ -38,6 +40,17 @@ const UI = (() => {
 		// Mass spans 40× (a plastic disc to a curling stone), so the slider is log10 kg.
 		els.mass.min = String(Math.log10(CFG.massMin)); els.mass.max = String(Math.log10(CFG.massMax));
 		els.mass.addEventListener('input', () => { Game.setPuckMass(10 ** parseFloat(els.mass.value)); sync(); onPhys(); });
+		fillSelect(els.botSpeed, SPEED_STRATS, CFG.botSpeed);
+		els.botSpeed.addEventListener('change', () => { CFG.botSpeed = els.botSpeed.value; markCustom(); });
+		// The look-ahead settings are read when a search starts, so they apply from the
+		// next bot turn on; only switching it off has to reach a search under way.
+		els.chkWarp.checked = CFG.warp;
+		els.chkWarp.addEventListener('change', () => { Game.setWarp(els.chkWarp.checked); syncWarp(); markCustom(); });
+		els.warpTries.min = '1'; els.warpTries.max = String(WARP_MAX_TRIES);
+		els.warpTries.addEventListener('input', () => { CFG.warpTries = parseInt(els.warpTries.value, 10); syncWarp(); markCustom(); });
+		els.warpTurns.addEventListener('input', () => { CFG.warpTurns = parseInt(els.warpTurns.value, 10); syncWarp(); markCustom(); });
+		els.warpGoal.addEventListener('input', () => { CFG.warpGoal = parseFloat(els.warpGoal.value); syncWarp(); markCustom(); });
+		syncWarp();
 		fillSelect(els.diskSchema, DISK_SCHEMAS, CFG.diskSchema);
 		els.diskSchema.addEventListener('change', () => { Game.setDiskSchema(els.diskSchema.value); markCustom(); });
 		fillSelect(els.theme, Render.themes, opts.theme);
@@ -88,6 +101,11 @@ const UI = (() => {
 		if (CFG.recycleMode !== SHIPPED.recycle) parts.push('recycle=' + CFG.recycleMode);
 		if (CFG.speedVote !== SHIPPED.vote) parts.push('vote=' + CFG.speedVote);
 		if (CFG.voteMode !== SHIPPED.voteMode) parts.push('votemode=' + CFG.voteMode);
+		if (CFG.botSpeed !== SHIPPED.botspeed) parts.push('botspeed=' + CFG.botSpeed);
+		if (!!CFG.warp !== SHIPPED.warp) parts.push('warp=' + (CFG.warp ? 1 : 0));
+		if (CFG.warpTries !== SHIPPED.warpTries) parts.push('warptries=' + CFG.warpTries);
+		if (CFG.warpTurns !== SHIPPED.warpTurns) parts.push('warpturns=' + CFG.warpTurns);
+		if (CFG.warpGoal !== SHIPPED.warpGoal) parts.push('warpgoal=' + numParam(CFG.warpGoal));
 		if (opts.theme !== SHIPPED.theme) parts.push('theme=' + opts.theme);
 		if (CFG.ballsPerPlayer !== SHIPPED.balls) parts.push('balls=' + CFG.ballsPerPlayer);
 		const seats = Game.seatTypes.join(',');
@@ -117,6 +135,22 @@ const UI = (() => {
 		opts.mode = CFG.recycleMode;
 		for (const r of radios('speedVote')) r.checked = r.value === CFG.speedVote;
 		for (const r of radios('voteMode')) r.checked = r.value === CFG.voteMode;
+		els.botSpeed.value = CFG.botSpeed in SPEED_STRATS ? CFG.botSpeed : 'auto';
+		els.chkWarp.checked = !!CFG.warp;
+		els.warpTries.value = String(CFG.warpTries);
+		els.warpTurns.value = String(CFG.warpTurns);
+		els.warpGoal.value = String(CFG.warpGoal);
+		syncWarp();
+	}
+	// The look-ahead's own numbers: what a search is allowed to try, and what it stops
+	// on. The rows say "balls" because that is the unit the goal is priced in — one
+	// parked puck's remaining annuity, the same coin the bots' value function pays in.
+	function syncWarp() {
+		const tries = clamp(Math.round(CFG.warpTries) || 1, 1, WARP_MAX_TRIES);
+		setText('warpTriesVal', tries + ' line' + (tries === 1 ? '' : 's'));
+		setText('warpTurnsVal', CFG.warpTurns > 0 ? CFG.warpTurns + ' turn' + (CFG.warpTurns > 1 ? 's' : '') : 'to the end of the game');
+		setText('warpGoalVal', CFG.warpGoal > 0 ? CFG.warpGoal.toFixed(2) + ' ball' + (CFG.warpGoal === 1 ? '' : 's') : 'any line that gains');
+		els.warpRows.hidden = !CFG.warp;
 	}
 	// A setup object (a preset by name, or the URL parameters) applied in one go:
 	// CFG first, then the table it asks for, then the looks. Any board-changing key
@@ -316,6 +350,7 @@ const UI = (() => {
 		const seat = roster[Game.turn];
 		setText('liveScore', 'on turn: ' + seatName(Game.turn) + ' earns ' + scoreRate(w, Game.turn).toFixed(1) + '/s');
 		setText('state', stateText(seat));
+		setText('warpStatus', Game.warpStatus);
 		for (let i = 0; i < rows.length; i++) {
 			const r = rows[i], s = roster[i];
 			setNode(r.balls, ballDots(s.balls));

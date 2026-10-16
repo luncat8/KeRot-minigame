@@ -2,7 +2,7 @@
 // its preferences differ, so recovery, reserve use and puck-loss risk are considered
 // by every bot. Node-safe and synchronous: predictor buffers and botOut are reused.
 if (typeof module !== 'undefined') Object.assign(globalThis,
-	require('./cfg.js'), require('./field.js'), require('./physics.js'), require('./predict.js'), require('./rules.js'));
+	require('./cfg.js'), require('./field.js'), require('./physics.js'), require('./score.js'), require('./predict.js'), require('./rules.js'));
 
 const BOT_GROUPS = 5;
 const BOT_LEVELS = 4;
@@ -29,10 +29,15 @@ const BOT_SPREAD = [0.78, 0.36, 0.48, 0.48, 0.10];
 const botTargets = [];
 for (let g = 0; g < BOT_GROUPS; g++) botTargets.push({ x: 0, y: 0, v0: 0 });
 const botOut = { vx: 0, vy: 0 };
-
+const botQuick = { vx: 0, vy: 0 };
+// The rng's state is readable and writable so a look-ahead can hand every candidate
+// the same noise stream (js/warp.js), and so a copy of a game replays the decisions.
 function makeRng(seed) {
 	let s = (seed >>> 0) || 0x9e3779b9;
-	return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; };
+	const rng = () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return (s >>> 0) / 4294967296; };
+	rng.getState = () => s;
+	rng.setState = v => { s = (v >>> 0) || 0x9e3779b9; };
+	return rng;
 }
 function setTarget(group, x, y, v0) { const t = botTargets[group]; t.x = x; t.y = y; t.v0 = v0 || 0; }
 // Time of a stop-at-target throw over `dist` at the current load: v² = 2μgD and
@@ -147,8 +152,159 @@ const BOT_REFINE_KV = [0.82, 0.88, 0.94, 1, 1.06, 1.12, 1.18];
 const FEED_FRAC = [0.70, 0.82, 0.92]; // of d_hold, the three radii that cover a lobe period
 const FEED_KV = [0.86, 0.90, 0.94]; // of the floor-friction solve; on-disk drag makes the true speed lower
 const FEED_DA = [-0.02618, 0, 0.02618, 0.05236]; // rad around the tangent, about −1.5°..+3°
-function chooseStroke(name, w, cfg, i, pred, rng, roster) {
+// The (hold-radius fraction, speed fraction) pairs a rim feed is solved with by a policy
+// that cannot simulate: each one locks from the launch lane at every disk phase, on every
+// schema (12/12 measured) — the disk is rotationally symmetric, so only the paint turns.
+// All that is left for such a policy to choose is which of them arrives on red.
+const FEED_LOCK = [[0.62, 0.90], [0.70, 0.90], [0.70, 0.92], [0.78, 0.92], [0.82, 0.92]];
+// --- The shortlist a deeper search can work through --------------------------------
+// chooseStroke weighs ~90 strokes and keeps the best. A look-ahead (js/warp.js) wants
+// the best *of each line of play* instead — park on the hot lobe, feed the rim, knock
+// an enemy puck back, push one into a hole — because those are the moves whose ranking
+// a one-ply estimate is least able to settle. So the search hands over its per-group
+// winner, sorted, and near-duplicates (same direction and speed) drop out: a look-ahead
+// spent twice on the same throw is a look-ahead wasted.
+const BOT_RANK_SLOTS = BOT_GROUPS + 1; // the four aim groups, the feed grid, the fine patch
+function makeStrokeRank() {
+	const r = { n: 0, vx: new Float64Array(BOT_RANK_SLOTS), vy: new Float64Array(BOT_RANK_SLOTS), value: new Float64Array(BOT_RANK_SLOTS) };
+	r.value.fill(-Infinity); // a rank nobody has filled this round holds no candidate
+	return r;
+}
+function rankAdd(rank, slot, vx, vy, value) {
+	if (value <= rank.value[slot]) return;
+	rank.value[slot] = value; rank.vx[slot] = vx; rank.vy[slot] = vy;
+}
+function rankFinish(rank) {
+	let n = 0;
+	for (let s = 0; s < BOT_RANK_SLOTS; s++) {
+		if (!isFinite(rank.value[s])) continue;
+		const v = rank.value[s], ax = rank.vx[s], ay = rank.vy[s]; // the shift below overwrites slot s
+		let k = n;
+		while (k > 0 && rank.value[k - 1] < v) { // insertion sort, by value
+			rank.value[k] = rank.value[k - 1]; rank.vx[k] = rank.vx[k - 1]; rank.vy[k] = rank.vy[k - 1];
+			k--;
+		}
+		rank.value[k] = v; rank.vx[k] = ax; rank.vy[k] = ay;
+		n++;
+	}
+	let m = n > 0 ? 1 : 0; // drop a candidate that is the same throw under another name
+	for (let a = 1; a < n; a++) {
+		let dupe = false;
+		for (let b = 0; b < m; b++) if (sameThrow(rank, a, b)) { dupe = true; break; }
+		if (dupe) continue;
+		if (m !== a) { rank.value[m] = rank.value[a]; rank.vx[m] = rank.vx[a]; rank.vy[m] = rank.vy[a]; }
+		m++;
+	}
+	rank.n = m;
+	return m;
+}
+function sameThrow(rank, a, b) {
+	const da = Math.abs(Math.atan2(rank.vy[a], rank.vx[a]) - Math.atan2(rank.vy[b], rank.vx[b]));
+	const sa = Math.hypot(rank.vx[a], rank.vy[a]), sb = Math.hypot(rank.vx[b], rank.vy[b]);
+	const dv = sa - sb;
+	return da < 0.02 && dv * dv < 0.0004 * sa * sb; // within 0.02 rad and 2 % of speed
+}
+// What a puck parked at (x, y) would pay, priced by the score's own quadrature through a
+// scratch slot: the quick policy needs the red of a spot, not the history of a throw. The
+// slot is added and dropped around the one read. `lead` (radians) turns the disk for that
+// read, so a spot can be priced as the paint will look when the throw lands on it.
+function spotRate(w, x, y, lead) {
+	if (w.n >= MAX_PUCKS) return 0;
+	const cfg = w.cfg, theta = w.theta;
+	if (lead) w.theta += lead;
+	const i = w.n++;
+	w.x[i] = x; w.y[i] = y; w.vx[i] = 0; w.vy[i] = 0; w.om[i] = 0; w.th[i] = 0;
+	w.r[i] = cfg.puckR; w.m[i] = cfg.puckM; w.st[i] = ST_SLEEP; w.own[i] = 0; w.uid[i] = 0;
+	const rate = puckRate(w, i);
+	w.n--; w.theta = theta;
+	return rate;
+}
+// The rollout policy: every stroke solved to land, none of them simulated. A
+// look-ahead needs an answer from every later seat and cannot pay a search per seat
+// (~90 predictions each), which would cost more than all the physics in the rollout. So
+// it plays the same target list the searching bot works from, priced by the same
+// economics — a park by the rate it holds, a ball back by its return price, a kill by
+// the life it takes — and at the speed that stops on the target.
+function chooseStrokeQuick(name, w, cfg, i, rng, roster) {
+	const p = BOT_PROFILES[name] || BOT_PROFILES.balanced;
+	strategicTargets(w, cfg, i);
+	const own = w.own[i], x = w.x[i], y = w.y[i], dh = holdRadius(cfg);
+	let turns = 0;
+	for (let s = 0; s < roster.length; s++) turns += roster[s].balls;
+	const future = 2 + 0.9 * cfg.handoffT * turns;
+	const ballValue = Math.PI * cfg.puckR * cfg.puckR * diskMeanRed(cfg) * future;
+	// A spot outside the hold radius is a puck the disk will throw off a moment later,
+	// so it pays the window it crosses and only part of the annuity — the same
+	// distinction the searching bot makes between a fly-by and a capture.
+	function parkValue(sx, sy, lead, fed) {
+		const d = Math.hypot(sx - cfg.diskX, sy - cfg.diskY);
+		// Two ways a spot fails to hold a puck: outside the hold radius the disk throws it
+		// off, and inside it a puck that arrives *still* has to be dragged up to the
+		// surface speed first — friction does that over a slide of (ωd)²/2μk g, and when
+		// the slide runs past the rim the puck is leaving the disk, not parked on it. At
+		// the defaults that limit is the measured ~0.5 R, and it is why a rim lobe is a
+		// feed or nothing. A puck that arrives co-rotating skips the test.
+		const v = Math.abs(w.omegaCur) * d;
+		const held = d <= dh && (fed || d + v * v / (2 * muKEff(cfg) * cfg.g) <= cfg.diskR);
+		return spotRate(w, sx, sy, lead) * (p.score * cfg.handoffT + p.opportunity * future * (held ? 1 : 0.2));
+	}
+	function aimAt(tx, ty, speed, value, fed) {
+		const dx = tx - x, dy = ty - y;
+		if (!(value > best) || Math.hypot(dx, dy) < 1e-6) return;
+		best = value; ang = Math.atan2(dy, dx); stop = speed; fedBest = !!fed;
+	}
+	// The speed that stops on the target is what a park and a knock both want (v² = 2μgD).
+	function stopAt(tx, ty) {
+		const dist = Math.hypot(tx - x, ty - y);
+		return Math.min(cfg.vMax, Math.sqrt(2 * muKEff(cfg) * cfg.g * dist));
+	}
+	let best = -Infinity, ang = 0, stop = 0, fedBest = false;
+	aimAt(botTargets[0].x, botTargets[0].y, stopAt(botTargets[0].x, botTargets[0].y), parkValue(botTargets[0].x, botTargets[0].y));
+	// Group 1 is the *led* lobe: the spot is placed where the paint is going, so it has
+	// to be read at the paint of the arrival moment too, or it looks like empty ice.
+	const lead1 = w.omegaCur * flightTime(cfg, Math.hypot(botTargets[1].x - x, botTargets[1].y - y));
+	aimAt(botTargets[1].x, botTargets[1].y, stopAt(botTargets[1].x, botTargets[1].y), parkValue(botTargets[1].x, botTargets[1].y, lead1));
+	aimAt(botTargets[2].x, botTargets[2].y, stopAt(botTargets[2].x, botTargets[2].y), p.recovery * 0.2 * ballValue);
+	aimAt(botTargets[3].x, botTargets[3].y, stopAt(botTargets[3].x, botTargets[3].y), p.kill * ballValue / Math.max(1, roster.length));
+	// The rim capture is the one line whose exact spot matters: of the feeds that lock,
+	// each is priced where the paint will be when the puck arrives, led by its own flight
+	// time, and the best of them thrown.
+	if (cfg.omega !== 0) {
+		const cap = cfg.diskR - cfg.puckR - 0.01;
+		for (let r = 0; r < FEED_LOCK.length; r++) {
+			const rf = Math.min(FEED_LOCK[r][0] * dh, cap);
+			if (rf <= cfg.puckR) continue;
+			const f = feedTangent(cfg, x, y, rf);
+			if (!f) continue;
+			const chord = Math.hypot(f.x - x, f.y - y);
+			const value = parkValue(f.x, f.y, w.omegaCur * flightTime(cfg, chord), true);
+			if (value <= best) continue;
+			aimAt(f.x, f.y, f.v0 * FEED_LOCK[r][1], value, true);
+		}
+	}
+	for (let j = 0; j < w.n; j++) { // the enemy rider it can knock off its red
+		if (w.own[j] === own || w.st[j] !== ST_LOCKED) continue;
+		const value = p.denial * puckRate(w, j) * future;
+		if (value <= best) continue;
+		const ox = w.x[j] - cfg.diskX, oy = w.y[j] - cfg.diskY, od = Math.hypot(ox, oy) || 1;
+		aimAt(w.x[j] + ox / od * 0.06, w.y[j] + oy / od * 0.06, stopAt(w.x[j], w.y[j]) * 1.05, value);
+	}
+	if (best === -Infinity) { // nothing to aim at: still put the puck on the disk
+		best = 0; aimAt(cfg.diskX, cfg.diskY, stopAt(cfg.diskX, cfg.diskY), 0);
+	}
+	if (p.noise > 0) { // the same coin the searching bot pays, so a random seat wanders
+		// The speed of a rim feed is the knife edge the lock band is measured on (0.02 of
+		// a fraction between a capture and a miss), so a noisy seat still wobbles its aim
+		// but leaves that one number alone.
+		if (!fedBest) stop = clamp(stop * (1 + (rng() - 0.5) * p.noise * 0.4), cfg.vMin, cfg.vMax);
+		ang += (rng() - 0.5) * p.noise * 0.5;
+	}
+	botQuick.vx = Math.cos(ang) * stop; botQuick.vy = Math.sin(ang) * stop;
+	return botQuick;
+}
+function chooseStroke(name, w, cfg, i, pred, rng, roster, rank) {
 	const profile = BOT_PROFILES[name] || BOT_PROFILES.balanced;
+	if (rank) rank.value.fill(-Infinity);
 	strategicTargets(w, cfg, i);
 	const own = w.own[i], stock = roster && roster[own] ? roster[own].balls : 0;
 	const urgency = 1 + (cfg.ballsPerPlayer - stock) * 0.55;
@@ -169,8 +325,9 @@ function chooseStroke(name, w, cfg, i, pred, rng, roster) {
 	const recPrice = 0.2 * ballValue;
 	const lifePrice = ballValue / (roster ? Math.max(1, roster.length) : 3);
 	let best = -Infinity, bestVx = 0, bestVy = 0;
-	function consider(vx, vy) {
+	function consider(vx, vy, slot) {
 		const value = evaluateStroke(profile, w, cfg, i, pred, vx, vy, rng, urgency, future, ballValue, recPrice, lifePrice);
+		if (rank) rankAdd(rank, slot, vx, vy, value);
 		if (value <= best) return;
 		best = value; bestVx = vx; bestVy = vy;
 	}
@@ -188,7 +345,7 @@ function chooseStroke(name, w, cfg, i, pred, rng, roster) {
 		// the others sweep the whole stroke range as four coarse fractions.
 		const fraction = t.v0 > 0 ? (t.v0 / cfg.vMax) * (0.80 + 0.10 * speedIndex) : speedIndex / (BOT_LEVELS - 1);
 		const speed = clamp(cfg.vMin + (fraction + (rng() - 0.5) * 0.08) * (cfg.vMax - cfg.vMin), cfg.vMin, cfg.vMax);
-		consider(Math.cos(base + offset) * speed, Math.sin(base + offset) * speed);
+		consider(Math.cos(base + offset) * speed, Math.sin(base + offset) * speed, group);
 	}
 	// Co-rotating tangent feeds. Every throw is launched from the same spot, so the
 	// geometry is fixed; the predictor still sees the pucks already on the board.
@@ -203,7 +360,7 @@ function chooseStroke(name, w, cfg, i, pred, rng, roster) {
 				const speed = clamp(f.v0 * FEED_KV[s], cfg.vMin, cfg.vMax);
 				for (let a = 0; a < FEED_DA.length; a++) {
 					const ang = f.ang + FEED_DA[a];
-					consider(Math.cos(ang) * speed, Math.sin(ang) * speed);
+					consider(Math.cos(ang) * speed, Math.sin(ang) * speed, 4);
 				}
 			}
 		}
@@ -215,11 +372,12 @@ function chooseStroke(name, w, cfg, i, pred, rng, roster) {
 		for (let a = 0; a < BOT_REFINE_DA.length; a++) {
 			for (let s = 0; s < BOT_REFINE_KV.length; s++) {
 				const speed = clamp(sp0 * BOT_REFINE_KV[s], cfg.vMin, cfg.vMax);
-				consider(Math.cos(ang0 + BOT_REFINE_DA[a]) * speed, Math.sin(ang0 + BOT_REFINE_DA[a]) * speed);
+				consider(Math.cos(ang0 + BOT_REFINE_DA[a]) * speed, Math.sin(ang0 + BOT_REFINE_DA[a]) * speed, 5);
 			}
 		}
 	}
 	botOut.vx = bestVx; botOut.vy = bestVy;
+	if (rank) rankFinish(rank);
 	return botOut;
 }
 // Tangent from (x, y) to the circle of radius rf about the disk, on the side whose
@@ -242,4 +400,4 @@ function feedTangent(cfg, x, y, rf) {
 	return null;
 }
 
-if (typeof module !== 'undefined') module.exports = { makeRng, chooseStroke, botOut, botTargets, strategicTargets, feedTangent, BOT_SAMPLES, BOT_PROFILES };
+if (typeof module !== 'undefined') module.exports = { makeRng, chooseStroke, chooseStrokeQuick, botOut, botQuick, botTargets, strategicTargets, feedTangent, spotRate, makeStrokeRank, rankFinish, FEED_LOCK, BOT_SAMPLES, BOT_PROFILES, BOT_GROUPS };

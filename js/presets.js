@@ -7,7 +7,7 @@
 // Everything malformed is clamped or dropped, so a hand-typed link always opens.
 // Node-safe: no DOM, no location — the caller passes the query string in.
 if (typeof module !== 'undefined') Object.assign(globalThis,
-	require('./cfg.js'), require('./field.js'), require('./players.js'));
+	require('./cfg.js'), require('./field.js'), require('./players.js'), require('./vote.js'));
 
 // The bundles. Keys match the setup object parseQuery returns (omega, muK, muS,
 // puckM, schema, recycle, vote, voteMode, theme, seats, balls, autoOmega); a bundle sets only what
@@ -25,11 +25,16 @@ const PRESETS = {
 	// pins the reference table its 1.356 rad/s was solved for (d_hold = 0.3 R).
 	grinder: { label: 'meat grinder · eject at 0.3 R', muK: 0.030, muS: 0.045, puckM: 4, omega: 1.356 },
 	rimtrap: { label: 'rim traps · 6 hemispheres', schema: 'rim6' },
+	// Two tables built to show the two bot settings off: the same profiles, one set to
+	// play the disk with its votes, one set to look ahead before it throws.
+	speedplay: { label: 'speed play · park vs shake', vote: 'turn', botspeed: 'park' },
+	foresight: { label: 'foresight · time-warp look-ahead', warp: 1, warpTries: 8, warpTurns: 3, warpGoal: 0.6 },
 	solo: { label: 'practice · human alone', seats: ['human'], vote: 'off' }, // a vote of one is the slider
 	bots: { label: 'bot league · all six profiles', seats: ['keeper', 'hunter', 'balanced', 'retriever', 'blackhole', 'random'] },
 };
 // The slider ranges of index.html; URL values are clamped to them.
-const NUM_RANGES = { omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.5], puckM: [CFG.massMin, CFG.massMax], balls: [1, 8] };
+const NUM_RANGES = { omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.5], puckM: [CFG.massMin, CFG.massMax], balls: [1, 8],
+	warpTries: [1, 16], warpTurns: [0, 6], warpGoal: [0, 3] };
 const RECYCLES = ['none', 'zones', 'advance'];
 const SPEED_RULES = ['off', 'turn', 'round'], VOTE_MODES = ['delta', 'exact']; // CFG.speedVote, CFG.voteMode
 
@@ -52,6 +57,11 @@ function applyCfg(setup) {
 	if (RECYCLES.includes(setup.recycle)) CFG.recycleMode = setup.recycle;
 	if (SPEED_RULES.includes(setup.vote)) CFG.speedVote = setup.vote;
 	if (VOTE_MODES.includes(setup.voteMode)) CFG.voteMode = setup.voteMode;
+	if (SPEED_STRATS[setup.botspeed]) CFG.botSpeed = setup.botspeed;
+	if (setup.warp !== undefined) CFG.warp = !!setup.warp;
+	if (setup.warpTries !== undefined) CFG.warpTries = Math.round(setup.warpTries);
+	if (setup.warpTurns !== undefined) CFG.warpTurns = Math.round(setup.warpTurns);
+	if (setup.warpGoal !== undefined) CFG.warpGoal = setup.warpGoal;
 }
 
 // Keys are folded to lower case once (a hand-typed ?muK=0.09 and ?muk=0.09 are the
@@ -94,6 +104,11 @@ function parseQuery(search) {
 	if (SPEED_RULES.includes(vote)) { out.vote = vote; found = true; }
 	if (VOTE_MODES.includes(voteMode)) { out.voteMode = voteMode; found = true; }
 	if (q.theme) { out.theme = q.theme.toLowerCase(); found = true; } // validated where themes live (ui.js)
+	const botspeed = q.botspeed && q.botspeed.toLowerCase();
+	if (SPEED_STRATS[botspeed]) { out.botspeed = botspeed; found = true; }
+	// The look-ahead is a switch and three numbers; `warp` reads like the view toggles.
+	if (['1', 'true', 'on', '0', 'false', 'off'].includes(q.warp)) { out.warp = q.warp === '1' || q.warp === 'true' || q.warp === 'on'; found = true; }
+	for (const [urlName, key] of [['warptries', 'warpTries'], ['warpturns', 'warpTurns'], ['warpgoal', 'warpGoal']]) found = numKey(q, out, urlName, key) || found;
 	if (q.seats) {
 		const seats = q.seats.split(',').map(s => s.trim().toLowerCase()).filter(s => SEAT_TYPES.includes(s)).slice(0, CFG.maxPlayers);
 		if (seats.length) { out.seats = seats; found = true; }

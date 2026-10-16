@@ -35,6 +35,16 @@ const CFG = {
 	// average of the votes cast over spinRampT.
 	speedVote: 'round', voteMode: 'delta',
 	voteT: 1, voteDeltaMax: 0.50, spinRampT: 1,
+	// How a bot plays its speed vote, on top of its profile (the table is in js/vote.js):
+	// 'auto' is the plain board economics, the named ones push it one way.
+	botSpeed: 'auto',
+	// Time-warp (js/warp.js): a bot plays its turn out in a copy of the game before the
+	// real board commits to it, takes it back when the result is not good enough and
+	// tries the next candidate. warpTries caps the tries, warpTurns is how much of the
+	// game one try plays out (0 = to the end of it), warpGoal is the lead over the
+	// position it started from — in ball annuities — that ends the search early, and
+	// warpFrameMs bounds the work one frame does, so looking ahead never drops a frame.
+	warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, warpFrameMs: 8,
 	botDelay: 0.7, // seconds a bot "thinks" (aim shown) before throwing
 	settleTime: 3,
 	dragFull: 0.90,

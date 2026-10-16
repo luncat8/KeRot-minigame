@@ -181,6 +181,24 @@ const OM0 = CFG.omega, RULE0 = CFG.speedVote, MODE0 = CFG.voteMode, holdG = muSE
 		', keeper (rider at 0.69 m) ' + (voteLabel(c, kv.kind, kv.value) || 'don\'t care'));
 	check(hunterVote.kind === VOTE_SET && hunterVote.value !== 0, 'the hunter asks for a change', hunterVote.kind);
 	check(kv.kind === VOTE_KEEP, 'the keeper, whose rider rides near the limit, votes keep', kv.kind);
+	// The speed plays on one board: what each of them asks the disk to do, under the rule
+	// that votes every turn and the one that votes every round. The levers are not
+	// decoration — and where a rider rides near the limit they pull opposite ways.
+	const askOf = (cfg2, strat) => { const v = chooseVote('hunter', w, cfg2, 0, roster, 2, rng, strat); return v.kind === VOTE_SET ? v.value : 0; };
+	const cr = Object.assign({}, c, { speedVote: 'round' }), turnAsk = {}, roundAsk = {};
+	for (const strat of Object.keys(SPEED_STRATS)) { turnAsk[strat] = askOf(c, strat); roundAsk[strat] = askOf(cr, strat); }
+	const fmt = (a, k) => k + ' ' + (a[k] >= 0 ? '+' : '−') + Math.abs(a[k]).toFixed(2);
+	console.log('speed play, same board (turn / round): ' + Object.keys(SPEED_STRATS).map(k => fmt(turnAsk, k) + ' / ' + fmt(roundAsk, k)).join('  '));
+	check(chooseVote('hunter', w, c, 0, roster, 2, rng, 'still').kind === VOTE_NONE, 'the still seat says nothing, whatever the board shows');
+	// The direction the names promise, on the board where it applies: votes come every
+	// round here, so the throw at stake is the voter's own — parking then wants a slower
+	// disk than shaking, and both want something different from nothing. Where an enemy
+	// throws next (the turn rule), parking means the enemy has less to land on instead.
+	check(roundAsk.park < roundAsk.shake && roundAsk.park < 0 && roundAsk.shake > 0,
+		'a seat that wants to park wants a slower disk than one that wants to shake', fmt(roundAsk, 'park') + ' vs ' + fmt(roundAsk, 'shake'));
+	check(turnAsk.park > turnAsk.auto, 'with an enemy throw next, parking means spoiling its room', fmt(turnAsk, 'park') + ' vs ' + fmt(turnAsk, 'auto'));
+	check(turnAsk.tempo !== turnAsk.auto || roundAsk.tempo !== roundAsk.auto, 'a strategy moves the ask off the plain economics',
+		'tempo ' + fmt(turnAsk, 'tempo') + ' vs auto ' + fmt(turnAsk, 'auto'));
 	const after = board();
 	c.omega = OM0 + hunterVote.value; beginSpinRamp(after, c.omega, c.spinRampT);
 	for (let s = 0; s < 720; s++) stepWorld(after, c.h);
@@ -266,5 +284,5 @@ function run(cond, limit) {
 	CFG.ballsPerPlayer = 4; CFG.recycleMode = 'zones'; CFG.speedVote = RULE0; CFG.voteMode = MODE0;
 	Game.setSeatTypes(['human', 'balanced', 'blackhole', 'retriever']);
 }
-console.log(fail ? 'FAIL' : 'OK (tally, schedule, motor ramp, wake on spin-up, bot votes, vote phase)');
+console.log(fail ? 'FAIL' : 'OK (tally, schedule, motor ramp, wake on spin-up, bot votes, speed play, vote phase)');
 process.exit(fail);

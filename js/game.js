@@ -9,13 +9,24 @@
 // With a speed rule on (js/vote.js), a VOTE of voteT seconds sits between two turns
 // when the rule calls one: the bots cast theirs as it opens, and when it closes the
 // tally sets the disk speed for the next throw.
-const Game = (() => {
+// The whole flow is a factory over {world, roster, cfg}, because a second instance
+// costs nothing and answers a question the page cannot ask: js/warp.js copies the live
+// game, plays a candidate stroke out to the end of the turn and further, and hands the
+// real board only the stroke that survived. Everything here reads `cfg`, never the
+// global CFG, so a copy can run its own settings.
+if (typeof module !== 'undefined') { Object.assign(globalThis, require('./cfg.js'), require('./physics.js'), require('./score.js'), require('./players.js'), require('./rules.js'), require('./predict.js'), require('./bots.js'), require('./vote.js')); module.exports = { createGame }; }
+
+function createGame(env) {
 	const PRED_COOLDOWN = 0.08; // s between ghost re-sims during a drag
-	const w = createWorld(CFG);
-	const pred = createPredictor(CFG);
+	const cfg = env.cfg || CFG;
+	const w = env.world || createWorld(cfg);
+	// A simulated copy: no input, no ghost, no planning of its own — and every seat
+	// plays itself with the quick policy, so a human opponent does not stall the clock.
+	const sim = env.sim === true;
+	const pred = createPredictor(cfg);
 	// Default table: one human against the three profiles that differ the most — a
 	// scorer, an attacker and a recoverer — so the first game shows the whole spread.
-	const roster = createRoster(['human', 'balanced', 'blackhole', 'retriever'], CFG.ballsPerPlayer);
+	const roster = env.roster || createRoster(['human', 'balanced', 'blackhole', 'retriever'], cfg.ballsPerPlayer);
 	let state = 'aim', turn = 0, pending = -1, resolveT = 0, voteT = 0, paused = false;
 	// The configured speed a game's votes have moved away from (NaN while they have
 	// not): the next game starts from it again.
@@ -25,14 +36,19 @@ const Game = (() => {
 	let botT = 0, predT = 0, ghostDirty = false, seed = 1, rng = makeRng(seed);
 	// len/anchor* implement precision mode (shift): the speed mapping is rebased every
 	// time shift flips, so the stroke never jumps when it is pressed or released.
-	const aim = { pending: -1, hasStroke: false, vx: 0, vy: 0, dragging: false, len: 0, anchorLen: 0, anchorSp: CFG.vMin, precise: false };
+	const aim = { pending: -1, hasStroke: false, vx: 0, vy: 0, dragging: false, len: 0, anchorLen: 0, anchorSp: cfg.vMin, precise: false };
 	const queue = []; // {type:'throw', timeStamp}
+	// The time-warp planner (js/warp.js) and the shortlist its search works through.
+	let planner = null, planning = false, rank = null, warpNote = '';
 
 	function isBot(seat) { return seat.type !== 'human'; }
-	// A puck a return rule claims goes back to the stock of the seat that threw it.
+	// Who throws on their own: a bot in the real game, every seat in a copy.
+	function playsItself() { return sim || isBot(roster[turn]); }
+	// A returned puck goes back to the stock of the seat that threw it.
 	function giveBack(owner) { roster[owner].balls++; }
 	function botPrep() {
-		const s = chooseStroke(roster[turn].type, w, CFG, pending, pred, rng, roster);
+		const s = sim ? chooseStrokeQuick(roster[turn].type, w, cfg, pending, rng, roster)
+			: chooseStroke(roster[turn].type, w, cfg, pending, pred, rng, roster, rank);
 		aim.vx = s.vx; aim.vy = s.vy; aim.hasStroke = true;
 		botT = 0; invalidateGhost();
 	}
@@ -42,10 +58,10 @@ const Game = (() => {
 	// turning — searching twice would hitch the page for the whole delay.
 	function showBotAim() {
 		const x = w.x[pending], y = w.y[pending];
-		const dh = holdRadius(CFG), rf = Math.min(0.82 * dh, CFG.diskR - CFG.puckR - 0.01);
-		const feed = CFG.omega !== 0 && rf > CFG.puckR ? feedTangent(CFG, x, y, rf) : null;
-		const ang = feed ? feed.ang : Math.atan2(CFG.diskY - y, CFG.diskX - x);
-		const sp = feed ? Math.min(CFG.vMax, feed.v0 * 0.9) : Math.min(CFG.vMax, 1.6);
+		const dh = holdRadius(cfg), rf = Math.min(0.82 * dh, cfg.diskR - cfg.puckR - 0.01);
+		const feed = cfg.omega !== 0 && rf > cfg.puckR ? feedTangent(cfg, x, y, rf) : null;
+		const ang = feed ? feed.ang : Math.atan2(cfg.diskY - y, cfg.diskX - x);
+		const sp = feed ? Math.min(cfg.vMax, feed.v0 * 0.9) : Math.min(cfg.vMax, 1.6);
 		aim.vx = Math.cos(ang) * sp; aim.vy = Math.sin(ang) * sp; aim.hasStroke = true;
 		botT = 0; invalidateGhost();
 	}
@@ -57,12 +73,12 @@ const Game = (() => {
 		if (next < 0) { state = 'settle'; beginSettle(w); return; }
 		turn = next;
 		roster[turn].balls--;
-		pending = spawnPuck(w, CFG.launchX, CFG.launchY, turn);
+		pending = spawnPuck(w, cfg.launchX, cfg.launchY, turn);
 		if (pending < 0) { roster[turn].balls = 0; armTurn(); return; }
 		aim.pending = pending; aim.hasStroke = false; aim.vx = 0; aim.vy = 0;
-		rebase(0, CFG.vMin, false);
-		state = 'aim';
-		if (isBot(roster[turn])) showBotAim();
+		rebase(0, cfg.vMin, false);
+		state = 'aim'; planning = false;
+		if (!sim && isBot(roster[turn])) showBotAim();
 	}
 	// Take the un-thrown puck off the board and give its ball back.
 	function disarm() {
@@ -72,24 +88,25 @@ const Game = (() => {
 		pending = -1; aim.pending = -1; aim.hasStroke = false;
 	}
 	function reset() {
-		if (!isNaN(omegaBase)) { CFG.omega = omegaBase; omegaBase = NaN; }
+		if (!isNaN(omegaBase)) { cfg.omega = omegaBase; omegaBase = NaN; }
 		resetWorld(w);
-		for (let i = 0; i < roster.length; i++) { roster[i].balls = CFG.ballsPerPlayer; roster[i].score = 0; }
-		clearVotes(CFG, roster); tally.count = 0; tally.labels.length = 0;
+		for (let i = 0; i < roster.length; i++) { roster[i].balls = cfg.ballsPerPlayer; roster[i].score = 0; }
+		clearVotes(cfg, roster); tally.count = 0; tally.labels.length = 0;
 		state = 'aim'; resolveT = 0; voteT = 0; botT = 0; turn = 0; pending = -1;
+		planning = false; warpNote = '';
 		rng = makeRng(++seed); // fresh seed per board: bot games differ, competitions stay reproducible
 		armTurn();
 	}
 	function rebase(len, sp, precise) { aim.anchorLen = len; aim.anchorSp = sp; aim.precise = precise; }
-	function rawSpeed(len) { return clamp(CFG.vMin + len / CFG.dragFull * (CFG.vMax - CFG.vMin), CFG.vMin, CFG.vMax); }
-	// Drag 0..dragFull maps onto the stroke speed range CFG.vMin..CFG.vMax; with shift
+	function rawSpeed(len) { return clamp(cfg.vMin + len / cfg.dragFull * (cfg.vMax - cfg.vMin), cfg.vMin, cfg.vMax); }
+	// Drag 0..dragFull maps onto the stroke speed range cfg.vMin..cfg.vMax; with shift
 	// held only a preciseGain share of further drag counts (precision mode).
 	function setStroke(dx, dy, precise) {
 		const len = Math.hypot(dx, dy);
 		if (len < 1e-6) { aim.hasStroke = false; return; }
 		if (precise !== aim.precise) rebase(len, aim.hasStroke ? Math.hypot(aim.vx, aim.vy) : rawSpeed(len), precise);
-		const slope = (CFG.vMax - CFG.vMin) / CFG.dragFull * (precise ? CFG.preciseGain : 1);
-		const sp = clamp(aim.anchorSp + (len - aim.anchorLen) * slope, CFG.vMin, CFG.vMax);
+		const slope = (cfg.vMax - cfg.vMin) / cfg.dragFull * (precise ? cfg.preciseGain : 1);
+		const sp = clamp(aim.anchorSp + (len - aim.anchorLen) * slope, cfg.vMin, cfg.vMax);
 		aim.len = len;
 		setAimVel(dx / len * sp, dy / len * sp);
 	}
@@ -101,67 +118,71 @@ const Game = (() => {
 	// The mass slider retunes every puck on the board, not only the next throw: a
 	// setting that reached future pucks alone would look broken while you watch.
 	function setPuckMass(m) {
-		CFG.puckM = m;
+		cancelPlan();
+		cfg.puckM = m;
 		for (let i = 0; i < w.n; i++) w.m[i] = m;
 	}
 	// A new paint is a new score map: a bot on turn re-aims, its stroke was chosen for
 	// the old one. (Slider drags do not: a re-aim per input event would stall the drag.)
 	function setDiskSchema(name) {
-		CFG.diskSchema = name;
+		cancelPlan();
+		cfg.diskSchema = name;
 		if (state === 'aim' && pending >= 0 && isBot(roster[turn])) showBotAim();
 	}
 	// The turn timer has run out (or the board has settled): the next seat arms at
 	// once, or after a speed vote when the rule calls one before its turn. The game's
 	// first turn has no turn timer before it, so no vote either.
 	function handOff() {
-		recyclePucks(w, CFG.recycleMode, giveBack);
+		recyclePucks(w, cfg.recycleMode, giveBack);
 		const prev = turn;
 		turn = (turn + 1) % roster.length;
-		if (w.thrown >= CFG.maxThrows) { state = 'settle'; beginSettle(w); return; }
+		if (w.thrown >= cfg.maxThrows) { state = 'settle'; beginSettle(w); return; }
 		const next = nextSeat(roster, turn);
-		if (next < 0 || !tallyDue(CFG, prev, next)) { armTurn(); return; }
+		if (next < 0 || !tallyDue(cfg, prev, next)) { armTurn(); return; }
 		turn = next; state = 'vote'; voteT = 0;
 		for (let i = 0; i < roster.length; i++) {
 			if (!isBot(roster[i])) continue;
-			const v = chooseVote(roster[i].type, w, CFG, i, roster, next, rng);
-			setVote(CFG, roster[i], v.kind, v.value);
+			const v = chooseVote(roster[i].type, w, cfg, i, roster, next, rng);
+			setVote(cfg, roster[i], v.kind, v.value);
 		}
 	}
 	// The vote closes: the average of the votes cast is the new speed, which the motor
 	// runs to over spinRampT, and every vote goes back to "don't care".
 	function closeVote() {
-		const from = CFG.omega, to = tallySpeed(CFG, roster, from);
+		const from = cfg.omega, to = tallySpeed(cfg, roster, from);
 		tally.count = 0; tally.from = from; tally.to = to; tally.labels.length = roster.length;
 		for (let i = 0; i < roster.length; i++) {
 			tally.labels[i] = roster[i].voteLabel;
 			if (roster[i].vote !== VOTE_NONE) tally.count++;
 		}
-		clearVotes(CFG, roster);
+		clearVotes(cfg, roster);
 		if (to !== from) {
 			if (isNaN(omegaBase)) omegaBase = from;
-			CFG.omega = to;
-			beginSpinRamp(w, to, CFG.spinRampT);
+			cfg.omega = to;
+			beginSpinRamp(w, to, cfg.spinRampT);
 		}
 		armTurn();
 	}
 	// A direct speed change (the panel slider, auto-ω, a preset or a URL), whatever the
 	// rule: the disk jumps there, and games start from it from now on.
 	function setOmega(v) {
+		cancelPlan();
 		const wasStill = w.omegaCur === 0;
-		CFG.omega = v; omegaBase = NaN;
+		cfg.omega = v; omegaBase = NaN;
 		stopSpinRamp(w);
 		if (!w.settling) {
 			w.omegaCur = v; w.alpha = 0;
 			if (wasStill && v !== 0) wakeOnDisk(w);
 		}
 	}
-	function setVoteOf(i, kind, value) { if (roster[i]) setVote(CFG, roster[i], kind, value); }
+	function setVoteOf(i, kind, value) { if (!roster[i]) return; cancelPlan(); setVote(cfg, roster[i], kind, value); }
 	// A rule change applies from the next handoff on; switching the rule off closes a
 	// running vote uncounted. A vote's value means something else in the other mode,
 	// so changing either drops the votes held.
 	function setSpeedRule(rule, mode) {
-		CFG.speedVote = rule; CFG.voteMode = mode;
-		clearVotes(CFG, roster);
+		cancelPlan();
+		cfg.speedVote = rule; cfg.voteMode = mode;
+		clearVotes(cfg, roster);
 		if (state === 'vote' && rule === 'off') armTurn();
 	}
 	function commitThrow() {
@@ -186,30 +207,85 @@ const Game = (() => {
 			// the disk keeps nudging can slide for ten seconds, and the next seat must
 			// not wait for it. Whatever is still moving stays on the board and keeps
 			// being simulated while the next seat aims.
-			if (isSettled(w) || resolveT >= CFG.handoffT) handOff();
+			if (isSettled(w) || resolveT >= cfg.handoffT) handOff();
 		} else if (state === 'vote') {
 			voteT += dtSim;
-			if (voteT >= CFG.voteT) closeVote();
+			if (voteT >= cfg.voteT) closeVote();
 		} else if (state === 'settle' && w.settled) {
-			recyclePucks(w, CFG.recycleMode, giveBack);
+			recyclePucks(w, cfg.recycleMode, giveBack);
 			state = 'scored';
 		}
 	}
+	// --- Time-warp: the turn a bot is about to throw, played out in a copy ----------
+	// The copy is a game made by this same factory (js/warp.js owns it), so "undo the
+	// turn" is not a special case: the throw goes into the copy, and the copy is what
+	// gets reloaded from the snapshot when the result is not good enough. The real
+	// board only ever receives the stroke the search settled on, and it is held still
+	// meanwhile (js/main.js skips the frame's steps while `planning`) so the plan
+	// applies to exactly the state it was computed on.
+	function saveFlow(rec) {
+		rec.state = state; rec.turn = turn; rec.pending = pending;
+		rec.resolveT = resolveT; rec.voteT = voteT; rec.botT = botT;
+		rec.omega = cfg.omega; rec.omegaBase = omegaBase; rec.rng = rng.getState();
+		return rec;
+	}
+	// Loads a saved flow into *this* game; `cfg.omega` is part of it, since a copy runs
+	// its own cfg. The live game is never loaded — it is only ever saved.
+	function loadFlow(rec) {
+		state = rec.state; turn = rec.turn; pending = rec.pending;
+		resolveT = rec.resolveT; voteT = rec.voteT; botT = rec.botT;
+		cfg.omega = rec.omega; omegaBase = rec.omegaBase;
+		rng.setState(rec.rng);
+		aim.pending = pending; aim.hasStroke = false; aim.dragging = false;
+		ghostDirty = false; predT = 0; planning = false;
+	}
+	function wantWarp() {
+		if (sim || !cfg.warp || typeof createWarp !== 'function') return false;
+		if (!planner) planner = createWarp();
+		return true;
+	}
+	// The greedy search runs first (it is the bot's normal pick and the ranking the
+	// look-ahead works through), then the planner tries the lines it offered, one
+	// rollout per frame or so, until a line is good enough or the tries run out.
+	function startPlan() {
+		if (!wantWarp()) { botPrep(); commitThrow(); return; }
+		if (!rank) rank = makeStrokeRank();
+		botPrep();
+		if (planner.begin(api, turn, rank)) planning = true;
+		else commitThrow(); // nothing to look ahead between: play the greedy line
+	}
+	// Any setting the plan was computed against invalidates it: the search starts over
+	// on the next think, on the board as it is then.
+	function cancelPlan() { planning = false; }
+	function stepPlan() {
+		if (!planner.step(cfg.warpFrameMs)) return;
+		warpNote = planner.status;
+		planning = false;
+		setAimVel(planner.vx, planner.vy);
+		commitThrow();
+	}
 	// Per-frame housekeeping: ghost re-sim (throttled) and bot throws.
 	function tick(dt) {
-		if (ghostDirty && predT <= 0 && state === 'aim' && aim.hasStroke && pending >= 0) {
-			predictStroke(pred, w, pending, aim.vx, aim.vy, CFG.maxResolve);
+		if (!sim && ghostDirty && predT <= 0 && state === 'aim' && aim.hasStroke && pending >= 0) {
+			predictStroke(pred, w, pending, aim.vx, aim.vy, cfg.maxResolve);
 			ghostDirty = false; predT = PRED_COOLDOWN;
 		}
 		predT -= dt;
-		if (paused || state !== 'aim' || pending < 0 || !aim.hasStroke || !isBot(roster[turn])) return;
+		// A copy needs no stroke in hand to start its turn: it is aimed and thrown in
+		// the same tick, which is what lets a rollout run its later seats at all.
+		if (paused || state !== 'aim' || pending < 0 || !playsItself() || (!sim && !aim.hasStroke)) return;
+		if (planning) { stepPlan(); return; }
 		botT += dt;
+		if (!sim && botT < cfg.botDelay) return;
+		botT = 0;
 		// The bot aims when armed (so its intent shows during the think time) and
 		// chooses again at the instant it throws: during the delay the disk has
 		// turned ~0.5 rad and the board has kept moving, so the armed stroke is
 		// stale for anything that rotates — the page must not play the bots worse
-		// than the experiments do (those throw at the angle they chose on).
-		if (botT >= CFG.botDelay) { botT = 0; botPrep(); commitThrow(); }
+		// than the experiments do (those throw at the angle they chose on). A copy
+		// plays its turns back to back, so it does not wait at all.
+		if (sim) { botPrep(); commitThrow(); return; }
+		startPlan();
 	}
 	function bindInput(canvas) {
 		canvas.style.touchAction = 'none';
@@ -219,7 +295,7 @@ const Game = (() => {
 			canvas.setPointerCapture(e.pointerId);
 			const p = Render.toWorld(e.clientX, e.clientY);
 			sx = w.x[pending]; sy = w.y[pending]; aim.dragging = true;
-			rebase(0, CFG.vMin, e.shiftKey); setStroke(p.x - sx, p.y - sy, e.shiftKey);
+			rebase(0, cfg.vMin, e.shiftKey); setStroke(p.x - sx, p.y - sy, e.shiftKey);
 		});
 		canvas.addEventListener('pointermove', e => {
 			if (!aim.dragging || state !== 'aim') return;
@@ -232,32 +308,34 @@ const Game = (() => {
 				e.preventDefault();
 				if (!isBot(roster[turn])) queue.push({ type: 'throw', timeStamp: e.timeStamp });
 			}
-			else if (e.key === 'Escape') { aim.hasStroke = false; rebase(0, CFG.vMin, false); }
+			else if (e.key === 'Escape') { aim.hasStroke = false; rebase(0, cfg.vMin, false); }
 			else if (e.key === 'r' || e.key === 'R') reset();
 			else if (state === 'aim' && !isBot(roster[turn]) && e.key.startsWith('Arrow')) { e.preventDefault(); nudge(e); }
 		});
 	}
 	function nudge(e) {
-		if (!aim.hasStroke) { setStroke(-CFG.dragFull * 0.5, 0, e.shiftKey); rebase(aim.len, Math.hypot(aim.vx, aim.vy), e.shiftKey); }
+		if (!aim.hasStroke) { setStroke(-cfg.dragFull * 0.5, 0, e.shiftKey); rebase(aim.len, Math.hypot(aim.vx, aim.vy), e.shiftKey); }
 		let ang = Math.atan2(aim.vy, aim.vx), sp = Math.hypot(aim.vx, aim.vy);
 		const da = (e.shiftKey ? 0.2 : 1) * Math.PI / 180; // shift = fine on both axes
 		const dk = e.shiftKey ? 1.005 : 1.020, ds = e.shiftKey ? 0.002 : 0.010;
 		if (e.key === 'ArrowLeft') ang -= da;
 		if (e.key === 'ArrowRight') ang += da;
-		if (e.key === 'ArrowUp') sp = Math.min(CFG.vMax, sp * dk + ds);
-		if (e.key === 'ArrowDown') sp = Math.max(CFG.vMin, sp / dk - ds);
+		if (e.key === 'ArrowUp') sp = Math.min(cfg.vMax, sp * dk + ds);
+		if (e.key === 'ArrowDown') sp = Math.max(cfg.vMin, sp / dk - ds);
 		rebase(aim.len, sp, e.shiftKey); // arrows and drag share the same anchor
 		setAimVel(Math.cos(ang) * sp, Math.sin(ang) * sp);
 	}
 	// Swap the whole roster at once (a table preset or URL `seats` list) — unlike the
 	// live seat-by-seat edits, a table swap restarts the board and deals fresh balls.
 	function setSeatTypes(types) {
+		cancelPlan();
 		roster.length = 0;
-		for (let i = 0; i < Math.min(types.length, CFG.maxPlayers); i++) roster.push(makeSeat(types[i], CFG.ballsPerPlayer));
+		for (let i = 0; i < Math.min(types.length, cfg.maxPlayers); i++) roster.push(makeSeat(types[i], cfg.ballsPerPlayer));
 		reset();
 	}
 	// Roster edits, live: no reset, so trying a different number of seats is a click.
 	function setSeatType(i, type) {
+		cancelPlan();
 		const seat = roster[i];
 		if (!seat || seat.type === type) return;
 		seat.type = type;
@@ -265,8 +343,9 @@ const Game = (() => {
 		if (isBot(seat)) showBotAim(); else aim.hasStroke = false;
 	}
 	function addPlayer(type) {
-		if (roster.length >= CFG.maxPlayers) return false;
-		roster.push(makeSeat(type, CFG.ballsPerPlayer));
+		if (roster.length >= cfg.maxPlayers) return false;
+		cancelPlan();
+		roster.push(makeSeat(type, cfg.ballsPerPlayer));
 		// On a spent board there is nothing left to score, so the new seat starts a
 		// fresh game — that is the point of adding one.
 		if (state === 'settle' || state === 'scored') reset();
@@ -274,6 +353,7 @@ const Game = (() => {
 	}
 	function removePlayer(i) {
 		if (roster.length <= 1 || i < 0 || i >= roster.length) return false;
+		cancelPlan();
 		disarm(); // the puck on the launch spot goes back to its owner first
 		dropOwned(w, i); // his pucks leave the board with him
 		reindexOwners(w, i);
@@ -283,18 +363,21 @@ const Game = (() => {
 		if (state === 'aim') armTurn();
 		return true;
 	}
-	return {
-		world: w, aim, pred, roster, reset, bindInput, beforeSteps, afterSteps, tick,
+	const api = {
+		world: w, aim, pred, roster, cfg, reset, bindInput, beforeSteps, afterSteps, tick,
 		setStroke, setAimVel, commitThrow, setSeatType, setSeatTypes, addPlayer, removePlayer,
 		invalidateGhost, setPuckMass, setDiskSchema, giveBack, setOmega, setSpeedRule, setVote: setVoteOf,
+		// The bot brain, through the one entry point that owns a running plan: turning
+		// the look-ahead off drops a search that is under way instead of honouring it.
+		setWarp(on) { cfg.warp = !!on; cancelPlan(); },
 		queueThrow: ts => queue.push({ type: 'throw', timeStamp: ts }),
 		get state() { return state; },
 		// The game is over (disk spinning down, or scored): the board is spent until
 		// the next reset, so a settings change has to restart it to be seen at all.
 		get roundEnded() { return state === 'settle' || state === 'scored'; },
 		get resolveT() { return resolveT; }, // s into the resolve; the turn hands off at handoffT
-		get voteT() { return voteT; }, // s into a speed vote; it closes at CFG.voteT
-		get omegaStart() { return isNaN(omegaBase) ? CFG.omega : omegaBase; }, // the configured speed
+		get voteT() { return voteT; }, // s into a speed vote; it closes at cfg.voteT
+		get omegaStart() { return isNaN(omegaBase) ? cfg.omega : omegaBase; }, // the configured speed
 		get omegaNow() { return spinNow(w); }, // the motor's live speed, including a vote ramp
 		tally,
 		get pending() { return pending; },
@@ -303,5 +386,14 @@ const Game = (() => {
 		get winner() { return state === 'scored' ? leader(roster) : -1; },
 		get paused() { return paused; },
 		togglePause: () => { paused = !paused; return paused; },
+		// The warp hooks: what js/warp.js drives a copy through, and what the panel
+		// reads. `planning` freezes the real board for the length of the look-ahead.
+		saveFlow, loadFlow,
+		get rngState() { return rng.getState(); },
+		setRngState(v) { rng.setState(v); },
+		get planning() { return planning; },
+		get warpStatus() { return warpNote || (planning && planner ? planner.status : ''); },
 	};
-})();
+	return api;
+}
+const Game = createGame({});

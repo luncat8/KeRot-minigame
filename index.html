@@ -111,6 +111,16 @@
 				<div id="voteStatus" class="dim"></div>
 			</div>
 		</fieldset>
+		<fieldset><legend>bot brain</legend>
+			<div class="row"><label>speed play <select id="botSpeed"></select></label></div>
+			<div class="row"><label><span><input type="checkbox" id="chkWarp"> time-warp &mdash; replay the turn before throwing it</span></label></div>
+			<div id="warpRows">
+				<div class="row"><label>lines per turn <span id="warpTriesVal"></span></label><input type="range" id="warpTries" min="1" max="16" step="1"></div>
+				<div class="row"><label>played out per line <span id="warpTurnsVal"></span></label><input type="range" id="warpTurns" min="0" max="6" step="1"></div>
+				<div class="row"><label>good enough at <span id="warpGoalVal"></span></label><input type="range" id="warpGoal" min="0" max="3" step="0.05"></div>
+			</div>
+			<div id="warpStatus" class="dim"></div>
+		</fieldset>
 		<div class="row"><label>disk pattern <select id="diskSchema"></select></label>
 			<div class="legend"><i id="legendBar"></i><span id="legendText" class="dim"></span></div></div>
 		<div class="row"><label>disk ω <span id="omegaVal"></span></label><input type="range" id="omega" min="0" max="4" step="0.001" value="0.7831"></div>
@@ -182,6 +192,24 @@
 	<h2>bots</h2>
 	<p>Try the retriever, black-hole, or balanced bots to compare recovery and attack
 	strategies. A seat can be switched between human and bot at any time.</p>
+	<h2>speed play</h2>
+	<p>With a vote rule on, the bots do not merely tolerate the disk speed, they play it.
+	<b>read its own board</b> (the default) weighs a speed by what the board pays for it: the riders a
+	ramp would keep or shed, and the room the coming throws get. <b>park</b> leans on that balance and
+	keeps the disk slow, so a push has something to land on and a rider stays where it is;
+	<b>shake</b> leans the other way and runs the disk up to throw the other seats' riders off it;
+	<b>tempo</b> swings with the throw order &mdash; down before its own push, up to answer someone
+	else's. <b>never touch the speed</b> leaves the voting to the others.</p>
+	<h2>time-warp</h2>
+	<p>On, a bot plays its turn out in a <b>copy of the game</b> before the real board commits to it: it
+	throws a candidate stroke, lets that turn and the answers to it play out, and takes the turn back &mdash;
+	the copy is simply reloaded &mdash; when the result is not good enough. It tries at most a few
+	<b>lines</b> per turn (its own ranking: the best stroke of each line of play, then small changes of
+	the winner), plays out a few <b>turns</b> per line, and stops at the first line worth a lead of <b>so
+	many balls</b> more than the position it started from. The board holds still while it looks, and the
+	only thing that reaches the real game is the stroke that survived. These are the game's own rules and
+	not a model of them: a look-ahead of one turn plays the turn bit for bit as the board would
+	(measured in <code>experiments/time-warp.js</code>).</p>
 	<h2>colour scheme</h2>
 	<p><b>classic</b>, or <b>kerot-s</b>: navy ice and cream pucks whose centre gauge and
 	tag show the share of the best possible rate each puck is earning right now.</p>
@@ -202,6 +230,8 @@
 	<code>mass</code> (kg), <code>schema</code> (classic | circles | rim6),
 	<code>recycle</code> (none | zones | advance), <code>vote</code> (off | turn | round),
 	<code>votemode</code> (delta | exact), <code>theme</code> (classic | kerot),
+	<code>botspeed</code> (auto | park | shake | tempo | still), <code>warp</code> (0|1),
+	<code>warptries</code>, <code>warpturns</code> (0 = to the end of the game), <code>warpgoal</code>,
 	<code>seats</code> (a comma list of seat types), <code>balls</code>,
 	<code>ring</code>, <code>ghost</code> (0|1). Names are case-insensitive. Unknown
 	keys are ignored and numbers are clamped to the slider ranges — a hand-typed link
@@ -219,6 +249,7 @@
 <script src="js/vote.js"></script>
 <script src="js/render.js"></script>
 <script src="js/game.js"></script>
+<script src="js/warp.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/help.js"></script>
 <script src="js/main.js"></script>

@@ -50,11 +50,11 @@ globalThis.document = { createElement: () => makeCanvas(), getElementById: () =>
 // top-level consts become real globals (node would keep them module-local). Strict
 // mode turns an assignment to an undeclared name — a silent implicit global in a
 // classic script — into a ReferenceError the moment the code runs.
-for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/render.js', '../js/game.js', '../js/ui.js', '../js/help.js']) {
+for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/render.js', '../js/game.js', '../js/warp.js', '../js/ui.js', '../js/help.js']) {
 	const src = fs.readFileSync(require('path').join(__dirname, f), 'utf8')
 		.replace(/^if \(typeof module !== 'undefined'\).*$/gm, '') // node-only require/export guards
-		.replace(/\bconst (Render|Game|UI|Help|SEAT_COLORS|SEAT_TYPES|SEAT_LABELS|SEAT_NAMES|SC_LUT_N|SC_LUT_W|RED_MAX) =/, 'globalThis.$1 =')
-		.replace(/\bfunction bakeFieldCanvas/, 'globalThis.bakeFieldCanvas = function bakeFieldCanvas');
+		.replace(/\bconst (Render|Game|UI|Help|SEAT_COLORS|SEAT_TYPES|SEAT_LABELS|SEAT_NAMES|SC_LUT_N|SC_LUT_W|RED_MAX|WARP_MAX_TRIES) =/, 'globalThis.$1 =')
+		.replace(/\bfunction (bakeFieldCanvas|createGame|createWarp)/, 'globalThis.$1 = function $1');
 	eval('"use strict";' + src);
 }
 
@@ -287,6 +287,27 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	let top = 0;
 	for (let i = 1; i < r.length; i++) if (r[i].score > r[top].score) top = i;
 	check(Game.winner === top, 'the winner is the top score');
+	// The look-ahead through the same state machine: a seat that searches holds the board
+	// still for a frame or two, then throws, and the game still finishes.
+	const warp0 = Game.cfg.warp, tries0 = Game.cfg.warpTries, turns0 = Game.cfg.warpTurns;
+	Game.setWarp(true);
+	Game.cfg.warpTries = 3; Game.cfg.warpTurns = 1; // one turn per line keeps the smoke quick
+	Game.reset();
+	let held = 0, guard2 = 0;
+	while (Game.state !== 'scored' && guard2++ < 60000) {
+		Game.tick(1 / 60);
+		if (Game.planning) { held++; continue; }
+		Game.beforeSteps();
+		for (let s = 0; s < 8; s++) stepWorld(Game.world, CFG.h);
+		Game.afterSteps(8 * CFG.h);
+	}
+	console.log('time-warp smoke: state = ' + Game.state + ', throws = ' + Game.world.thrown +
+		', frames the board was held for a search = ' + held);
+	check(Game.state === 'scored', 'a searched game reaches SCORED');
+	check(held > 0, 'a searching board stands still');
+	check(/time-warp/.test(Game.warpStatus), 'the panel gets a line about the search', Game.warpStatus);
+	Game.setWarp(warp0);
+	Game.cfg.warpTries = tries0; Game.cfg.warpTurns = turns0;
 	// The settled board still returns what lies in the fan, so look when the spin-down began.
 	check(allThrown === true, 'every ball was thrown before the disk spun down');
 	check(CFG.speedVote !== 'round' || votes >= CFG.ballsPerPlayer - 1, 'a speed vote before every round after the first', String(votes));

@@ -27,13 +27,18 @@
 		last = now;
 		if (dt > 0.25) dt = 0.25; // clamped; backlog beyond the cap is dropped, never one huge step
 		if (!Game.paused) {
-			Game.tick(dt);
+			Game.tick(dt); // the bots think here, a time-warp search included
 			Game.beforeSteps();
-			acc += dt;
-			let steps = 0;
-			while (acc >= CFG.h && steps < 96) { stepWorld(Game.world, CFG.h); acc -= CFG.h; steps++; }
-			if (steps === 96) acc = 0;
-			if (steps) Game.afterSteps(steps * CFG.h);
+			// The board holds still while a bot is looking ahead (js/warp.js): its plan
+			// is computed on this exact state, so nothing may move under it. The frame
+			// is spent on the search instead of on stepping, and no backlog builds up.
+			if (!Game.planning) {
+				acc += dt;
+				let steps = 0;
+				while (acc >= CFG.h && steps < 96) { stepWorld(Game.world, CFG.h); acc -= CFG.h; steps++; }
+				if (steps === 96) acc = 0;
+				if (steps) Game.afterSteps(steps * CFG.h);
+			}
 		}
 		view.opts = UI.opts(); view.turn = Game.turn; view.resolveT = Game.resolveT; view.voteT = Game.voteT; view.state = Game.state;
 		Render.drawWorld(view);

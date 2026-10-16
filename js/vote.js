@@ -47,6 +47,27 @@ function tallyDue(cfg, prev, next) {
 	return cfg.speedVote === 'turn' || (cfg.speedVote === 'round' && next <= prev);
 }
 
+// --- How a bot plays its speed vote -------------------------------------------------
+// chooseVote weighs a speed by what the board pays for it; a strategy tilts that
+// weighing, so a table of bots can be set to *play* the disk instead of only tolerating
+// it. `own` and `enemy` scale what a rider is worth to the voter — kept or shed;
+// `room` scales how much the throws before the next vote matter at all; `next` prices
+// the one throw that follows the vote by who makes it (room for my own, none for the
+// seat I am trying to beat), which is the tempo play: slow before a push, fast to
+// answer one. `move` is how much a change must be worth before the bot asks for one,
+// and `none` is a seat that never touches the speed at all.
+const SPEED_STRATS = {
+	auto: { label: 'read its own board', own: 1, enemy: 1, room: 1, next: 0, move: 1 },
+	park: { label: 'park — keep the disk slow', own: 1.7, enemy: 0.5, room: 1.5, next: 0.4, move: 1.2 },
+	shake: { label: 'shake — shed their riders', own: 0.8, enemy: 2, room: 0.7, next: 0.8, move: 0.8 },
+	tempo: { label: 'tempo — swing with the order', own: 0.4, enemy: 0.4, room: 0.8, next: 1.8, move: 0.4 },
+	still: { label: 'never touch the speed', none: true },
+};
+function speedStrat(cfg, name) {
+	const key = (typeof name === 'string' ? name : cfg.botSpeed) || 'auto';
+	return SPEED_STRATS[key] || SPEED_STRATS.auto;
+}
+
 // --- What a throw can park on ---------------------------------------------------
 // The room a speed leaves a throw: the disk's red rate averaged over every spot a
 // whole puck can sit on, counting the spots outside the hold radius as nothing. A
@@ -119,15 +140,18 @@ const _vote = { kind: VOTE_NONE, value: 0 };
 const _riderD = new Float64Array(MAX_PUCKS), _riderPay = new Float64Array(MAX_PUCKS);
 let _speeds = new Float64Array(256), _worth = new Float64Array(256), _currentK = 0;
 
-// The riders on the disk: how far out each rides, and what it pays seat s.
-function gatherRiders(w, cfg, s, p) {
+// The riders on the disk: how far out each rides, and what it pays seat s — an own
+// rider by its rate and the strategy's care for it, an enemy's by what taking it away
+// is worth. A rider outside the reach of the *older* ramp is already gone before this
+// vote closes, so it is not priced either way.
+function gatherRiders(w, cfg, s, p, st) {
 	const existingReach = voteExistingReach(w, cfg);
 	let n = 0;
 	for (let i = 0; i < w.n; i++) {
 		if (w.st[i] !== ST_LOCKED) continue;
 		const dx = w.x[i] - cfg.diskX, dy = w.y[i] - cfg.diskY, d = Math.hypot(dx, dy);
 		if (d > existingReach) continue;
-		const pay = puckRate(w, i) * (w.own[i] === s ? p.opportunity : -p.denial);
+		const pay = puckRate(w, i) * (w.own[i] === s ? p.opportunity * (st ? st.own : 1) : -p.denial * (st ? st.enemy : 1));
 		if (pay === 0) continue;
 		_riderD[n] = d;
 		_riderPay[n++] = pay;
@@ -140,14 +164,15 @@ function gatherRiders(w, cfg, s, p) {
 // the same room moves no margin by itself, and what is left is the profile's lean —
 // a keeper wants a disk that holds, a black hole one that holds nothing. Riders, like
 // chooseStroke's knock-offs, are particular pucks and count in full.
-function throwWeight(cfg, s, roster, next, p) {
+function throwWeight(cfg, s, roster, next, p, st) {
 	const share = p.denial / Math.max(1, roster.length - 1);
 	let sum = 0;
 	for (let j = 0; j < roster.length; j++) {
 		if (cfg.speedVote === 'turn' ? j !== next : roster[j].balls <= 0) continue;
 		sum += j === s ? p.opportunity : -share;
 	}
-	return sum;
+	if (st && st.next !== 0 && next >= 0) sum += (next === s ? 1 : -1) * st.next * (p.opportunity + p.denial) * 0.5;
+	return st ? sum * st.room : sum;
 }
 // Speed ω as a red rate for the bot: the riders kept on the ramp from `omFrom`,
 // plus the room the coming throws can park on. Existing pucks are judged against the
@@ -191,11 +216,15 @@ function fillVoteSpeeds(cfg, om0, exact, out) {
 	if (out) for (let k = 0; k < at; k++) out[k] = _speeds[k];
 	return at;
 }
-// Seat s's vote, `next` being the seat that throws after the vote. Returns a scratch
-// record { kind, value }, valid until the next call.
-function chooseVote(name, w, cfg, s, roster, next, rng) {
+// Seat s's vote, `next` being the seat that throws after the vote, `strat` overriding
+// CFG.botSpeed for a caller that wants to compare one (see js/vote.js SPEED_STRATS).
+// Returns a scratch record { kind, value }, valid until the next call.
+function chooseVote(name, w, cfg, s, roster, next, rng, strat) {
+	const st = typeof strat === 'string' ? speedStrat(cfg, strat) : speedStrat(cfg);
+	_vote.kind = VOTE_NONE; _vote.value = 0;
+	if (st.none) return _vote;
 	const p = BOT_PROFILES[name] || BOT_PROFILES.balanced, om0 = cfg.omega, exact = cfg.voteMode === 'exact';
-	const riders = gatherRiders(w, cfg, s, p), throwW = throwWeight(cfg, s, roster, next, p);
+	const riders = gatherRiders(w, cfg, s, p, st), throwW = throwWeight(cfg, s, roster, next, p, st);
 	const omFrom = voteStartSpeed(w, cfg), n = fillVoteSpeeds(cfg, om0, exact);
 	if (_worth.length < n) _worth = new Float64Array(n);
 	let vMin = Infinity, vMax = -Infinity;
@@ -203,13 +232,12 @@ function chooseVote(name, w, cfg, s, roster, next, rng) {
 		const v = speedWorth(cfg, om0, _speeds[k], riders, throwW, omFrom);
 		_worth[k] = v; vMin = Math.min(vMin, v); vMax = Math.max(vMax, v);
 	}
-	_vote.kind = VOTE_NONE; _vote.value = 0;
 	const r0 = Math.PI * cfg.puckR * cfg.puckR * diskMeanRed(cfg), flat = VOTE_FLAT * r0; // r0: the mean parked rate
 	if (vMax - vMin <= flat) return _vote;
 	// The pick carries the noise coin, scaled like chooseStroke's; the plateau does not.
 	let kBest = 0, best = -Infinity;
 	for (let k = 0; k < n; k++) {
-		let v = _worth[k] - VOTE_MOVE * r0 * Math.abs(_speeds[k] - om0);
+		let v = _worth[k] - VOTE_MOVE * st.move * r0 * Math.abs(_speeds[k] - om0);
 		if (p.noise > 0) v += (rng() - 0.5) * p.noise * r0;
 		if (v > best) { best = v; kBest = k; }
 	}
@@ -223,4 +251,4 @@ function chooseVote(name, w, cfg, s, roster, next, rng) {
 	return _vote;
 }
 
-if (typeof module !== 'undefined') module.exports = { clampVote, voteLabel, setVote, clearVotes, tallySpeed, tallyDue, holdProfile, holdableRate, voteStartSpeed, gatherRiders, speedWorth, fillVoteSpeeds, chooseVote };
+if (typeof module !== 'undefined') module.exports = { clampVote, voteLabel, setVote, clearVotes, tallySpeed, tallyDue, holdProfile, holdableRate, voteStartSpeed, gatherRiders, speedWorth, fillVoteSpeeds, chooseVote, speedStrat, SPEED_STRATS };

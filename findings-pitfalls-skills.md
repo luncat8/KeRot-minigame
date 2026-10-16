@@ -194,3 +194,47 @@
 - The board settles, and only then are pucks resting in the return fan handed back
   to stock. So "every seat has 0 balls at SCORED" holds only by chance. Snapshot
   end-of-game invariants at the SETTLE transition.
+- "Undo the turn" is cheap when the throw goes into a *copy*: snapshot the live state, play
+  the candidate in the copy, reload the snapshot for the next one, and hand the winner to
+  the real game. Mutating the live game and repairing it afterwards needs every side effect
+  reversible (recycle counts, spin ramps, seat rng) and breaks the moment one is forgotten.
+  Measured: 14 ms per one-turn rollout of a 6-seat board, ~190 ms per `chooseStroke` — the
+  reload costs nothing next to either.
+- A headless copy has to be built by the same factory the page runs, with the differences
+  behind one flag (`createGame({world, roster, cfg, sim})`). Watch the per-state guards:
+  `tick` returned early on `!aim.hasStroke`, which only a *human* aim ever sets, so every
+  rollout after the first turn of a copy ran to the step fuse (214 ms/try instead of 14).
+  A flag like `sim` belongs in those guards (`!sim && !aim.hasStroke`), not in a pre-seeded
+  fake value.
+- Anything a rollout can leave dirty must be reset *per try*, not per plan: a copy's seats
+  keep their speed votes until the tally closes, so candidates 2..6 started from a game in
+  which somebody had already voted — the same line measured 0.3 of a ball differently inside
+  one search. Gate the class, not the instance: "a line costs the same measured on its own
+  or taken out of the search" caught it; a parity test of one turn did not.
+- Two `createGame({})` instances in one process share the module `CFG`, and `closeVote`
+  writes `cfg.omega` on it — so sibling test games steer each other's disk speed and a parity
+  check fails on nothing real. Harness games need `createGame({cfg: Object.assign({}, CFG)})`.
+- `js/bots.js` answers with one shared scratch record (`botOut`), valid until the next call.
+  A caller that keeps "the greedy line" to compare later must copy it, or it keeps whatever
+  the *last* decision was — this turned a search that changed nothing into a reported
+  +0.30-ball improvement.
+- The lock band does not depend on the disk's phase (the disk is rotationally symmetric) and
+  the paint does, so a policy that cannot simulate should choose among the (radius, speed)
+  pairs measured to lock at every phase and pick the one whose *arrival* lands on red:
+  price a spot with `w.theta += ω·flightTime` for the read (5 pairs, 12/12 phases on all
+  three schemas; the old single pair was 0/18 on rim6). A puck locked on a blue gap stays on
+  it — it co-rotates — so a phase miss is a whole-game loss, not a delay to wait out.
+- Before writing a rollout's opponents as searchers, cost them: 4 s of physics on a sparse
+  board is 0.5 ms, one `chooseStroke` is 190 ms, so a search per rollout seat costs more than
+  all the physics in the rollout. Give copies a policy (0.03 ms) and keep the search on the
+  seat that is actually deciding.
+- A search spread over frames must read a result at the end of a unit of work, never when the
+  time budget expires — otherwise where the frame is cut changes the answer. Then "cut at
+  0.4 ms slices gives the same pick as one call" is a gate that costs nothing to write.
+- An "is this good enough to stop searching" bar should be the gain over the state the search
+  started from, with the *same* annuity horizon for every candidate (freeze `future` at the
+  snapshot). Against the greedy value it is satisfied by definition; against the absolute lead
+  a bot that is winning never searches and a bot that is losing searches forever.
+- Keep a file's node require-header on one line: harnesses that eval the source strip
+  `^if (typeof module …)$`, and with `/m` (not `/gm`) only the first line goes — the rest of
+  a wrapped header is left as a syntax error in the evalled file.
