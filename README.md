@@ -12,6 +12,36 @@ puck once to throw, or use the Throw button or Space. When the last throw is don
 board names the winner; **double-click the board** (or press **R**) to deal a new game. The page
 includes the full settings panel, bot profiles, score maps, recycling rules, and speed voting.
 
+## Optional glass presentation
+
+The shipped page stays lightweight. **Plain** loads only the classic scripts below; the
+richer ice is an opt-in add-on in the same page, not a second game or a second HTML/CSS
+copy. The **presentation** select (`fx=glass`) and **ice / glass sound** checkbox
+(`sfx=1`) are also available as the `crystal` preset and as URL keys:
+
+```text
+index.html?preset=crystal
+index.html?fx=glass&sfx=1
+```
+
+`js/fx.js` is a small controller that injects `js/fx-glass.js` on first use. That file
+bakes frost grain, a brushed rotating disk overlay, soft shadows and glassy puck rims
+once, then draws only cached sprites; it also synthesises WebAudio ice hiss, glass
+clinks, rail taps, throw swishes and black-hole swishes — no image or audio assets, no
+network requests, no new dependencies. `js/render.js` exposes five no-op hook points,
+and `js/main.js` passes one world observation per frame to the optional sound layer.
+With the option off, the base page downloads no add-on and pays only those hook checks.
+The field paint, scoring, bot aims, seat rings and puck numbers remain the shipped ones:
+the glass layer is decorative and does not change gameplay.
+
+The Snowfall distribution `games/kerot.js` intentionally stays plain. It reuses the
+renderer with the new hooks but does not include `fx.js`, `fx-glass.js`, WebAudio or
+the page chrome, so the story-page artifact keeps its small single-file payload.
+Validate the optional layer with `node experiments/fx-smoke.js`; render real before/
+after PNGs with `node experiments/render-frames.js [outDir]` and
+`node experiments/render-frames.js --glass [outDir]` (the latter needs
+`npm install` once in `experiments/tools`).
+
 ## Snowfall VN integration
 
 A separate Snowfall adapter is available as one distributable classic script:

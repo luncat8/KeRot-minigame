@@ -225,6 +225,23 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(schemeBakes === 0, 'a colour scheme change rebakes nothing', String(schemeBakes));
 	CFG.diskSchema = schema0;
 	Render.drawWorld(view);
+	// The optional presentation has five hook points. A probe skin proves every one is
+	// reached and that detaching it restores the exact base draw path.
+	const hooks = [];
+	const probeSkin = {
+		setup() { hooks.push('setup'); }, floor() { hooks.push('floor'); }, disk() { hooks.push('disk'); },
+		shadow() { hooks.push('shadow'); }, puck() { hooks.push('puck'); },
+	};
+	Render.attach(probeSkin);
+	Render.drawWorld(view);
+	for (const hook of ['setup', 'floor', 'disk', 'shadow', 'puck'])
+		check(hooks.includes(hook), 'the optional ' + hook + ' hook is reachable');
+	check(hooks.filter(h => h === 'shadow').length === w.n && hooks.filter(h => h === 'puck').length === w.n,
+		'shadow and puck hooks run once per puck', hooks.length);
+	hooks.length = 0;
+	Render.attach(null);
+	Render.drawWorld(view);
+	check(hooks.length === 0, 'detaching the skin leaves no optional hook work');
 	console.log('scheme smoke: ' + Object.keys(Render.themes).length + ' colour schemes × ' + Object.keys(DISK_SCHEMAS).length +
 		' disk schemas drawn, ' + rebakes + ' disk rebakes on schema change, none on scheme change');
 }
@@ -512,8 +529,13 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		body: Object.assign(makeEl('body'), { dataset: {} }),
 	};
 	check(CFG.recycleMode === 'advance', 'startup uses wedge + lane before binding controls');
-	const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-	check(/id="recAdvance" checked/.test(html) && !/id="recZones" checked/.test(html), 'HTML default matches wedge + lane');
+		const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+		check(/id="recAdvance" checked/.test(html) && !/id="recZones" checked/.test(html), 'HTML default matches wedge + lane');
+		const buildSrc = fs.readFileSync(path.join(__dirname, '../tools/build-minigame.js'), 'utf8');
+		check(/<script src="js\/fx\.js"><\/script>/.test(html) && !/<script[^>]+js\/fx-glass\.js/.test(html),
+			'the page loads the lazy controller but not the heavy add-on at boot');
+		check(!/fx(?:-glass)?\.js/.test(buildSrc), 'the Snowfall bundle carries no optional presentation file');
+		check(/id="fx"/.test(html) && /id="chkSfx"/.test(html), 'the page exposes both presentation switches');
 	// The disk speed is a game control: its bar sits directly under the transport bar, not
 	// buried in the settings, and the panel keeps only one ω slider.
 	const actionsAt = html.indexOf('id="actions"'), speedAt = html.indexOf('id="speedBar"');
@@ -739,10 +761,26 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		check(radioSets.recycle.find(r => r.checked).value === 'zones', 'URL return override selects the matching radio');
 		pick('recycle', 'advance');
 		check(!historyCalls[historyCalls.length - 1].includes('recycle='), 'shipped return mode is omitted from custom links');
-		pick('recycle', 'zones');
-		check(historyCalls[historyCalls.length - 1].includes('recycle=zones'), 'non-default fan mode is preserved in custom links');
-		UI.applyPreset('default');
-		console.log('presets/url smoke: ' + Object.keys(PRESETS).length + ' presets, parameters applied and clamped, sliders pulled, roster swapped, link echoed');
+			pick('recycle', 'zones');
+			check(historyCalls[historyCalls.length - 1].includes('recycle=zones'), 'non-default fan mode is preserved in custom links');
+			UI.applyPreset('default');
+			const fxSetup = parseQuery('?fx=GLASS&sfx=ON');
+			check(fxSetup && fxSetup.fx === 'glass' && fxSetup.sfx === true, 'glass and sound are case-insensitive URL keys');
+			UI.applySetup(fxSetup);
+			check(els.fx.value === 'glass' && els.chkSfx.checked && UI.opts().fx === 'glass' && UI.opts().sfx &&
+				document.body.dataset.fx === 'glass', 'a presentation link drives controls, view options and page chrome');
+			els.fx.value = 'plain'; els.fx.on.change();
+			check(historyCalls[historyCalls.length - 1].includes('sfx=1') && !/(?:^|&)fx=/.test(historyCalls[historyCalls.length - 1]),
+				'turning glass off keeps sound in the link and drops the shipped fx key');
+			els.chkSfx.checked = false; els.chkSfx.on.change();
+			check(UI.opts().fx === 'plain' && !UI.opts().sfx && document.body.dataset.fx === 'plain', 'plain and silent restore the shipped presentation');
+			check(!/(?:^|&)fx=/.test(historyCalls[historyCalls.length - 1]) && !/(?:^|&)sfx=/.test(historyCalls[historyCalls.length - 1]),
+				'plain and silent leave no presentation keys in a custom link');
+			UI.applyPreset('crystal');
+			check(els.fx.value === 'glass' && els.chkSfx.checked && historyCalls[historyCalls.length - 1].includes('preset=crystal'),
+				'the crystal preset turns glass and sound on together');
+			UI.applyPreset('default');
+			console.log('presets/url smoke: ' + Object.keys(PRESETS).length + ' presets, parameters applied and clamped, sliders pulled, roster swapped, link echoed');
 		els.chkRing.checked = true; els.chkPreview.checked = true;
 	}
 	// Drive actual pointer handlers through the renderer's client-to-world mapping.

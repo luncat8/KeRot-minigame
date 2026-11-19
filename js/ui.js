@@ -4,14 +4,14 @@
 const UI = (() => {
 	const $ = id => document.getElementById(id);
 	const els = {};
-	const opts = { ring: true, preview: true, mode: CFG.recycleMode, theme: 'classic' };
+	const opts = { ring: true, preview: true, mode: CFG.recycleMode, theme: 'classic', fx: 'plain', sfx: false };
 	// What a link with no parameters opens. Taken now, before boot parameters or a
 	// preset move CFG — a shared link lists only what differs from this.
 	const SHIPPED = {
 		omega: CFG.omega, muK: CFG.muK, muS: CFG.muS, puckM: CFG.puckM,
 		schema: CFG.diskSchema, recycle: CFG.recycleMode, vote: CFG.speedVote, voteMode: CFG.voteMode, balls: CFG.ballsPerPlayer,
 		botspeed: CFG.botSpeed, warp: !!CFG.warp, warpTries: CFG.warpTries, warpTurns: CFG.warpTurns, warpGoal: CFG.warpGoal,
-		theme: 'classic', seats: 'human,balanced,blackhole,retriever',
+		theme: 'classic', fx: 'plain', sfx: false, seats: 'human,balanced,blackhole,retriever',
 	};
 	// The speed bar's select is the same setting as the rule radios in the drawer; it
 	// says who sets the speed, in the words a turn wants.
@@ -32,7 +32,7 @@ const UI = (() => {
 			els[id] = $(id);
 		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
 			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus', 'speedMode',
-			'result', 'resultWinner', 'resultScores'])
+			'fx', 'chkSfx', 'result', 'resultWinner', 'resultScores'])
 			els[id] = $(id);
 		els.canvas = $('c');
 		// Every physics input invalidates the ghost: it is only valid for the settings
@@ -71,6 +71,8 @@ const UI = (() => {
 		els.view.addEventListener('change', () => { View.set(els.view.value); markCustom(); });
 		fillSelect(els.theme, Render.themes, opts.theme);
 		els.theme.addEventListener('change', () => { opts.theme = els.theme.value; document.body.dataset.theme = opts.theme; markCustom(); });
+		els.fx.addEventListener('change', () => { syncFX(); markCustom(); });
+		els.chkSfx.addEventListener('change', () => { syncFX(); markCustom(); });
 		// The preset select keeps a placeholder until a bundle is picked, and goes back
 		// to it (markCustom) as soon as any control moves away from the bundle.
 		const ph = document.createElement('option');
@@ -93,9 +95,18 @@ const UI = (() => {
 		fillSelect(els.speedMode, SPEED_RULE_LABELS, CFG.speedVote);
 		els.speedMode.addEventListener('change', () => setRule(els.speedMode.value, CFG.voteMode));
 		pullControls();
+		syncFX();
 		syncRoster();
 		syncVotes();
 		sync();
+	}
+	// The optional presentation is page state, not CFG: the controls, the body
+	// attribute the tiny CSS glow keys off, and the lazy add-on all follow one call.
+	function syncFX() {
+		opts.fx = FX_MODES.includes(els.fx.value) ? els.fx.value : 'plain';
+		opts.sfx = !!els.chkSfx.checked;
+		document.body.dataset.fx = opts.fx;
+		if (typeof FX !== 'undefined') FX.set({ visual: opts.fx === 'glass', sound: opts.sfx });
 	}
 	function radios(name) { return document.querySelectorAll('input[name=' + name + ']'); }
 	function setRule(rule, mode) {
@@ -132,6 +143,8 @@ const UI = (() => {
 		if (CFG.warpTurns !== SHIPPED.warpTurns) parts.push('warpturns=' + CFG.warpTurns);
 		if (CFG.warpGoal !== SHIPPED.warpGoal) parts.push('warpgoal=' + numParam(CFG.warpGoal));
 		if (opts.theme !== SHIPPED.theme) parts.push('theme=' + opts.theme);
+		if (opts.fx !== SHIPPED.fx) parts.push('fx=' + opts.fx);
+		if (opts.sfx !== SHIPPED.sfx) parts.push('sfx=' + (opts.sfx ? 1 : 0));
 		if (CFG.ballsPerPlayer !== SHIPPED.balls) parts.push('balls=' + CFG.ballsPerPlayer);
 		const seats = Game.seatTypes.join(',');
 		if (seats !== SHIPPED.seats) parts.push('seats=' + seats);
@@ -157,6 +170,8 @@ const UI = (() => {
 		els.mass.value = String(Math.log10(CFG.puckM));
 		els.diskSchema.value = CFG.diskSchema;
 		els.theme.value = opts.theme;
+		els.fx.value = opts.fx;
+		els.chkSfx.checked = opts.sfx;
 		if (els.view) els.view.value = View.isFit() ? 'fit' : 'side';
 		for (const r of radios('recycle')) r.checked = r.value === CFG.recycleMode;
 		opts.mode = CFG.recycleMode;
@@ -190,6 +205,8 @@ const UI = (() => {
 		if (!setup) return;
 		applyCfg(setup);
 		if (setup.omega !== undefined || setup.autoOmega) Game.setOmega(CFG.omega); // a set speed, not a voted one
+		if (setup.fx && FX_MODES.includes(setup.fx)) opts.fx = setup.fx;
+		if (setup.sfx !== undefined) opts.sfx = !!setup.sfx;
 		if (setup.theme && Render.themes[setup.theme]) { opts.theme = setup.theme; document.body.dataset.theme = opts.theme; }
 		if (setup.view) View.set(setup.view);
 		if (setup.ring !== undefined) els.chkRing.checked = setup.ring;
@@ -198,6 +215,7 @@ const UI = (() => {
 		else if (setup.omega !== undefined || setup.muK !== undefined || setup.muS !== undefined || setup.puckM !== undefined ||
 			setup.autoOmega || setup.balls !== undefined || setup.schema || setup.recycle || setup.vote || setup.voteMode) Game.reset();
 		pullControls();
+		syncFX();
 		syncRoster();
 		syncVotes();
 		sync();
@@ -447,6 +465,8 @@ const UI = (() => {
 	}
 	function optsNow() {
 		opts.ring = els.chkRing.checked; opts.preview = els.chkPreview.checked;
+		opts.fx = FX_MODES.includes(els.fx.value) ? els.fx.value : 'plain';
+		opts.sfx = !!els.chkSfx.checked;
 		return opts;
 	}
 	return { bind, update, actions, opts: optsNow, applySetup, applyPreset };

@@ -1,8 +1,9 @@
 // Renders real frames of the board to PNG through @napi-rs/canvas (experiments/tools,
 // `npm install` there once), so a visual change can be looked at — and diffed — without
 // a browser. Same stub technique as client-smoke.js, but with a real 2D context.
-//   node experiments/render-frames.js [outDir]
-// Writes one PNG per (ui theme × disk schema) of a fixed mid-game board.
+//   node experiments/render-frames.js [outDir] [--glass]
+// Writes one PNG per (ui theme × disk schema) of a fixed mid-game board; --glass
+// attaches the optional presentation skin and gives the files a -glass suffix.
 const fs = require('fs');
 const path = require('path');
 const { createCanvas, Path2D } = require('./tools/node_modules/@napi-rs/canvas');
@@ -10,7 +11,9 @@ Object.assign(globalThis, require('../js/cfg.js'), require('../js/field.js'), re
 	require('../js/score.js'), require('../js/players.js'), require('../js/rules.js'), require('../js/predict.js'),
 	require('../js/bots.js'));
 
-const outDir = process.argv[2] || path.join(__dirname, 'logs', 'frames');
+const args = process.argv.slice(2);
+const glass = args.includes('--glass');
+const outDir = args.find(a => !a.startsWith('--')) || path.join(__dirname, 'logs', 'frames');
 fs.mkdirSync(outDir, { recursive: true });
 globalThis.Path2D = Path2D;
 globalThis.window = { devicePixelRatio: 2, addEventListener() { } };
@@ -30,6 +33,16 @@ cv.style = {};
 cv.parentElement = { clientWidth: BOX_W, clientHeight: BOX_H };
 cv.getBoundingClientRect = () => ({ left: 0, top: 0 });
 Render.setup(cv);
+// --glass attaches the same optional add-on the page loads lazily, so a PNG shows
+// the real baked textures and shadows without a browser.
+if (glass) {
+	const src = fs.readFileSync(path.join(__dirname, '../js/fx-glass.js'), 'utf8')
+		.replace(/\bconst GlassFX =/, 'globalThis.GlassFX =')
+		.replace(/^if \(typeof module !== 'undefined'\).*$/gm, '');
+	eval(src);
+	GlassFX.set(true, false);
+	Render.attach(GlassFX.skin);
+}
 
 // A fixed mid-game board: pucks of four seats riding, straddling the rim, sliding,
 // asleep on the floor, plus the pending puck with a stroke and its ghost.
@@ -64,7 +77,7 @@ for (const theme of themes) {
 		const view = board();
 		view.opts.theme = theme;
 		Render.drawWorld(view);
-		const file = path.join(outDir, theme + '-' + schema + '.png');
+		const file = path.join(outDir, theme + '-' + schema + (glass ? '-glass' : '') + '.png');
 		fs.writeFileSync(file, cv.toBuffer('image/png'));
 		console.log('wrote ' + path.relative(process.cwd(), file) + ' (' + cv.width + 'x' + cv.height + ')');
 	}

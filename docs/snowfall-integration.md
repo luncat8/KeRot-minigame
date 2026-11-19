@@ -59,7 +59,9 @@ A minimal real-engine example is in `snowfall-demo.html`. It expects a sibling c
 
 ## Source and distribution layout
 
-- `js/` remains the authoritative game implementation.
+- `js/` remains the authoritative game implementation. The optional page presentation
+  (`js/fx.js` + lazily loaded `js/fx-glass.js`) is deliberately **not** bundled here;
+  the story-page artifact stays plain and carries no WebAudio or texture sprites.
 - `minigame/entry.js` is the Snowfall-specific session adapter; `minigame/kerot.css` is its scoped
   stylesheet and the pre-measure mount-height contract.
 - `games/kerot.js` is the committed, standalone delivery artifact: one classic script, one game
@@ -81,6 +83,7 @@ Fast local gates, with Node only:
 node tools/build-minigame.js --check
 node experiments/minigame-smoke.js
 node experiments/client-smoke.js
+node experiments/fx-smoke.js
 node experiments/determinism.js
 node --check minigame/entry.js
 node --check games/kerot.js

@@ -16,7 +16,7 @@ if (typeof module !== 'undefined') Object.assign(globalThis,
 // the bundle's μ and mass are in, so every mass preset keeps its own eject ring.
 const PRESETS = {
 	default: { label: 'classic default', muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'advance',
-		vote: 'round', voteMode: 'delta', theme: 'classic', balls: 4,
+		vote: 'round', voteMode: 'delta', theme: 'classic', fx: 'plain', sfx: false, balls: 4,
 		botspeed: 'auto', warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, seats: ['human', 'balanced', 'blackhole', 'retriever'] },
 	slick: { label: 'slick ice · long slides', muK: 0.012, muS: 0.030, puckM: 4, autoOmega: true },
 	grippy: { label: 'grippy ice · short stops', muK: 0.080, muS: 0.120, puckM: 4, autoOmega: true },
@@ -26,6 +26,7 @@ const PRESETS = {
 	// pins the reference table its 1.356 rad/s was solved for (d_hold = 0.3 R).
 	grinder: { label: 'meat grinder · eject at 0.3 R', muK: 0.030, muS: 0.045, puckM: 4, omega: 1.356 },
 	rimtrap: { label: 'rim traps · 6 hemispheres', schema: 'rim6' },
+	crystal: { label: 'crystal ice · glass skin + sounds', fx: 'glass', sfx: true },
 	// Two tables built to show the two bot settings off: the same profiles, one set to
 	// play the disk with its votes, one set to look ahead before it throws.
 	speedplay: { label: 'speed play · park vs shake', vote: 'turn', botspeed: 'park' },
@@ -39,6 +40,7 @@ const NUM_RANGES = { omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.
 const RECYCLES = ['none', 'zones', 'advance'];
 const SPEED_RULES = ['off', 'turn', 'round'], VOTE_MODES = ['delta', 'exact']; // CFG.speedVote, CFG.voteMode
 const VIEWS = ['fit', 'side']; // the layout keys of index.html; fit is the shipped one
+const FX_MODES = ['plain', 'glass']; // presentation; not CFG, js/ui.js loads the add-on
 
 // The CFG-level share of a setup: numbers, disk schema, return rule, speed rule, balls. Called
 // by the boot path before the first deal and by the panel preset. Theme, seats and
@@ -106,6 +108,11 @@ function parseQuery(search) {
 	if (SPEED_RULES.includes(vote)) { out.vote = vote; found = true; }
 	if (VOTE_MODES.includes(voteMode)) { out.voteMode = voteMode; found = true; }
 	if (q.theme) { out.theme = q.theme.toLowerCase(); found = true; } // validated where themes live (ui.js)
+	const fx = q.fx && q.fx.toLowerCase();
+	if (fx === 'glass' || fx === 'crystal' || fx === 'on' || fx === '1' || fx === 'true') { out.fx = 'glass'; found = true; }
+	else if (FX_MODES.includes(fx) || fx === 'off' || fx === '0' || fx === 'false') { out.fx = 'plain'; found = true; }
+	const sfx = q.sfx && q.sfx.toLowerCase();
+	if (['1', 'true', 'on', '0', 'false', 'off'].includes(sfx)) { out.sfx = sfx === '1' || sfx === 'true' || sfx === 'on'; found = true; }
 	const view = q.view && q.view.toLowerCase();
 	if (VIEWS.includes(view)) { out.view = view; found = true; }
 	const botspeed = q.botspeed && q.botspeed.toLowerCase();
@@ -127,4 +134,4 @@ function parseQuery(search) {
 // and the same page state comes back when it is opened.
 function presetQuery(name) { return 'preset=' + name; }
 
-if (typeof module !== 'undefined') module.exports = { PRESETS, SPEED_RULES, VOTE_MODES, VIEWS, parseQuery, applyCfg, presetQuery };
+if (typeof module !== 'undefined') module.exports = { PRESETS, SPEED_RULES, VOTE_MODES, VIEWS, FX_MODES, parseQuery, applyCfg, presetQuery };

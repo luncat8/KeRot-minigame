@@ -2363,6 +2363,10 @@
 			function createRenderer() {
 				let cfg = CFG;
 				let cv, ctx, sx = 100, sy = 100, dpr = 1;
+				// Optional presentation skin (js/fx.js). Null on the shipped page: the base frame
+				// pays one check per hook, and no texture or audio code is fetched. disk() runs in
+				// the disk's rotated local frame; the others draw in world coordinates.
+				let skin = null;
 				let texDisk = null, texSchema = '', ppmDisk = 0, puckGrad = null, wallPath = null, gridPath = null;
 				let zoneFan = null, zoneAdv = null, hatchPath = null, sectorPath = null, bandPath = null;
 				const Z_FILL = 'rgba(32,178,170,0.16)', Z_LINE = 'rgba(46,204,196,0.55)', Z_HATCH = 'rgba(46,204,196,0.16)';
@@ -2413,6 +2417,11 @@
 					applyTheme('classic');
 					buildZonePaths();
 					resize();
+					if (skin && skin.setup) skin.setup(cfg, sx, sy, dpr);
+				}
+				function attach(addon) {
+					skin = addon || null;
+					if (skin && cv && skin.setup) skin.setup(cfg, sx, sy, dpr);
 				}
 				function buildFloorFills() {
 					for (const name in THEMES) {
@@ -2659,12 +2668,14 @@
 					ctx.save(); ctx.beginPath(); ctx.rect(0, 0, cfg.boardW, cfg.boardH); ctx.clip();
 					ctx.fillStyle = floorFill[themeName]; ctx.fillRect(0, 0, cfg.boardW, cfg.boardH);
 					if (theme.grid) { ctx.strokeStyle = theme.grid; ctx.lineWidth = 0.006; ctx.stroke(gridPath); }
+					if (skin && skin.floor) skin.floor(ctx, view, cfg);
 					drawZones(opts.mode);
 					// Disk: field sprite rotated by theta. It is already cut to the circle, so this
 					// needs no clip — which is both cheaper and smoother on the rim.
 					ctx.save();
 					ctx.translate(cfg.diskX, cfg.diskY); ctx.rotate(w.theta);
 					ctx.drawImage(texDisk, -cfg.diskR, -cfg.diskR, 2 * cfg.diskR, 2 * cfg.diskR);
+					if (skin && skin.disk) skin.disk(ctx, view, cfg);
 					ctx.fillStyle = theme.tick; ctx.fillRect(0.55, -0.012, 0.22, 0.024); // spin tick
 					ctx.restore();
 					ctx.lineWidth = 0.015; ctx.strokeStyle = theme.rim;
@@ -2685,7 +2696,13 @@
 					ctx.lineWidth = theme.wallW; ctx.strokeStyle = theme.wall; ctx.stroke(wallPath);
 					if (opts.preview && aim && aim.hasStroke) drawGhost(pred, aim);
 					drawAim(w, aim);
-					for (let i = 0; i < w.n; i++) theme.puck(w, i, aim && aim.pending === i);
+					// Shadows go down before any puck body, so a shadow never paints over a stone.
+					if (skin && skin.shadow) for (let i = 0; i < w.n; i++) skin.shadow(ctx, view, cfg, i, aim && aim.pending === i);
+					for (let i = 0; i < w.n; i++) {
+						const isPending = aim && aim.pending === i;
+						theme.puck(w, i, isPending);
+						if (skin && skin.puck) skin.puck(ctx, view, cfg, i, isPending);
+					}
 					drawHud(view);
 				}
 				// Scoreboard along the top of the board: one cell per seat — colour, balls left,
@@ -2831,7 +2848,7 @@
 					ctx.fillText(sp.toFixed(2) + ' m/s, stops ~' + stopDistance(cfg, sp).toFixed(1) + ' m', sx + ux * (len + 0.17), sy + uy * (len + 0.17));
 					ctx.restore();
 				}
-				return { setup, resize, drawWorld, toWorld, themes: THEMES };
+				return { setup, resize, attach, drawWorld, toWorld, themes: THEMES };
 			}
 			const Render = createRenderer();
 			if (typeof module !== 'undefined') module.exports = { Render, createRenderer };

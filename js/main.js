@@ -71,6 +71,9 @@
 				if (steps) Game.afterSteps(steps * CFG.h);
 			}
 		}
+		// The optional sound layer reads the world after the frame's steps. With the
+		// add-on absent this is one guarded call and the shipped loop is unchanged.
+		if (typeof FX !== 'undefined') FX.frame(dt, Game.world, Game.state, Game.paused || Game.planning);
 		view.opts = UI.opts(); view.turn = Game.turn; view.resolveT = Game.resolveT; view.voteT = Game.voteT; view.state = Game.state;
 		Render.drawWorld(view);
 		uiAcc += dt;

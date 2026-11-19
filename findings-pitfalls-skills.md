@@ -283,3 +283,11 @@
   layout, not just the fit view. jsdom has no layout (all offsets 0), so a real-DOM smoke
   feeds the offsets explicitly and checks the style writes; only a browser can check the
   rendered box.
+- Optional heavy presentation belongs behind a tiny lazy controller plus no-op renderer
+  hooks: the base page downloads no add-on, the simulation stays untouched, and a
+  single classic script can still provide baked canvas textures and WebAudio on
+  `file://`. Bake sprites once and draw only cached images in the frame loop; don't
+  create gradients inside per-puck hooks.
+- Query-key assertions must match a whole parameter: `sfx=1` contains the substring
+  `fx=`, so `!link.includes('fx=')` is wrong. Use `/(?:^|&)fx=/` (and the same shape
+  for `sfx=`) when a smoke test checks that a shipped key was omitted.

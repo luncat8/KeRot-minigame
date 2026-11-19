@@ -33,6 +33,11 @@
 			max(8px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px)); }
 	#boardWrap { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; overflow: hidden; display: flex; align-items: flex-start; justify-content: center; }
 	canvas { display: block; border-radius: 8px; }
+	/* The glass option's page chrome: a little outer depth around the board and a
+	   frosted result card. The heavy ice/puck textures are canvas, not CSS. */
+	body[data-fx=glass] canvas { box-shadow: 0 18px 48px rgba(0,0,0,0.55), 0 0 0 1px rgba(220,240,255,0.10); }
+	body[data-fx=glass] #app { background: radial-gradient(circle at 28% 18%, #173746, var(--bg) 68%); }
+	body[data-fx=glass] #resultCard { border-color: rgba(220,240,255,0.22); box-shadow: 0 14px 46px rgba(0,0,0,0.62); }
 	/* The result card sits exactly over the canvas (js/ui.js writes its box) and lets
 	   every pointer through to the board, which is the play-again gesture. */
 	#result { position: absolute; z-index: 4; display: flex; align-items: center; justify-content: center;
@@ -276,6 +281,13 @@
 		<div class="row"><label><span><input type="checkbox" id="chkRing" checked> eject ring</span></label>
 		<label><span><input type="checkbox" id="chkPreview" checked> ghost trajectory</span></label></div>
 		<div class="row"><label>colour scheme <select id="theme"></select></label></div>
+		<div class="row"><label>presentation <select id="fx">
+				<option value="plain">plain · lightweight</option>
+				<option value="glass">glass ice · textures + shadows</option>
+			</select></label>
+			<label><span><input type="checkbox" id="chkSfx"> ice / glass sound</span></label>
+			<div class="dim">plain ships no extra script; glass loads one add-on on first use.</div>
+		</div>
 		<div class="readout">
 			<div id="hold"></div><div id="stop"></div><div id="simTime"></div>
 			<div id="puckCount"></div><div id="liveScore"></div><div id="state"></div>
@@ -368,11 +380,21 @@
 	<h2>colour scheme</h2>
 	<p><b>classic</b>, or <b>kerot-s</b>: navy ice and cream pucks whose centre gauge and
 	tag show the share of the best possible rate each puck is earning right now.</p>
+	<h2>glass presentation</h2>
+	<p><b>plain</b> is the shipped board. <b>glass ice</b> adds baked frost grain, a
+	brushed rotating disk, soft shadows under the disk and every puck, and glassy rims;
+	<b>ice / glass sound</b> adds a sliding ice hiss, bright clinks for puck contacts,
+	duller taps for rails and low swishes for black holes — all synthesised, with no
+	audio files. The field paint stays the score map, and every seat ring, number and
+	gauge stays readable. The heavy layer is one optional script loaded only when one
+	of these is switched on, so a plain link downloads none of it. Sound waits for a
+	click or key because browsers block audio before a gesture. The <b>crystal ice</b>
+	preset turns both on; <code>fx=glass</code> and <code>sfx=1</code> are the link keys.</p>
 	<h2>presets and links</h2>
 	<p>Touch a control while the drawer is open and the board on screen is the board you
 	play: settings take effect at once, and ☰ slides them away again.</p>
 	<p>The <b>preset</b> select applies a named bundle of settings — physics, disk
-	pattern, return rule, speed rule, colour scheme, the table itself — and starts a fresh board
+	pattern, return rule, speed rule, colour scheme, presentation, the table itself — and starts a fresh board
 	with it. Touch any control afterwards and you have left the bundle, and the select
 	clears. Picking a preset also puts its link into the address bar, so what you see
 	is what you can share.</p>
@@ -387,6 +409,7 @@
 	<code>mass</code> (kg), <code>schema</code> (classic | circles | rim6),
 	<code>recycle</code> (none | zones | advance), <code>vote</code> (off | turn | round),
 	<code>votemode</code> (delta | exact), <code>theme</code> (classic | kerot),
+	<code>fx</code> (plain | glass), <code>sfx</code> (0|1),
 	<code>botspeed</code> (auto | park | shake | tempo | still), <code>warp</code> (0|1),
 	<code>warptries</code>, <code>warpturns</code> (0 = to the end of the game), <code>warpgoal</code>,
 	<code>seats</code> (a comma list of seat types), <code>balls</code>,
@@ -410,6 +433,7 @@
 <script src="js/ui.js"></script>
 <script src="js/help.js"></script>
 <script src="js/view.js"></script>
+<script src="js/fx.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>
