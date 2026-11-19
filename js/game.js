@@ -293,7 +293,12 @@ function createGame(env) {
 	// Per-frame housekeeping: ghost re-sim (throttled) and bot throws.
 	function tick(dt) {
 		if (!sim && ghost && ghostDirty && predT <= 0 && state === 'aim' && aim.hasStroke && pending >= 0) {
-			predictStroke(pred, w, pending, aim.vx, aim.vy, cfg.maxResolve);
+			// The ghost is drawn during a drag, on the frame that also steps the board, so
+			// it is simulated to the window the throw is paid by (handoffT) and not to the
+			// spin-down horizon: a puck still sliding 4 s after the push has already had
+			// its turn handed over, and simulating that tail is most of a crowded board's
+			// ghost cost. The bots still price the full maxResolve horizon.
+			predictStroke(pred, w, pending, aim.vx, aim.vy, cfg.handoffT);
 			ghostDirty = false; predT = PRED_COOLDOWN;
 		}
 		predT -= dt;

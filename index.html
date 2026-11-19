@@ -115,7 +115,7 @@
 		#boardWrap { flex: 0 0 auto; width: 100%; aspect-ratio: 3.6 / 2.2; max-height: 54%; }
 		#panel { flex: 1 1 0; width: 100%; min-height: 0; max-height: none; }
 	}
-	/* The action bar: throw, clear, auto-ω, reset, pause and the settings switch, all
+	/* The action bar: throw, clear, reset, pause and the settings switch, all
 	   together at the top of the panel, so a phone reaches the throw without scrolling.
 	   In the fit view the panel itself becomes a narrow rail down the right edge (a bar
 	   under the board in portrait) and the settings slide out of it as a drawer. */
@@ -125,6 +125,26 @@
 	#actions button.go { padding: 8px 12px; }
 	#btnSettings { display: none; } /* the side layout keeps its settings in sight */
 	#btnSettings.on { background: var(--btn-hi); color: var(--btn-hi-txt); }
+	/* The speed bar: the game's speed control, under the transport bar and just as
+	   sticky. It keeps what a turn needs — who sets the speed, the speed itself with a
+	   one-tap auto-ω, and the votes (a row per human seat while a vote rule is on) —
+	   so the speed is set without opening the settings. The rest of the "disk speed
+	   in play" group (the rule radios) stays in the drawer; the bar's select is the
+	   same setting. */
+	#speedBar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
+		margin: 0 -4px 8px; padding: 2px 4px 6px; border-radius: 6px; background: var(--panel); font-size: var(--fs); }
+	#speedBar + .row { margin-top: 0; }
+	#speedModeWrap { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+	#speedMode { padding: 4px; }
+	#speedBar #btnAuto { flex: 0 0 auto; margin: 0; padding: 4px 8px; }
+	#speedBar .speedOm { flex: 1 1 132px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+	#speedBar .speedOm #omegaVal { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--acc); font-size: 11.5px; }
+	#speedBar .speedOm input { flex: 1 0 100%; margin: 0; }
+	#speedBar #voteBox { flex: 1 0 100%; margin: 0; }
+	#speedBar #voteBox[hidden] { display: none; }
+	#speedBar .vseat { margin: 2px 0 0; }
+	#speedBar .vseat input[type=range] { margin: 0; }
+	#voteStatus { font-size: 11.5px; margin-top: 2px; }
 	/* The panel takes its current width; the canvas takes the entire remaining pane. */
 	body[data-fit=1] #app { gap: 0; padding: 0; }
 	body[data-fit=1] #boardWrap { position: relative; flex: 1 1 0; aspect-ratio: auto; max-height: none; }
@@ -148,8 +168,19 @@
 		margin: -4px -4px 10px; padding: 4px; background: var(--panel); }
 	body[data-fit=1] #panel.open #actions button { padding: 7px 9px; font-size: var(--fs); }
 	body[data-fit=1] #panel.open #actions button.go { padding: 9px 13px; }
-	body[data-fit=1] #panel > :not(#actions) { display: none; }
 	body[data-fit=1] #panel.open > :not(#actions) { display: block; }
+	/* The speed bar is chrome of the board, not a setting: the rail keeps it open (and
+	   the drawer keeps its votes), and everything else waits behind ☰. Narrow rail: a
+	   column — speed rule, the ω slider and its readout, auto-ω. */
+	body[data-fit=1] #panel:not(.open) #speedBar { flex-direction: column; align-items: stretch; gap: 3px; padding: 3px 0 4px; }
+	body[data-fit=1] #panel:not(.open) #speedModeWrap { justify-content: center; font-size: 10px; gap: 2px; }
+	body[data-fit=1] #panel:not(.open) #speedMode { padding: 2px; font-size: 10px; max-width: 100%; }
+	body[data-fit=1] #panel:not(.open) #speedBar .speedOm { flex: none; flex-direction: column; gap: 1px; text-align: center; }
+	body[data-fit=1] #panel:not(.open) #speedBar .speedOm input { width: 100%; height: 14px; margin: 0; }
+	body[data-fit=1] #panel:not(.open) #speedBar .speedOm #omegaVal { margin: 0; font-size: 10px; }
+	body[data-fit=1] #panel:not(.open) #voteBox { display: none; }
+	body[data-fit=1] #panel:not(.open) #speedBar #btnAuto { width: 100%; padding: 6px 0; font-size: 10.5px; }
+	body[data-fit=1] #panel > :not(#actions):not(#speedBar) { display: none; }
 	/* A phone in portrait: the rail is a bar under the board and the drawer rises over
 	   the bottom of the screen with the settings in it. */
 	@media (orientation: portrait) and (max-width: 900px), (max-width: 560px) and (min-height: 480px) {
@@ -161,6 +192,13 @@
 			overflow: hidden; text-overflow: ellipsis; }
 		body[data-fit=1] #panel.open #actions { position: sticky; flex-wrap: wrap; height: auto; }
 		body[data-fit=1] #panel.open #actions button { flex: 0 1 auto; padding: 7px 9px; }
+		body[data-fit=1] #panel:not(.open) #speedBar { flex-direction: row; flex-wrap: nowrap; align-items: center;
+			gap: 3px; height: 100%; padding: 0; margin: 0; font-size: 11px; }
+		body[data-fit=1] #panel:not(.open) #speedModeWrap { flex: 1 1 auto; min-width: 0; }
+		body[data-fit=1] #panel:not(.open) #speedMode { flex: 1 1 0; min-width: 0; }
+		body[data-fit=1] #panel:not(.open) #speedBar .speedOm { flex: 1 1 auto; flex-direction: row; gap: 4px; white-space: nowrap; }
+		body[data-fit=1] #panel:not(.open) #speedBar #btnAuto { width: auto; padding: 4px 6px; }
+		body[data-fit=1] #panel:not(.open) #speedBar .speedOm input { display: none; } /* the 52 px bar has no room for it */
 	}
 	@media (prefers-reduced-motion: reduce) { body[data-fit=1] #panel { transition: none; } }
 	#panel[hidden], #menuTab[hidden] { display: none; }
@@ -184,9 +222,24 @@
 	<div id="panel">
 		<div id="actions">
 			<button id="btnThrow" class="go">Throw ␣</button><button id="btnClear">Clear</button>
-			<button id="btnAuto">auto-ω</button><button id="btnReset">Reset</button><button id="btnPause">Pause</button>
+			<button id="btnReset">Reset</button><button id="btnPause">Pause</button>
 			<button id="btnCollapse" aria-controls="panel" title="Collapse menu" aria-label="Collapse menu">›</button>
 			<button id="btnSettings" title="the settings panel" aria-expanded="false">☰</button>
+		</div>
+		<!-- Disk speed is a game control, so it rides under the transport bar: who sets the
+		     speed, the ω slider with auto-ω, and the votes. The "disk speed in play" group
+		     in the settings keeps only the rule radios, which the bar's select mirrors. -->
+		<div id="speedBar">
+			<label id="speedModeWrap" title="who sets the disk speed during a game">speed <select id="speedMode"></select></label>
+			<label class="speedOm" title="disk angular speed">ω <span id="omegaVal"></span><input type="range" id="omega" min="0" max="4" step="0.001" value="0.7831"></label>
+			<button id="btnAuto" title="solve the speed for the puck mass">auto-ω</button>
+			<div id="voteBox">
+				<div class="vrow"><span class="dim">a vote is</span>
+					<label><input type="radio" name="voteMode" value="delta" checked> a change ±</label>
+					<label><input type="radio" name="voteMode" value="exact"> an exact speed</label></div>
+				<div id="voteRows"></div>
+				<div id="voteStatus" class="dim"></div>
+			</div>
 		</div>
 		<div class="row dim">When not aiming, swipe the board right for rules or left for the menu. Swipe the menu right to hide it.</div>
 		<div class="row"><label>preset <select id="preset"></select></label></div>
@@ -204,13 +257,6 @@
 			<label><input type="radio" name="speedVote" value="off"> set on the panel only</label>
 			<label><input type="radio" name="speedVote" value="turn"> seats vote before every turn</label>
 			<label><input type="radio" name="speedVote" value="round" checked> seats vote before every round</label>
-			<div id="voteBox">
-				<div class="vrow"><span class="dim">a vote is</span>
-					<label><input type="radio" name="voteMode" value="delta" checked> a change ±</label>
-					<label><input type="radio" name="voteMode" value="exact"> an exact speed</label></div>
-				<div id="voteRows"></div>
-				<div id="voteStatus" class="dim"></div>
-			</div>
 		</fieldset>
 		<fieldset><legend>bot brain</legend>
 			<div class="row"><label>speed play <select id="botSpeed"></select></label></div>
@@ -224,7 +270,6 @@
 		</fieldset>
 		<div class="row"><label>disk pattern <select id="diskSchema"></select></label>
 			<div class="legend"><i id="legendBar"></i><span id="legendText" class="dim"></span></div></div>
-		<div class="row"><label>disk ω <span id="omegaVal"></span></label><input type="range" id="omega" min="0" max="4" step="0.001" value="0.7831"></div>
 		<div class="row"><label>kinetic friction μk <span id="muKVal"></span></label><input type="range" id="muK" min="0.005" max="0.3" step="0.001" value="0.03"></div>
 		<div class="row"><label>static friction μs <span id="muSVal"></span></label><input type="range" id="muS" min="0.03" max="0.5" step="0.001" value="0.045"></div>
 		<div class="row"><label>puck mass <span id="massVal"></span></label><input type="range" id="mass" step="0.001"></div>
@@ -284,8 +329,10 @@
 	back to don't care. Bots vote too — their votes show next to their scores.</p>
 	<p>The disk is a motor: it takes 1 s to reach a new speed, and a rider needs
 	friction for that speed-up or slow-down as well, so a big change can shed pucks
-	that a steady disk would keep. The ω slider still sets the speed directly, and a
-	new game starts from the speed the slider set.</p>
+	that a steady disk would keep. The <b>speed bar</b> under the transport buttons sets
+	the speed directly with its ω slider (and <b>auto-ω</b> solves it for the puck mass),
+	and a new game starts from the speed the slider set. Its <b>speed</b> select is the
+	same rule as the radios in the drawer, and your vote row sits right under it.</p>
 	<h2>black holes</h2>
 	<p>The two half-circles above and below the disk are black holes: entering one
 	permanently removes a puck.</p>
@@ -313,7 +360,8 @@
 	(measured in <code>experiments/time-warp.js</code>).</p>
 	<h2>view</h2>
 	<p><b>fit view</b> (the default) gives the whole screen to the board and keeps the panel
-	behind the ☰ tab on the right edge; the throw bar stays at the top of that panel. The
+	behind the ☰ tab on the right edge; the throw and speed bars stay at the top of that
+	panel, the speed one with its ω readout and auto-ω beside it. The
 	<b>view</b> select on the panel switches to the side layout, which trades board size for
 	the settings staying in sight. Either is a URL key: <code>view=fit</code> or
 	<code>view=side</code>.</p>

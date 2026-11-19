@@ -13,6 +13,13 @@ const UI = (() => {
 		botspeed: CFG.botSpeed, warp: !!CFG.warp, warpTries: CFG.warpTries, warpTurns: CFG.warpTurns, warpGoal: CFG.warpGoal,
 		theme: 'classic', seats: 'human,balanced,blackhole,retriever',
 	};
+	// The speed bar's select is the same setting as the rule radios in the drawer; it
+	// says who sets the speed, in the words a turn wants.
+	const SPEED_RULE_LABELS = {
+		off: { label: 'panel ω' }, // short enough for the 66 px rail
+		turn: { label: 'vote: turn' },
+		round: { label: 'vote: round' },
+	};
 	const rows = []; // one per seat: {root, sel, balls, score, rm}
 	const voteRows = []; // one per human seat: {seat, root, none, keep, range, val}
 	let voteKey = '', shownOmega = NaN, resultKey = '', lastText = {};
@@ -24,7 +31,7 @@ const UI = (() => {
 		for (const id of ['btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'btnSettings'])
 			els[id] = $(id);
 		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
-			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus',
+			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus', 'speedMode',
 			'result', 'resultWinner', 'resultScores'])
 			els[id] = $(id);
 		els.canvas = $('c');
@@ -83,13 +90,22 @@ const UI = (() => {
 		// The speed rule is live, like the return rule: it applies from the next handoff.
 		for (const r of radios('speedVote')) r.addEventListener('change', () => { if (r.checked) setRule(r.value, CFG.voteMode); });
 		for (const r of radios('voteMode')) r.addEventListener('change', () => { if (r.checked) setRule(CFG.speedVote, r.value); });
+		fillSelect(els.speedMode, SPEED_RULE_LABELS, CFG.speedVote);
+		els.speedMode.addEventListener('change', () => setRule(els.speedMode.value, CFG.voteMode));
 		pullControls();
 		syncRoster();
 		syncVotes();
 		sync();
 	}
 	function radios(name) { return document.querySelectorAll('input[name=' + name + ']'); }
-	function setRule(rule, mode) { Game.setSpeedRule(rule, mode); syncVotes(); markCustom(); }
+	function setRule(rule, mode) {
+		Game.setSpeedRule(rule, mode);
+		voteKey = ''; // the rows' ranges mean something else in the other vote mode
+		for (const r of radios('speedVote')) r.checked = r.value === rule;
+		els.speedMode.value = rule;
+		syncVotes();
+		markCustom();
+	}
 	function pullOmega() { shownOmega = Game.omegaNow; els.omega.value = String(shownOmega); }
 	function numParam(v) { return String(Math.round(v * 1e6) / 1e6); }
 	function writeQuery(search) {
@@ -146,6 +162,7 @@ const UI = (() => {
 		opts.mode = CFG.recycleMode;
 		for (const r of radios('speedVote')) r.checked = r.value === CFG.speedVote;
 		for (const r of radios('voteMode')) r.checked = r.value === CFG.voteMode;
+		els.speedMode.value = CFG.speedVote;
 		els.botSpeed.value = CFG.botSpeed in SPEED_STRATS ? CFG.botSpeed : 'auto';
 		els.chkWarp.checked = !!CFG.warp;
 		els.warpTries.value = String(CFG.warpTries);
@@ -306,9 +323,13 @@ const UI = (() => {
 	function showVote(r, seat) {
 		r.none.checked = seat.vote === VOTE_NONE;
 		r.keep.checked = seat.vote === VOTE_KEEP;
-		if (seat.vote !== VOTE_SET) r.range.value = String(CFG.voteMode === 'exact' ? CFG.omega : 0);
+		// A vote that is standing shows where its slider stands, too: a rebuilt row (a
+		// vote-mode or seat change) must not read "no change" over a vote already cast.
+		const at = seat.vote === VOTE_SET ? seat.voteValue : (CFG.voteMode === 'exact' ? CFG.omega : 0);
+		if (r.range.value !== String(at)) r.range.value = String(at);
 		setNode(r.val, seat.vote === VOTE_SET ? seat.voteLabel : '');
 	}
+	// One line under the vote rows: the vote that is open, or what the last tally did.
 	function voteStatus() {
 		const t = Game.tally;
 		if (Game.state === 'vote') return 'the vote is open — it closes in ' + Math.max(0, CFG.voteT - Game.voteT).toFixed(1) + ' s';

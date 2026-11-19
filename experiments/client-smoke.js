@@ -175,6 +175,26 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	Render.resize();
 	check(parseFloat(huge.style.width) <= 3200 && parseFloat(huge.style.height) <= 1955,
 		'CSS dimensions update even when the backing store stays at the pixel cap', huge.style.width + 'x' + huge.style.height);
+	// A window resize is a backing-store change, not a repaint of the disk texture: the
+	// sprite is a stepped map that only grows when the surface outgrows it, so a drag or a
+	// rotation just moves its draw scale.
+	{
+		const b0 = bakes;
+		huge.parentElement = { clientWidth: 1200, clientHeight: 733 };
+		Render.resize();
+		check(bakes === b0, 'a refit without a geometry change repaints no disk texture', String(bakes - b0));
+	}
+	{
+		// The map never shrinks: a phone-sized surface keeps the sharper texture a desktop
+		// surface bought, and going back up to the large box repaints nothing.
+		const b1 = bakes;
+		huge.parentElement = { clientWidth: 360, clientHeight: 220 };
+		Render.resize();
+		check(bakes === b1, 'a phone-sized refit keeps the disk texture it has', String(bakes - b1));
+		huge.parentElement = { clientWidth: 3200, clientHeight: 1955 };
+		Render.resize();
+		check(bakes === b1, 'growing back inside the same texture step repaints nothing', String(bakes - b1));
+	}
 	console.log('render smoke: ' + withZones + ' ops with the fan, ' + wedge + ' with wedge+lane, ' + ops.length +
 		' without, board fitted to ' + cssW + 'x' + cssH + ' css px, no exceptions');
 	// Every colour scheme over every disk schema. A schema change rebakes the disk
@@ -320,10 +340,14 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	Game.invalidateGhost();
 	Game.tick(1 / 60);
 	const after = Game.pred.endX;
+	const ghostT = Game.pred.duration;
 	CFG.omega = autoOmega(CFG);
-	console.log('ghost vs ω: endX ' + before.toFixed(4) + ' at ' + CFG.omega.toFixed(3) + ' -> ' + after.toFixed(4) + '');
+	console.log('ghost vs ω: endX ' + before.toFixed(4) + ' at ' + CFG.omega.toFixed(3) + ' -> ' + after.toFixed(4) + ', ' + ghostT.toFixed(2) + ' s simulated');
 	check(before !== after, 'ghost re-simulated after a physics change');
 	check(before === before && isFinite(after), 'ghost finite');
+	// The preview is a drag-time cost on the frame that also steps the board, so it is
+	// simulated to the window the throw is paid by, not to the spin-down horizon.
+	check(ghostT <= CFG.handoffT + 1e-9, 'the ghost stops at the handoff window', ghostT.toFixed(2) + ' s > ' + CFG.handoffT + ' s');
 	// Seats are edited live: no reset, and the turn that is running is not lost.
 	Game.reset();
 	const board0 = Game.world.n, balls0 = Game.roster[0].balls;
@@ -442,6 +466,17 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(CFG.recycleMode === 'advance', 'startup uses wedge + lane before binding controls');
 	const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
 	check(/id="recAdvance" checked/.test(html) && !/id="recZones" checked/.test(html), 'HTML default matches wedge + lane');
+	// The disk speed is a game control: its bar sits directly under the transport bar, not
+	// buried in the settings, and the panel keeps only one ω slider.
+	const actionsAt = html.indexOf('id="actions"'), speedAt = html.indexOf('id="speedBar"');
+	const firstRowAfterSpeed = html.indexOf('class="row', speedAt);
+	check(actionsAt >= 0 && speedAt > actionsAt && speedAt < firstRowAfterSpeed, 'the speed bar follows the transport bar, before the settings');
+	check((html.match(/id="omega"/g) || []).length === 1, 'one ω slider on the page');
+	check(/id="speedBar"[\s\S]*?id="speedMode"[\s\S]*?id="omega"[\s\S]*?id="btnAuto"[\s\S]*?id="voteBox"/.test(html),
+		'the bar holds the speed rule, the ω slider, auto-ω and the votes in that order');
+	// auto-ω lives in the bar, so the fit rail cannot hide it behind a drawer.
+	const actionsEnd = html.indexOf('</div>', actionsAt);
+	check(html.indexOf('id="btnAuto"') > actionsEnd, 'auto-ω is not in the transport bar (the fit rail drops that row)');
 	UI.bind(() => Game.reset());
 	check(radioSets.recycle.find(r => r.checked).value === 'advance', 'startup radio selects wedge + lane');
 	UI.update(Game.world); // the game above ended in SCORED
@@ -570,13 +605,30 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 			'the ω slider follows the motor halfway through its ramp', els.omega.value + ' vs ' + Game.omegaNow.toFixed(3));
 		check(els.voteStatus.textContent.startsWith('last vote') && noneBox.checked && range.value === '0',
 			'after the tally the row is back at don\'t care and the status reports it', els.voteStatus.textContent);
+		// A standing vote survives a row rebuild (a human seat joins): the new row must
+		// show the vote that is actually held, not "no change". (Changing the vote MODE
+		// drops the votes, deliberately: a change and an exact speed are different votes.)
+		range.value = '0.3'; range.on.input();
+		Game.addPlayer('human'); UI.update(Game.world);
+		const rebuilt = els.voteRows.children.find(r => r.children[0].children[1].children[0].checked === false);
+		check(els.voteRows.children.length === 2 && Game.roster[0].vote === VOTE_SET && rebuilt.children[1].value === String(Game.roster[0].voteValue),
+			'a rebuilt vote row shows the vote that is standing', rebuilt && (rebuilt.children[1].value + ' vs ' + Game.roster[0].voteValue));
+		Game.removePlayer(1); UI.update(Game.world);
 		pick('voteMode', 'exact');
 		const exactRow = els.voteRows.children[0].children[1];
 		check(CFG.voteMode === 'exact' && exactRow.min === '0' && exactRow.max === String(CFG.omegaMax), 'exact votes span 0..omegaMax');
-		check(historyCalls[historyCalls.length - 1] === '?votemode=exact', 'the link names the rule and keeps the configured speed', historyCalls[historyCalls.length - 1]);
+		check(historyCalls[historyCalls.length - 1].startsWith('?votemode=exact'), 'the link names the rule and keeps the configured speed', historyCalls[historyCalls.length - 1]);
+		Game.setSeatTypes(['human', 'balanced', 'blackhole', 'retriever']); // the human back in seat 1, one seat each
+		UI.update(Game.world);
 		pick('speedVote', 'off');
 		UI.update(Game.world);
 		check(CFG.speedVote === 'off' && els.voteBox.hidden, 'the rule off hides the vote block');
+		// The speed bar's own select is the same rule, in both directions.
+		check(els.speedMode.value === 'off' && els.speedMode.children.map(o => o.value).join() === 'off,turn,round',
+			'the speed bar lists every rule and follows the radios', els.speedMode.value);
+		els.speedMode.value = 'turn'; els.speedMode.on.change();
+		check(CFG.speedVote === 'turn' && radioSets.speedVote.find(r => r.checked).value === 'turn' && !els.voteBox.hidden,
+			'the speed bar sets the rule and the drawer radios follow', CFG.speedVote);
 		const q = parseQuery('?vote=TURN&votemode=exact&vote2=x');
 		check(q && q.vote === 'turn' && q.voteMode === 'exact', 'vote and votemode are URL keys');
 		check(parseQuery('?vote=sometimes') === null, 'an unknown rule is dropped');

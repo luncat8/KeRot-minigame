@@ -2075,7 +2075,12 @@
 				// Per-frame housekeeping: ghost re-sim (throttled) and bot throws.
 				function tick(dt) {
 					if (!sim && ghost && ghostDirty && predT <= 0 && state === 'aim' && aim.hasStroke && pending >= 0) {
-						predictStroke(pred, w, pending, aim.vx, aim.vy, cfg.maxResolve);
+						// The ghost is drawn during a drag, on the frame that also steps the board, so
+						// it is simulated to the window the throw is paid by (handoffT) and not to the
+						// spin-down horizon: a puck still sliding 4 s after the push has already had
+						// its turn handed over, and simulating that tail is most of a crowded board's
+						// ghost cost. The bots still price the full maxResolve horizon.
+						predictStroke(pred, w, pending, aim.vx, aim.vy, cfg.handoffT);
 						ghostDirty = false; predT = PRED_COOLDOWN;
 					}
 					predT -= dt;
@@ -2326,7 +2331,7 @@
 			function createRenderer() {
 				let cfg = CFG;
 				let cv, ctx, sx = 100, sy = 100, dpr = 1;
-				let texDisk = null, texSchema = '', ppmDisk = 96, puckGrad = null, wallPath = null, gridPath = null;
+				let texDisk = null, texSchema = '', ppmDisk = 0, puckGrad = null, wallPath = null, gridPath = null;
 				let zoneFan = null, zoneAdv = null, hatchPath = null, sectorPath = null, bandPath = null;
 				const Z_FILL = 'rgba(32,178,170,0.16)', Z_LINE = 'rgba(46,204,196,0.55)', Z_HATCH = 'rgba(46,204,196,0.16)';
 				const SECTOR_SHADE = 'rgba(45,52,54,0.42)'; // 3 of the 6 face sectors
@@ -2498,20 +2503,27 @@
 					cv.width = bw; cv.height = bh;
 					sx = cv.width / cfg.boardW;
 					sy = cv.height / cfg.boardH;
-					bake();
-				}
-				function bake() {
-					ppmDisk = Math.max(96, Math.min(512, 2 * Math.max(sx, sy) / dpr));
-					bakeDisk();
+					// The disk sprite is only repainted when the surface asks for more detail than it
+					// holds, never because the window moved: its resolution grows a step at a time
+					// (128/256/512 device px per world unit) and never shrinks, so a drag, a phone
+					// rotation or the drawer opening costs a backing store and a transform, not the
+					// whole texture. It used to be rebaked on every resize at a resolution that
+					// followed the window, which is a 12–48 ms repaint per step of a window drag.
+					if (needPpm() > ppmDisk) bakeDisk(needPpm()); // stepped, so this fires at setup and on a step up
 					wallPath = new Path2D();
 					wallPath.rect(0, 0, cfg.boardW, cfg.boardH);
 				}
 				// The disk sprite is cut to the circle once, at bake time. Clipping the drawn image
 				// to an arc every frame costs more and reads worse: a clip edge is a hard edge,
 				// while a pre-cut sprite gets smoothed by the rotation and the bilinear filter.
-				// Rebaked when the disk schema changes (drawWorld compares texSchema).
-				function bakeDisk() {
-					const ppm = ppmDisk;
+				// Rebaked when the disk schema changes (drawWorld compares texSchema) and when the
+				// surface outgrows it. The bake grows as the square of the resolution (measured: 12 ms
+				// at 256, 48 ms at 512), so the map is kept at the coarsest step that still gives the
+				// raster one texel per device pixel or better — 128 dominates a phone, 512 a desktop.
+				const DISK_TEX_MIN = 128, DISK_TEX_MAX = 512;
+				function needPpm() { return Math.min(DISK_TEX_MAX, Math.max(DISK_TEX_MIN, sx > 384 ? 512 : sx > 192 ? 256 : 128)); }
+				function bakeDisk(ppm) {
+					if (ppm === undefined) ppm = ppmDisk || needPpm();
 					const tex = bakeFieldCanvas({ x: -cfg.diskR, y: -cfg.diskR, w: 2 * cfg.diskR, h: 2 * cfg.diskR }, ppm, cfg);
 					const cut = document.createElement('canvas');
 					cut.width = tex.width; cut.height = tex.height;
@@ -2520,7 +2532,7 @@
 					g.globalCompositeOperation = 'destination-in';
 					g.fillStyle = '#ffffff';
 					g.beginPath(); g.arc(tex.width / 2, tex.height / 2, cfg.diskR * ppm, 0, Math.PI * 2); g.fill();
-					texDisk = cut; texSchema = cfg.diskSchema;
+					texDisk = cut; texSchema = cfg.diskSchema; ppmDisk = ppm;
 				}
 				function toWorld(clientX, clientY) {
 					const r = cv.getBoundingClientRect();
