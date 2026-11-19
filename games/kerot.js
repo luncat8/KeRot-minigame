@@ -2371,9 +2371,11 @@
 					// a huge window cannot ask for a backing store no frame loop could fill.
 					dpr = Math.min(3, window.devicePixelRatio || 1);
 					if (wpx * hpx * dpr * dpr > MAX_BACKING) dpr = Math.max(1, Math.sqrt(MAX_BACKING / (wpx * hpx)));
+					const cssW = wpx + 'px', cssH = hpx + 'px';
+					if (cv.style.width !== cssW) cv.style.width = cssW;
+					if (cv.style.height !== cssH) cv.style.height = cssH;
 					const bw = Math.round(wpx * dpr), bh = Math.round(hpx * dpr);
 					if (bw === cv.width && bh === cv.height) return;
-					cv.style.width = wpx + 'px'; cv.style.height = hpx + 'px';
 					cv.width = bw; cv.height = bh;
 					scale = Math.min(cv.width / cfg.boardW, cv.height / cfg.boardH);
 					ox = (cv.width - cfg.boardW * scale) / 2; oy = (cv.height - cfg.boardH * scale) / 2;
@@ -2799,7 +2801,15 @@
 					view.turn = game.turn; view.resolveT = game.resolveT; view.voteT = game.voteT; view.state = game.state;
 				}
 				function draw() { refreshView(); renderer.drawWorld(view); }
+				function syncViewport() {
+					let h = window.innerHeight || 0;
+					const vv = window.visualViewport;
+					if (vv && vv.height > 0 && Math.abs((vv.scale || 1) - 1) < 0.02) h = h > 0 ? Math.min(h, vv.height) : vv.height;
+					if (h > 0 && root && root.style && typeof root.style.setProperty === 'function')
+						root.style.setProperty('--kerot-vh', Math.floor(h) + 'px');
+				}
 				function resize() { renderer.resize(); draw(); }
+				function refit() { syncViewport(); resize(); }
 				function stopLoop() {
 					if (!rafId) return;
 					window.cancelAnimationFrame(rafId);
@@ -2943,6 +2953,7 @@
 				note.textContent = '';
 				game.reset();
 				if (Number.isFinite(Number(o.seed))) game.setRngState(Number(o.seed) >>> 0);
+				syncViewport();
 				renderer.setup(canvas, cfg);
 				draw();
 			
@@ -2955,7 +2966,9 @@
 				throwButton.addEventListener('click', queueThrow);
 				clearButton.addEventListener('click', clearAim);
 				pauseButton.addEventListener('click', togglePause);
-				window.addEventListener('resize', resize);
+				window.addEventListener('resize', refit);
+				window.addEventListener('orientationchange', refit);
+				if (window.visualViewport) window.visualViewport.addEventListener('resize', refit);
 				document.addEventListener('visibilitychange', onVisibility);
 				if (window.ResizeObserver) {
 					resizeObserver = new window.ResizeObserver(resize);
@@ -2982,7 +2995,9 @@
 					throwButton.removeEventListener('click', queueThrow);
 					clearButton.removeEventListener('click', clearAim);
 					pauseButton.removeEventListener('click', togglePause);
-					window.removeEventListener('resize', resize);
+					window.removeEventListener('resize', refit);
+					window.removeEventListener('orientationchange', refit);
+					if (window.visualViewport) window.visualViewport.removeEventListener('resize', refit);
 					document.removeEventListener('visibilitychange', onVisibility);
 				};
 			}
@@ -3002,7 +3017,7 @@
 		},
 		"minigame/style.js": function(module, exports, require, globalThis) {
 			with (globalThis) {
-			module.exports = "/* KeRot's Snowfall mount contract: put class=\"kerot-slot\" on each story slot\n   before the engine's first measure. The reserved height is shared by live,\n   saved and skipped-result states, so later prose anchors never jump. */\n.kerot-slot {\n\tbox-sizing: border-box;\n\tmin-height: 44rem;\n\tmargin: 1rem 0;\n\tpadding: .65rem;\n\tborder: 1px solid #24344a;\n\tborder-radius: .85rem;\n\tbackground: #070b10;\n\tcolor: #dce7f3;\n}\n.kerot-game {\n\tbox-sizing: border-box;\n\tmin-height: 42.5rem;\n\tdisplay: flex;\n\tflex-direction: column;\n\tgap: .65rem;\n\tpadding: .6rem;\n\tfont: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;\n\tcolor: #dce7f3;\n}\n.kerot-head {\n\tdisplay: flex;\n\talign-items: center;\n\tjustify-content: space-between;\n\tgap: .75rem;\n\tmin-height: 1.7rem;\n}\n.kerot-title {\n\tcolor: #ffc078;\n\tfont-size: .9rem;\n\tletter-spacing: .12em;\n\ttext-transform: uppercase;\n}\n.kerot-status { color: #a9bbd0; text-align: right; }\n.kerot-board-wrap {\n\twidth: 100%;\n\tmax-width: 760px;\n\taspect-ratio: 3.6 / 2.2;\n\talign-self: center;\n\toverflow: hidden;\n\tborder: 1px solid #24344a;\n\tborder-radius: .55rem;\n\tbackground: #070b10;\n}\n.kerot-board {\n\tdisplay: block;\n\tmax-width: 100%;\n\tmax-height: 100%;\n\ttouch-action: none;\n\toutline: none;\n}\n.kerot-board:focus-visible {\n\toutline: 2px solid #ffc078;\n\toutline-offset: 2px;\n}\n.kerot-controls {\n\tdisplay: grid;\n\tgrid-template-columns: minmax(0, 1fr) auto;\n\talign-items: center;\n\tgap: .35rem 1rem;\n}\n.kerot-scoreline {\n\tmargin: 0;\n\tcolor: #f3ecdd;\n\tfont-size: .95rem;\n\tfont-variant-numeric: tabular-nums;\n\tletter-spacing: .04em;\n}\n.kerot-instructions {\n\tgrid-column: 1 / -1;\n\tmin-height: 1.45em;\n\tmargin: 0;\n\tcolor: #8298b1;\n\tfont-size: .78rem;\n}\n.kerot-buttons {\n\tdisplay: flex;\n\tflex-wrap: wrap;\n\tjustify-content: flex-end;\n\tgap: .4rem;\n}\n.kerot-buttons button {\n\tmin-height: 2.45rem;\n\tpadding: .5rem .8rem;\n\tborder: 1px solid #344c64;\n\tborder-radius: .45rem;\n\tbackground: #101a26;\n\tcolor: #dce7f3;\n\tfont: inherit;\n\tcursor: pointer;\n}\n.kerot-buttons .kerot-throw {\n\tborder-color: #6e8d5a;\n\tbackground: #27432f;\n\tcolor: #f2f5e8;\n\tfont-weight: 700;\n}\n.kerot-buttons button:hover:not(:disabled) { border-color: #ffc078; }\n.kerot-buttons button:focus-visible {\n\toutline: 2px solid #ffc078;\n\toutline-offset: 2px;\n}\n.kerot-buttons button:disabled { opacity: .45; cursor: not-allowed; }\n.kerot-outcome {\n\tmin-height: 1.5em;\n\tmargin: 0;\n\tcolor: #ffc078;\n\tfont-weight: 700;\n\tletter-spacing: .06em;\n}\n.kerot-outcome[data-result=\"loss\"] { color: #ff9a9a; }\n.kerot-outcome[data-result=\"draw\"] { color: #a9bbd0; }\n.kerot-result-note {\n\tmin-height: 1.4em;\n\tmargin: 0;\n\tcolor: #8298b1;\n\tfont-size: .78rem;\n}\n.kerot-result-body {\n\tdisplay: flex;\n\tflex-direction: column;\n\tjustify-content: center;\n\tflex: 1 1 auto;\n\tmin-height: 25rem;\n\tpadding: 1rem;\n\tborder: 1px solid #24344a;\n\tborder-radius: .6rem;\n\tbackground: linear-gradient(145deg, #101a26, #090e15);\n}\n.kerot-result-body .kerot-outcome { font-size: clamp(1.2rem, 3vw, 2rem); }\n.kerot-result-body .kerot-scoreline { margin-top: .75rem; }\n@media (max-width: 560px) {\n\t.kerot-slot { min-height: 36rem; padding: .35rem; }\n\t.kerot-game { min-height: 34.5rem; padding: .35rem; }\n\t.kerot-controls { grid-template-columns: 1fr; }\n\t.kerot-instructions { grid-column: auto; }\n\t.kerot-buttons { justify-content: flex-start; }\n\t.kerot-buttons button { flex: 1 1 7rem; }\n}\n@media (prefers-reduced-motion: reduce) {\n\t.kerot-game *, .kerot-game *::before, .kerot-game *::after { scroll-behavior: auto !important; }\n}\n";
+			module.exports = "/* KeRot's Snowfall mount contract: put class=\"kerot-slot\" on each story slot\n   before the engine's first measure. The reserved height is shared by live,\n   saved and skipped-result states, so later prose anchors never jump. */\n.kerot-slot {\n\tbox-sizing: border-box;\n\tmin-height: 44rem;\n\tmargin: 1rem 0;\n\tpadding: .35rem .55rem .55rem;\n\tborder: 1px solid #24344a;\n\tborder-radius: .85rem;\n\tbackground: #070b10;\n\tcolor: #dce7f3;\n}\n.kerot-game {\n\tbox-sizing: border-box;\n\tmin-height: 42.5rem;\n\tdisplay: flex;\n\tflex-direction: column;\n\tgap: .45rem;\n\tpadding: .15rem .4rem .4rem;\n\tfont: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;\n\tcolor: #dce7f3;\n}\n.kerot-head {\n\tdisplay: flex;\n\talign-items: center;\n\tjustify-content: space-between;\n\tgap: .75rem;\n\tmin-height: 1.35rem;\n}\n.kerot-title {\n\tcolor: #ffc078;\n\tfont-size: .9rem;\n\tletter-spacing: .12em;\n\ttext-transform: uppercase;\n}\n.kerot-status { color: #a9bbd0; text-align: right; }\n.kerot-board-wrap {\n\tbox-sizing: border-box;\n\tdisplay: flex;\n\talign-items: flex-start;\n\tjustify-content: center;\n\twidth: min(100%, 760px, max(14rem, calc((var(--kerot-vh, 100vh) - 8rem) * 3.6 / 2.2)));\n\twidth: min(100%, 760px, max(14rem, calc((var(--kerot-vh, 100dvh) - 8rem) * 3.6 / 2.2)));\n\taspect-ratio: 3.6 / 2.2;\n\talign-self: center;\n\toverflow: hidden;\n\tborder: 1px solid #24344a;\n\tborder-radius: .55rem;\n\tbackground: #070b10;\n}\n.kerot-board {\n\tdisplay: block;\n\tmax-width: 100%;\n\tmax-height: 100%;\n\ttouch-action: none;\n\toutline: none;\n}\n.kerot-board:focus-visible {\n\toutline: 2px solid #ffc078;\n\toutline-offset: 2px;\n}\n.kerot-controls {\n\tdisplay: grid;\n\tgrid-template-columns: minmax(0, 1fr) auto;\n\talign-items: center;\n\tgap: .3rem 1rem;\n}\n.kerot-scoreline {\n\tmargin: 0;\n\tcolor: #f3ecdd;\n\tfont-size: .95rem;\n\tfont-variant-numeric: tabular-nums;\n\tletter-spacing: .04em;\n}\n.kerot-instructions {\n\tgrid-column: 1 / -1;\n\tmin-height: 1.45em;\n\tmargin: 0;\n\tcolor: #8298b1;\n\tfont-size: .78rem;\n}\n.kerot-buttons {\n\tdisplay: flex;\n\tflex-wrap: wrap;\n\tjustify-content: flex-end;\n\tgap: .4rem;\n}\n.kerot-buttons button {\n\tmin-height: 2.45rem;\n\tpadding: .5rem .8rem;\n\tborder: 1px solid #344c64;\n\tborder-radius: .45rem;\n\tbackground: #101a26;\n\tcolor: #dce7f3;\n\tfont: inherit;\n\tcursor: pointer;\n}\n.kerot-buttons .kerot-throw {\n\tborder-color: #6e8d5a;\n\tbackground: #27432f;\n\tcolor: #f2f5e8;\n\tfont-weight: 700;\n}\n.kerot-buttons button:hover:not(:disabled) { border-color: #ffc078; }\n.kerot-buttons button:focus-visible {\n\toutline: 2px solid #ffc078;\n\toutline-offset: 2px;\n}\n.kerot-buttons button:disabled { opacity: .45; cursor: not-allowed; }\n.kerot-outcome {\n\tmin-height: 1.5em;\n\tmargin: 0;\n\tcolor: #ffc078;\n\tfont-weight: 700;\n\tletter-spacing: .06em;\n}\n.kerot-outcome[data-result=\"loss\"] { color: #ff9a9a; }\n.kerot-outcome[data-result=\"draw\"] { color: #a9bbd0; }\n.kerot-result-note {\n\tmin-height: 1.4em;\n\tmargin: 0;\n\tcolor: #8298b1;\n\tfont-size: .78rem;\n}\n.kerot-outcome:empty, .kerot-result-note:empty { display: none; }\n.kerot-result-body {\n\tdisplay: flex;\n\tflex-direction: column;\n\tjustify-content: center;\n\tflex: 1 1 auto;\n\tmin-height: 25rem;\n\tpadding: 1rem;\n\tborder: 1px solid #24344a;\n\tborder-radius: .6rem;\n\tbackground: linear-gradient(145deg, #101a26, #090e15);\n}\n.kerot-result-body .kerot-outcome { font-size: clamp(1.2rem, 3vw, 2rem); }\n.kerot-result-body .kerot-scoreline { margin-top: .75rem; }\n@media (max-width: 560px) {\n\t.kerot-slot { min-height: 36rem; margin: .5rem 0; padding: .2rem .3rem .35rem; }\n\t.kerot-game { min-height: 34.5rem; gap: .3rem; padding: .05rem .2rem .25rem; }\n\t.kerot-head { min-height: 1.15rem; font-size: .78rem; }\n\t.kerot-title { font-size: .78rem; }\n\t.kerot-controls { grid-template-columns: 1fr; }\n\t.kerot-instructions { grid-column: auto; }\n\t.kerot-buttons { justify-content: flex-start; }\n\t.kerot-buttons button { flex: 1 1 7rem; }\n}\n/* Horizontal widescreen smartphones and short viewports: scale the board box by height\n   and collapse header/control chrome so the whole board + throw bar fit one screen. */\n@media (max-height: 560px) {\n\t.kerot-slot {\n\t\tmin-height: max(18rem, calc(100vh - .5rem));\n\t\tmin-height: max(18rem, calc(100dvh - .5rem));\n\t\tmargin: .25rem 0;\n\t\tpadding: .15rem .3rem;\n\t\tborder-radius: .5rem;\n\t}\n\t.kerot-game { min-height: 0; gap: .2rem; padding: .05rem .15rem; }\n\t.kerot-head { min-height: 1.05rem; gap: .5rem; font-size: .74rem; }\n\t.kerot-title { font-size: .74rem; letter-spacing: .08em; }\n\t.kerot-board-wrap {\n\t\twidth: min(100%, 760px, max(14rem, calc((var(--kerot-vh, 100vh) - 4.6rem) * 3.6 / 2.2)));\n\t\twidth: min(100%, 760px, max(14rem, calc((var(--kerot-vh, 100dvh) - 4.6rem) * 3.6 / 2.2)));\n\t}\n\t.kerot-controls { grid-template-columns: minmax(0, 1fr) auto; gap: .15rem .5rem; }\n\t.kerot-scoreline { font-size: .82rem; }\n\t.kerot-instructions { display: none; }\n\t.kerot-buttons { justify-content: flex-end; gap: .3rem; }\n\t.kerot-buttons button { flex: 0 1 auto; min-height: 1.85rem; padding: .2rem .55rem; font-size: .76rem; }\n\t.kerot-result-body { min-height: 14rem; padding: .65rem; }\n}\n@media (prefers-reduced-motion: reduce) {\n\t.kerot-game *, .kerot-game *::before, .kerot-game *::after { scroll-behavior: auto !important; }\n}\n";
 			}
 		}
 	};

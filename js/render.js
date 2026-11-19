@@ -164,9 +164,11 @@ function createRenderer() {
 		// a huge window cannot ask for a backing store no frame loop could fill.
 		dpr = Math.min(3, window.devicePixelRatio || 1);
 		if (wpx * hpx * dpr * dpr > MAX_BACKING) dpr = Math.max(1, Math.sqrt(MAX_BACKING / (wpx * hpx)));
+		const cssW = wpx + 'px', cssH = hpx + 'px';
+		if (cv.style.width !== cssW) cv.style.width = cssW;
+		if (cv.style.height !== cssH) cv.style.height = cssH;
 		const bw = Math.round(wpx * dpr), bh = Math.round(hpx * dpr);
 		if (bw === cv.width && bh === cv.height) return;
-		cv.style.width = wpx + 'px'; cv.style.height = hpx + 'px';
 		cv.width = bw; cv.height = bh;
 		scale = Math.min(cv.width / cfg.boardW, cv.height / cfg.boardH);
 		ox = (cv.width - cfg.boardW * scale) / 2; oy = (cv.height - cfg.boardH * scale) / 2;

@@ -115,15 +115,31 @@ assert.strictEqual(spec, registered, 'the script registers its exported game des
 assert.strictEqual(spec.id, 'kerot');
 assert.strictEqual(spec.fallback, 0);
 assert(spec.cssText.includes('.kerot-slot') && spec.cssText.includes('min-height'), 'the bundle carries its mount-reserving CSS');
+assert(spec.cssText.includes('--kerot-vh') && spec.cssText.includes('@media (max-height: 560px)'),
+	'the bundle scales the board box for horizontal smartphone viewports');
 assert(!Object.prototype.hasOwnProperty.call(globalThis, 'CFG'), 'the bundled sources stay out of the story page global scope');
 
 /* Two live sessions get isolated renderer surfaces and independent cleanups. */
+const vvListeners = {};
+fakeWindow.innerHeight = 390;
+fakeWindow.visualViewport = {
+	height: 312, scale: 1,
+	addEventListener(type, fn) { (vvListeners[type] = vvListeners[type] || []).push(fn); },
+	removeEventListener(type, fn) { vvListeners[type] = (vvListeners[type] || []).filter(item => item !== fn); }
+};
 const firstMount = makeMount(), secondMount = makeMount();
+firstMount.nodes['.kerot-game'].style = { props: {}, setProperty(k, v) { this.props[k] = String(v); } };
 const answers = [];
 let firstCleanup = null;
 const first = { el: firstMount, key: 'kerot.match-1', opts: { balls: 1, bot: 'random', botDelay: 0, handoffT: 1.5, settleTime: 0.25, schema: 'rim6', theme: 'classic', title: '<safe text>' },
 	answer(value) { answers.push(value); spec.result(first, value, 'live'); firstCleanup(); } };
 firstCleanup = spec.run(first);
+assert.strictEqual(firstMount.nodes['.kerot-game'].style.props['--kerot-vh'], '312px',
+	'live session publishes visible mobile viewport height to CSS');
+fakeWindow.visualViewport.height = 296;
+for (const fn of vvListeners.resize || []) fn();
+assert.strictEqual(firstMount.nodes['.kerot-game'].style.props['--kerot-vh'], '296px',
+	'visualViewport resize updates --kerot-vh');
 const second = { el: secondMount, key: 'kerot.match-2', opts: { balls: 1 }, answer() {} };
 const secondCleanup = spec.run(second);
 assert.notStrictEqual(firstMount.nodes['.kerot-board']._ctx, secondMount.nodes['.kerot-board']._ctx,
@@ -165,6 +181,8 @@ assert.strictEqual(firstMount.nodes['.kerot-game'].dataset.outcome,
 assert.strictEqual(frames.size, 0, 'the resolved game leaves no frame callback behind');
 assert.strictEqual(Object.values(canvas._events).reduce((n, events) => n + events.length, 0), 0,
 	'the completed session removes its pointer handlers');
+assert.strictEqual((vvListeners.resize || []).length, 0,
+	'the completed session removes its visualViewport listener');
 firstCleanup();
 
 const skipped = makeMount();

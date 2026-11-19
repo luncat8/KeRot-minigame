@@ -1,6 +1,24 @@
 // Boot + fixed-step accumulator (h = 1/480 s regardless of display rate).
 (() => {
+	const app = document.getElementById('app');
 	const cv = document.getElementById('c');
+	// Mobile browsers often report 100vh/100dvh taller than the visible area below the
+	// URL bar (or lag a frame on rotation), clipping the bottom of the board under
+	// overflow:hidden. Pin #app to the live visible viewport before measuring #boardWrap.
+	function syncAppBox() {
+		let h = window.innerHeight || 0, top = 0;
+		const vv = window.visualViewport;
+		if (vv && vv.height > 0 && Math.abs((vv.scale || 1) - 1) < 0.02) {
+			h = h > 0 ? Math.min(h, vv.height) : vv.height;
+			top = Math.max(0, Math.round(vv.offsetTop || 0));
+		}
+		if (!app || !(h > 0)) return;
+		const topCss = top + 'px', hCss = Math.floor(h) + 'px';
+		if (app.style.top !== topCss) app.style.top = topCss;
+		if (app.style.height !== hCss) app.style.height = hCss;
+	}
+	const refit = () => { syncAppBox(); Render.resize(); };
+	syncAppBox();
 	Render.setup(cv);
 	Game.reset();
 	Game.bindInput(cv);
@@ -9,13 +27,18 @@
 	// js/presets.js); no parameters, and this is exactly the page as shipped.
 	UI.applySetup(parseQuery(location.search));
 	Help.bind();
-	// The board is fitted to its box, so it has to be re-measured on every event that
-	// changes that box: window size, the panel's scrollbar, or a mobile URL bar.
-	const refit = () => Render.resize();
+	refit();
 	window.addEventListener('resize', refit);
-	window.addEventListener('orientationchange', refit);
-	if (window.ResizeObserver) new window.ResizeObserver(refit).observe(cv.parentElement);
-	if (window.visualViewport) window.visualViewport.addEventListener('resize', refit);
+	window.addEventListener('orientationchange', () => {
+		refit();
+		requestAnimationFrame(refit);
+		setTimeout(refit, 120);
+	});
+	if (window.ResizeObserver) new window.ResizeObserver(() => Render.resize()).observe(cv.parentElement);
+	if (window.visualViewport) {
+		window.visualViewport.addEventListener('resize', refit);
+		window.visualViewport.addEventListener('scroll', refit);
+	}
 	document.addEventListener('visibilitychange', () => { last = performance.now(); });
 	// Everything the renderer needs about the game, in one object main mutates in
 	// place: the draw call itself allocates nothing.

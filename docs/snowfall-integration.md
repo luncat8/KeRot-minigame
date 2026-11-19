@@ -46,12 +46,13 @@ system. Options accepted by the adapter are `balls` (1–4, default 2), `bot` (`
 `theme` (`kerot` by default or `classic`), `mass`, `omega`, `botDelay`, `handoffT`, `settleTime`,
 `seed`, plus text-only `title` and `instructions`.
 
-The mount reserves 44rem (36rem on narrow screens) for live and resolved states. Keep the
-`kerot-slot` class and do not put flow-changing content outside that reserved box. The game owns a
-per-session renderer, input listeners, a fixed-step loop, and teardown. Its loop pauses while the
-mount is off-screen or the document is hidden; Snowfall's current `refresh()` teardown remains a
-second cleanup path. It does not capture page-global keyboard input: focus the board or its controls
-first.
+The mount reserves 44rem (36rem on narrow screens, or viewport height on ≤560px short landscape
+screens) for live and resolved states, and scales `.kerot-board-wrap` by live viewport height so the
+board and controls never overflow a horizontal smartphone screen. Keep the `kerot-slot` class and do
+not put flow-changing content outside that reserved box. The game owns a per-session renderer, input
+listeners, a fixed-step loop, and teardown. Its loop pauses while the mount is off-screen or the
+document is hidden; Snowfall's current `refresh()` teardown remains a second cleanup path. It does
+not capture page-global keyboard input: focus the board or its controls first.
 
 A minimal real-engine example is in `snowfall-demo.html`. It expects a sibling checkout at
 `../snowfall-core` pinned as recorded in `integration/snowfall-core-pin.md`.

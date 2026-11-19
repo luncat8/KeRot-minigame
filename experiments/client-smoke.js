@@ -130,6 +130,22 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(parseFloat(wide.style.height) === 400 && Math.abs(parseFloat(wide.style.width) - 400 * CFG.boardW / CFG.boardH) < 1,
 		'a wide box fits the board by its height', wide.style.width + 'x' + wide.style.height);
 	check(wide.width <= 1200 * 3, 'the backing store is capped by a pixel budget', String(wide.width));
+	// Smartphone horizontal widescreen (e.g. 740x284 visible below mobile URL bar):
+	// height binds, CSS size never exceeds the available box on either axis.
+	const phoneLand = makeCanvas();
+	phoneLand.parentElement = { clientWidth: 521, clientHeight: 280 };
+	Render.setup(phoneLand);
+	check(parseFloat(phoneLand.style.height) === 280 && parseFloat(phoneLand.style.width) <= 521,
+		'horizontal smartphone box fits strictly inside visible height', phoneLand.style.width + 'x' + phoneLand.style.height);
+	// Even if a huge display hits the 6 Mpx backing-store cap at two sizes that round
+	// to the same backing dimensions, cv.style.width/height still track the CSS box.
+	const huge = makeCanvas();
+	huge.parentElement = { clientWidth: 4000, clientHeight: 2444 };
+	Render.setup(huge);
+	huge.parentElement = { clientWidth: 3200, clientHeight: 1955 };
+	Render.resize();
+	check(parseFloat(huge.style.width) <= 3200 && parseFloat(huge.style.height) <= 1955,
+		'CSS dimensions update even when the backing store stays at the pixel cap', huge.style.width + 'x' + huge.style.height);
 	console.log('render smoke: ' + withZones + ' ops with the fan, ' + wedge + ' with wedge+lane, ' + ops.length +
 		' without, board fitted to ' + cssW + 'x' + cssH + ' css px, no exceptions');
 	// Every colour scheme over every disk schema. A schema change rebakes the disk
@@ -388,6 +404,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		createElement: tag => makeEl(tag),
 		getElementById: id => ids.has(id) ? (els[id] = els[id] || makeEl(id)) : null,
 		querySelectorAll: sel => radioSets[/name=(\w+)/.exec(sel)[1]] || [],
+		addEventListener() { },
 		body: Object.assign(makeEl('body'), { dataset: {} }),
 	};
 	check(CFG.recycleMode === 'advance', 'startup uses wedge + lane before binding controls');
@@ -587,6 +604,40 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		UI.applyPreset('default');
 		console.log('presets/url smoke: ' + Object.keys(PRESETS).length + ' presets, parameters applied and clamped, sliders pulled, roster swapped, link echoed');
 		els.chkRing.checked = true; els.chkPreview.checked = true;
+	}
+	// Mobile layout + live visualViewport sync: #app avoids 100vh overflow, #boardWrap
+	// top-aligns the canvas without wasted centering gap, horizontal widescreen phones
+	// stay in row layout, and main.js pins #app to visualViewport height when unzoomed.
+	{
+		check(!/#app\s*\{[^}]*100vh/.test(html) && /#app\s*\{[^}]*position:\s*fixed/.test(html),
+			'#app avoids 100vh overflow and pins to the layout viewport');
+		check(/#boardWrap\s*\{[^}]*align-items:\s*flex-start/.test(html),
+			'#boardWrap top-aligns the canvas so vertical surplus never pads above it');
+		check(/@media\s*\(max-width:\s*960px\),\s*\(max-height:\s*600px\)/.test(html) &&
+			/@media\s*\(orientation:\s*portrait\)/.test(html),
+			'small/short screens compact chrome and only portrait stacks the panel under the board');
+		const prevCreate = globalThis.document.createElement;
+		globalThis.document.createElement = tag => tag === 'canvas' ? makeCanvas() : makeEl(tag);
+		globalThis.location = { pathname: '/index.html', hash: '', search: '' };
+		const vvListeners = {};
+		const appEl = els.app || (els.app = makeEl('app'));
+		els.c = makeCanvas();
+		globalThis.performance = { now: () => 0 };
+		globalThis.requestAnimationFrame = () => 1;
+		globalThis.window.innerHeight = 360;
+		globalThis.window.visualViewport = {
+			height: 284, offsetTop: 12, scale: 1,
+			addEventListener(type, fn) { (vvListeners[type] = vvListeners[type] || []).push(fn); },
+		};
+		eval('"use strict";' + fs.readFileSync(path.join(__dirname, '../js/main.js'), 'utf8'));
+		check(appEl.style.height === '284px' && appEl.style.top === '12px',
+			'main.js shrinks #app to visualViewport height/offset below mobile browser bars', appEl.style.top + '+' + appEl.style.height);
+		globalThis.window.visualViewport.scale = 2; // pinch-zoom: keep layout height, reset offset
+		globalThis.window.visualViewport.height = 142;
+		for (const fn of vvListeners.resize || []) fn();
+		check(appEl.style.height === '360px' && appEl.style.top === '0px',
+			'pinch-zoom does not crush #app to the zoomed visualViewport slice', appEl.style.top + '+' + appEl.style.height);
+		globalThis.document.createElement = prevCreate;
 	}
 }
 console.log(fail ? 'FAIL' : 'OK (render + score + seats + ui smoke)');

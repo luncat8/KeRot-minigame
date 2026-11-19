@@ -25,16 +25,17 @@
 	body[data-theme=kerot] #help h1 { text-transform: uppercase; letter-spacing: 0.14em; font-size: 14px; }
 	html, body { height: 100%; }
 	body { margin: 0; overflow: hidden; overscroll-behavior: none; font-family: var(--font); background: var(--bg); color: var(--txt); }
-	#app { display: flex; gap: 12px; height: 100vh; height: 100dvh; align-items: stretch; box-sizing: border-box;
-		padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
-			max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); }
-	#boardWrap { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+	#app { position: fixed; top: 0; left: 0; right: 0; height: 100%; height: 100dvh; display: flex; gap: 10px;
+		align-items: stretch; box-sizing: border-box;
+		padding: max(4px, env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px))
+			max(8px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px)); }
+	#boardWrap { flex: 1 1 0; min-width: 0; min-height: 0; overflow: hidden; display: flex; align-items: flex-start; justify-content: center; }
 	canvas { display: block; border-radius: 8px; }
-	#panel { flex: 0 0 320px; box-sizing: border-box; background: var(--panel); border-radius: 8px; padding: 14px; overflow-y: auto; overscroll-behavior: contain; }
+	#panel { flex: 0 0 320px; min-width: 0; box-sizing: border-box; background: var(--panel); border-radius: 8px; padding: 14px; overflow-y: auto; overscroll-behavior: contain; }
 	.row { margin: 10px 0; font-size: var(--fs); }
 	.row label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 	input[type=range] { width: 100%; accent-color: var(--range); }
-	select { background: var(--btn); color: var(--btn-txt); border: var(--btn-border); border-radius: 6px; padding: 5px; font-family: inherit; }
+	select { background: var(--btn); color: var(--btn-txt); border: var(--btn-border); border-radius: 6px; padding: 5px; max-width: 100%; font-family: inherit; }
 	button { background: var(--btn); color: var(--btn-txt); border: var(--btn-border); border-radius: 6px; padding: 7px 10px; margin: 2px; cursor: pointer; font-family: inherit; }
 	button:hover { background: var(--btn-hi); color: var(--btn-hi-txt); }
 	button.go { background: var(--go); padding: 9px 14px; font-weight: 600; }
@@ -52,9 +53,9 @@
 	.pballs { letter-spacing: 2px; color: var(--txt); }
 	.pscore { font-variant-numeric: tabular-nums; min-width: 3em; text-align: right; }
 	button.px { padding: 3px 7px; margin: 0; }
-	fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 10px 0; }
+	fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 10px 0; min-width: 0; }
 	fieldset label { display: flex; justify-content: flex-start; gap: 6px; margin: 3px 0; }
-	.vrow { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: var(--fs); }
+	.vrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; font-size: var(--fs); }
 	.vrow label { margin: 0; gap: 4px; white-space: nowrap; }
 	.vrow .sw { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
 	.vseat { margin: 6px 0 2px; }
@@ -81,7 +82,22 @@
 	#helpTab:hover { background: var(--tab-hi); color: var(--txt); }
 	@media (hover: none) { #helpTab { top: auto; bottom: 16px; transform: none; height: 42px; width: 34px; } }
 	@media (prefers-reduced-motion: reduce) { #help { transition: none; } }
-	@media (max-width: 760px) { #app { flex-direction: column; } #panel { flex: 0 1 auto; max-height: 46%; } }
+	/* Small or short viewports (smartphones in either orientation): strip outer chrome so
+	   the fitted board keeps every pixel it can get, and keep horizontal widescreen in a
+	   row so a 320–430 px tall phone never stacks the panel under the board. */
+	@media (max-width: 960px), (max-height: 600px) {
+		#app { gap: 4px;
+			padding: max(2px, env(safe-area-inset-top, 0px)) max(4px, env(safe-area-inset-right, 0px))
+				max(2px, env(safe-area-inset-bottom, 0px)) max(4px, env(safe-area-inset-left, 0px)); }
+		canvas { border-radius: 6px; }
+		#panel { flex: 0 0 clamp(188px, 28vw, 280px); padding: 8px; border-radius: 6px; }
+		.row, fieldset { margin: 6px 0; }
+	}
+	@media (orientation: portrait) and (max-width: 900px), (max-width: 560px) and (min-height: 480px) {
+		#app { flex-direction: column; }
+		#boardWrap { flex: 0 0 auto; width: 100%; aspect-ratio: 3.6 / 2.2; max-height: 54%; }
+		#panel { flex: 1 1 0; width: 100%; min-height: 0; max-height: none; }
+	}
 </style>
 </head>
 <body>

@@ -135,7 +135,15 @@ function run(g) {
 		view.turn = game.turn; view.resolveT = game.resolveT; view.voteT = game.voteT; view.state = game.state;
 	}
 	function draw() { refreshView(); renderer.drawWorld(view); }
+	function syncViewport() {
+		let h = window.innerHeight || 0;
+		const vv = window.visualViewport;
+		if (vv && vv.height > 0 && Math.abs((vv.scale || 1) - 1) < 0.02) h = h > 0 ? Math.min(h, vv.height) : vv.height;
+		if (h > 0 && root && root.style && typeof root.style.setProperty === 'function')
+			root.style.setProperty('--kerot-vh', Math.floor(h) + 'px');
+	}
 	function resize() { renderer.resize(); draw(); }
+	function refit() { syncViewport(); resize(); }
 	function stopLoop() {
 		if (!rafId) return;
 		window.cancelAnimationFrame(rafId);
@@ -279,6 +287,7 @@ function run(g) {
 	note.textContent = '';
 	game.reset();
 	if (Number.isFinite(Number(o.seed))) game.setRngState(Number(o.seed) >>> 0);
+	syncViewport();
 	renderer.setup(canvas, cfg);
 	draw();
 
@@ -291,7 +300,9 @@ function run(g) {
 	throwButton.addEventListener('click', queueThrow);
 	clearButton.addEventListener('click', clearAim);
 	pauseButton.addEventListener('click', togglePause);
-	window.addEventListener('resize', resize);
+	window.addEventListener('resize', refit);
+	window.addEventListener('orientationchange', refit);
+	if (window.visualViewport) window.visualViewport.addEventListener('resize', refit);
 	document.addEventListener('visibilitychange', onVisibility);
 	if (window.ResizeObserver) {
 		resizeObserver = new window.ResizeObserver(resize);
@@ -318,7 +329,9 @@ function run(g) {
 		throwButton.removeEventListener('click', queueThrow);
 		clearButton.removeEventListener('click', clearAim);
 		pauseButton.removeEventListener('click', togglePause);
-		window.removeEventListener('resize', resize);
+		window.removeEventListener('resize', refit);
+		window.removeEventListener('orientationchange', refit);
+		if (window.visualViewport) window.visualViewport.removeEventListener('resize', refit);
 		document.removeEventListener('visibilitychange', onVisibility);
 	};
 }
