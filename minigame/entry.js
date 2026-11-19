@@ -23,7 +23,9 @@ const BOT_NAMES = {
 };
 const MIN_BALLS = 1, MAX_BALLS = 4;
 const MIN_HANDOFF = 1.5, MAX_HANDOFF = 4;
-const MIN_SETTLE = 0.25, MAX_SETTLE = 3;
+// A match ends with the same brake the page plays: the host may ask for a shorter stop,
+// never for a longer one than the game's own settleTime.
+const MIN_SETTLE = 0.25, MAX_SETTLE = BASE_CFG.settleTime;
 
 function bounded(value, fallback, min, max) {
 	const n = Number(value);
@@ -43,7 +45,7 @@ function settingsFor(opts) {
 	cfg.warp = false;
 	cfg.botDelay = bounded(o.botDelay, 0.35, 0, 2);
 	cfg.handoffT = bounded(o.handoffT, 3, MIN_HANDOFF, MAX_HANDOFF);
-	cfg.settleTime = bounded(o.settleTime, 1.2, MIN_SETTLE, MAX_SETTLE);
+	cfg.settleTime = bounded(o.settleTime, BASE_CFG.settleTime, MIN_SETTLE, MAX_SETTLE);
 	if (o.omega !== undefined && o.omega !== null) cfg.omega = bounded(o.omega, cfg.omega, 0, cfg.omegaMax);
 	if (o.mass !== undefined && o.mass !== null) cfg.puckM = bounded(o.mass, cfg.puckM, cfg.massMin, cfg.massMax);
 	if (['classic', 'circles', 'rim6'].includes(o.schema)) cfg.diskSchema = o.schema;

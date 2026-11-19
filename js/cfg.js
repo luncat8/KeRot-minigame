@@ -46,7 +46,10 @@ const CFG = {
 	// warpFrameMs budgets each slice; an atomic reply search may exceed that budget.
 	warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, warpFrameMs: 8,
 	botDelay: 0.7, // seconds a bot "thinks" (aim shown) before throwing
-	settleTime: 3,
+	// The end of a game is a brake, not a stop: the motor runs the disk from its speed to
+	// 0 over this long (beginSettle), so the board you just built comes to rest in front
+	// of you instead of freezing. 4 s at the default ω is a gentle final turn.
+	settleTime: 4,
 	dragFull: 0.90,
 	aimGrabMargin: 0.22, // radius beyond the puck where power starts building
 	preciseGain: 0.03125, // shift-held speed gain: 1/32 of plain

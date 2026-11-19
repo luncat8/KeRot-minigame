@@ -348,6 +348,33 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	// The preview is a drag-time cost on the frame that also steps the board, so it is
 	// simulated to the window the throw is paid by, not to the spin-down horizon.
 	check(ghostT <= CFG.handoffT + 1e-9, 'the ghost stops at the handoff window', ghostT.toFixed(2) + ' s > ' + CFG.handoffT + ' s');
+	// A puck swallowed while a seat aims swap-moves the armed puck (the last one spawned)
+	// into the freed slot. `pending` is an index, not an identity: the aim, the ghost and
+	// the throw must follow the puck, or the preview comes up empty and the throw lands in
+	// a slot the step loop never visits.
+	{
+		Game.reset(); // seat 0 (human) armed at index 0
+		const w = Game.world;
+		spawnPuck(w, 1.70, 0.70, 1); spawnPuck(w, 1.70, 1.50, 1); // two earlier throws in play
+		Game.addPlayer('random');
+		Game.removePlayer(4); // the leaving seat re-arms the turn: the armed puck is spawned last
+		const armedUid = w.uid[Game.pending];
+		check(Game.pending === w.n - 1 && w.n === 3, 'the armed puck is the last slot', Game.pending + '/' + w.n);
+		const sx = w.x[Game.pending], sy = w.y[Game.pending];
+		w.x[0] = CFG.holes[0].x; w.y[0] = CFG.holes[0].y; w.st[0] = ST_SLIDE; // hole-bound
+		stepWorld(w, CFG.h);
+		check(w.n === 2 && w.uid[0] === armedUid, 'the hole swap-moves the armed puck into slot 0');
+		check(Game.pending === 2, 'and the game still points at the slot it left', String(Game.pending));
+		Game.setAimVel(-1.2, 0.1);
+		Game.tick(1 / 60);
+		check(Game.pending === 0 && w.uid[Game.pending] === armedUid, 'the aim follows the armed puck');
+		const reach = Math.hypot(Game.pred.endX - sx, Game.pred.endY - sy);
+		check(Game.pred.n > 4 && reach > 0.2, 'the ghost still leaves the launch spot', Game.pred.n + ' samples, ' + reach.toFixed(3) + ' m');
+		Game.commitThrow();
+		check(w.st[0] === ST_SLIDE, 'the throw reaches the armed puck');
+		stepWorld(w, CFG.h);
+		check(Math.hypot(w.x[0] - sx, w.y[0] - sy) > 1e-4, 'and the thrown puck moves');
+	}
 	// Seats are edited live: no reset, and the turn that is running is not lost.
 	Game.reset();
 	const board0 = Game.world.n, balls0 = Game.roster[0].balls;
@@ -369,6 +396,27 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(Game.state === 'aim' && Game.world.own[Game.pending] === 0, 'the new seat on turn has his own puck');
 	Game.addPlayer('human');
 	check(Game.roster.length === 4 && Game.turn === 0, 'adding a seat does not move the turn');
+	// The last throw ends the game, and a puck that comes to rest in the return zone while
+	// the disk brakes is still cleared — but its ball must not come back: a stock that grew
+	// after the last throw reads as a game that should have continued and did not.
+	{
+		Game.reset();
+		const w = Game.world;
+		Game.setAimVel(-0.6, 0.1); // stops ~2.6 m out: in play, outside both return rules
+		Game.commitThrow();
+		for (const seat of Game.roster) seat.balls = 0; // the throw was the last ball of the game
+		let g2 = 0;
+		while (Game.state !== 'settle' && g2++ < 600) { for (let s = 0; s < 8; s++) stepWorld(w, CFG.h); Game.afterSteps(8 * CFG.h); }
+		check(Game.state === 'settle', 'the last throw ends the game', Game.state);
+		const plant = spawnPuck(w, CFG.boardW - 0.15, 0.15, 1); // asleep inside the launch lane
+		const plantUid = w.uid[plant];
+		check(w.st[plant] === ST_SLEEP && inReturnZone(CFG, CFG.recycleMode, w.x[plant], w.y[plant]),
+			'the planted puck is asleep in the return zone');
+		while (Game.state !== 'scored' && g2++ < 9000) { for (let s = 0; s < 8; s++) stepWorld(w, CFG.h); Game.afterSteps(8 * CFG.h); }
+		check(Game.state === 'scored', 'the spin-down reaches SCORED');
+		check(findPuckUid(w, plantUid) < 0, 'the return rule still clears the zone at the end');
+		check(Game.roster[1].balls === 0, 'a spent board returns no balls', String(Game.roster[1].balls));
+	}
 	// Full two-seat bot game through the real state machine.
 	Game.reset();
 	Game.setSeatType(0, 'keeper');

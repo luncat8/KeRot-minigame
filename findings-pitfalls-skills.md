@@ -102,7 +102,13 @@
   predictor that follows only its original index silently starts tracing the swapped-in
   puck. When a roster is spliced, remove the departing owner's entities first, then
   reindex every surviving `own[]` entry and owner-indexed counter; test that a survivor
-  still scores afterward.
+  still scores afterward. Game-flow state is the same trap: the puck a seat is *aiming*
+  with is the last one spawned, so any removal elsewhere moves it — the aim, the ghost and
+  the throw then address a slot it no longer occupies (symptom: no preview line, and the
+  ball does nothing after the throw and is reclaimed by the return rule). Re-find it by
+  uid before anything reads it, and re-sim the ghost, since the puck that was in the way is
+  gone. Any snapshot of that flow (a rollout copy, a replay) has to carry the uid as well:
+  restoring the index alone made the copy re-arm the turn it had just loaded.
 - Under load-independent Coulomb friction a lone puck's **mass cancels** — from the
   deceleration (μ·m·g/m) and from the hold limit (ω²d ≤ μs·g) — and a slider that sets
   every mass equal cancels it from collisions too. kerot-s shipped exactly that no-op. A

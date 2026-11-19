@@ -62,7 +62,10 @@
 				// warpFrameMs budgets each slice; an atomic reply search may exceed that budget.
 				warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, warpFrameMs: 8,
 				botDelay: 0.7, // seconds a bot "thinks" (aim shown) before throwing
-				settleTime: 3,
+				// The end of a game is a brake, not a stop: the motor runs the disk from its speed to
+				// 0 over this long (beginSettle), so the board you just built comes to rest in front
+				// of you instead of freezing. 4 s at the default ω is a gentle final turn.
+				settleTime: 4,
 				dragFull: 0.90,
 				aimGrabMargin: 0.22, // radius beyond the puck where power starts building
 				preciseGain: 0.03125, // shift-held speed gain: 1/32 of plain
@@ -1204,7 +1207,7 @@
 				}
 			}
 			
-			if (typeof module !== 'undefined') module.exports = { createPredictor, cloneInto, predictStroke, recoverableCount, PRED_SAMPLES, PRED_SCORE_EVERY, PRED_PATH_EVERY };
+			if (typeof module !== 'undefined') module.exports = { createPredictor, cloneInto, findPuckUid, predictStroke, recoverableCount, PRED_SAMPLES, PRED_SCORE_EVERY, PRED_PATH_EVERY };
 			}
 		},
 		"js/bots.js": function(module, exports, require, globalThis) {
@@ -1815,6 +1818,10 @@
 				// scorer, an attacker and a recoverer — so the first game shows the whole spread.
 				const roster = env.roster || createRoster(['human', 'balanced', 'blackhole', 'retriever'], cfg.ballsPerPlayer);
 				let state = 'aim', turn = 0, pending = -1, resolveT = 0, voteT = 0, paused = false;
+				// The armed puck's uid. `pending` is a board index, and a removal (a hole, a black
+				// hole) swap-moves the last puck into the freed slot, so the armed puck — the last
+				// one spawned — can change index while its seat still aims (syncPending).
+				let pendingUid = 0;
 				// The configured speed a game's votes have moved away from (NaN while they have
 				// not): the next game starts from it again.
 				let omegaBase = NaN;
@@ -1866,6 +1873,7 @@
 					roster[turn].balls--;
 					pending = spawnPuck(w, cfg.launchX, cfg.launchY, turn);
 					if (pending < 0) { roster[turn].balls = 0; armTurn(); return; }
+					pendingUid = w.uid[pending];
 					aim.pending = pending; aim.hasStroke = false; aim.vx = 0; aim.vy = 0;
 					rebase(0, cfg.vMin, false);
 					state = 'aim'; planning = false;
@@ -1877,6 +1885,22 @@
 					roster[w.own[pending]].balls++;
 					removePuckAt(w, pending);
 					pending = -1; aim.pending = -1; aim.hasStroke = false;
+				}
+				// A puck removed by the simulation while a seat aims is swap-removed, which pulls the
+				// board's last puck — the armed one — into the freed slot. The index is not an
+				// identity: without this the aim, the ghost and the throw all address a slot the
+				// armed puck no longer occupies, so the preview came up empty and the throw went
+				// into a stale entry the step loop never visits (the ball simply never moved).
+				// Re-find it by uid, and re-sim the ghost: the puck that was in the way is gone.
+				function syncPending() {
+					if (pending < 0) return;
+					if (pending < w.n && w.uid[pending] === pendingUid) return;
+					pending = findPuckUid(w, pendingUid);
+					aim.pending = pending;
+					invalidateGhost();
+					if (pending >= 0) return;
+					roster[turn].balls++; // no board slot holds it: hand the ball back and re-arm
+					armTurn();
 				}
 				function reset() {
 					queue.length = 0;
@@ -1994,6 +2018,7 @@
 					if (state === 'vote' && rule === 'off') armTurn();
 				}
 				function commitThrow() {
+					syncPending();
 					if (state !== 'aim' || pending < 0 || !aim.hasStroke) return;
 					throwPuck(w, pending, aim.vx, aim.vy);
 					aim.hasStroke = false; aim.pending = -1; pending = -1;
@@ -2001,10 +2026,12 @@
 				}
 				// Called by main once per frame before stepping.
 				function beforeSteps() {
+					syncPending();
 					while (queue.length) { const ev = queue.shift(); if (ev.type === 'throw') commitThrow(); }
 				}
 				// Called by main after each batch of fixed steps (dtSim simulated seconds).
 				function afterSteps(dtSim) {
+					syncPending(); // a hole swallowed a puck during these steps, and the armed one moved with it
 					// The window that pays: it opens when a seat pushes and closes at handoffT
 					// (or when the board settles), and it pays every seat at once for the red it
 					// is holding. The spin-down at the end is still live board, so it pays too.
@@ -2020,7 +2047,11 @@
 						voteT += dtSim;
 						if (voteT >= cfg.voteT) closeVote();
 					} else if (state === 'settle' && w.settled) {
-						recyclePucks(w, cfg.recycleMode, giveBack);
+						// The board is spent: clear what the return rule claims, but hand nothing back.
+						// A ball returned inside a turn window is what keeps a round alive (handOff);
+						// after the last throw there is no turn left to spend it, so a stock that grew
+						// here read as a game that should have continued and did not.
+						recyclePucks(w, cfg.recycleMode, null);
 						state = 'scored';
 					}
 				}
@@ -2032,7 +2063,7 @@
 				// meanwhile (js/main.js skips the frame's steps while `planning`) so the plan
 				// applies to exactly the state it was computed on.
 				function saveFlow(rec) {
-					rec.state = state; rec.turn = turn; rec.pending = pending;
+					rec.state = state; rec.turn = turn; rec.pending = pending; rec.pendingUid = pendingUid;
 					rec.resolveT = resolveT; rec.voteT = voteT; rec.botT = botT;
 					rec.omega = cfg.omega; rec.omegaBase = omegaBase; rec.rng = rng.getState();
 					return rec;
@@ -2040,7 +2071,7 @@
 				// Loads a saved flow into *this* game; `cfg.omega` is part of it, since a copy runs
 				// its own cfg. The live game is never loaded — it is only ever saved.
 				function loadFlow(rec) {
-					state = rec.state; turn = rec.turn; pending = rec.pending;
+					state = rec.state; turn = rec.turn; pending = rec.pending; pendingUid = rec.pendingUid;
 					resolveT = rec.resolveT; voteT = rec.voteT; botT = rec.botT;
 					cfg.omega = rec.omega; omegaBase = rec.omegaBase;
 					rng.setState(rec.rng);
@@ -2074,6 +2105,7 @@
 				}
 				// Per-frame housekeeping: ghost re-sim (throttled) and bot throws.
 				function tick(dt) {
+					syncPending();
 					if (!sim && ghost && ghostDirty && predT <= 0 && state === 'aim' && aim.hasStroke && pending >= 0) {
 						// The ghost is drawn during a drag, on the frame that also steps the board, so
 						// it is simulated to the window the throw is paid by (handoffT) and not to the
@@ -2832,7 +2864,9 @@
 			};
 			const MIN_BALLS = 1, MAX_BALLS = 4;
 			const MIN_HANDOFF = 1.5, MAX_HANDOFF = 4;
-			const MIN_SETTLE = 0.25, MAX_SETTLE = 3;
+			// A match ends with the same brake the page plays: the host may ask for a shorter stop,
+			// never for a longer one than the game's own settleTime.
+			const MIN_SETTLE = 0.25, MAX_SETTLE = BASE_CFG.settleTime;
 			
 			function bounded(value, fallback, min, max) {
 				const n = Number(value);
@@ -2852,7 +2886,7 @@
 				cfg.warp = false;
 				cfg.botDelay = bounded(o.botDelay, 0.35, 0, 2);
 				cfg.handoffT = bounded(o.handoffT, 3, MIN_HANDOFF, MAX_HANDOFF);
-				cfg.settleTime = bounded(o.settleTime, 1.2, MIN_SETTLE, MAX_SETTLE);
+				cfg.settleTime = bounded(o.settleTime, BASE_CFG.settleTime, MIN_SETTLE, MAX_SETTLE);
 				if (o.omega !== undefined && o.omega !== null) cfg.omega = bounded(o.omega, cfg.omega, 0, cfg.omegaMax);
 				if (o.mass !== undefined && o.mass !== null) cfg.puckM = bounded(o.mass, cfg.puckM, cfg.massMin, cfg.massMax);
 				if (['classic', 'circles', 'rim6'].includes(o.schema)) cfg.diskSchema = o.schema;

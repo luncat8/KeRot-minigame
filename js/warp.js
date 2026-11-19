@@ -67,7 +67,7 @@ function createWarp() {
 	const sim = createGame({ world: world, roster: roster, cfg: cfg, sim: true });
 	// The snapshot: the board as it stood at the throw, and the flow around it.
 	const saved = createWorld(CFG);
-	const flow = { state: '', turn: 0, pending: -1, resolveT: 0, voteT: 0, botT: 0, omega: 0, omegaBase: 0, rng: 0 };
+	const flow = { state: '', turn: 0, pending: -1, pendingUid: 0, resolveT: 0, voteT: 0, botT: 0, omega: 0, omegaBase: 0, rng: 0 };
 	const snapBalls = new Float64Array(CFG.maxPlayers), snapScore = new Float64Array(CFG.maxPlayers);
 	const snapType = [];
 	for (let k = 0; k < CFG.maxPlayers; k++) snapType.push('random');
