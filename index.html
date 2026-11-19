@@ -110,27 +110,18 @@
 	#actions button.go { padding: 8px 12px; }
 	#btnSettings { display: none; } /* the side layout keeps its settings in sight */
 	#btnSettings.on { background: var(--btn-hi); color: var(--btn-hi-txt); }
-	/* Fit view — the default: body[data-fit=1] gives the visible viewport to the board and
-	   the panel becomes a rail on the right edge. The board box is fitted by its height
-	   alone and pinned under the top edge, so a box wider than the board's aspect can
-	   never letterbox it into a wasted margin above the canvas: the board is flush with
-	   the top in every shape the screen takes, and the rest of the width is the rail. */
-	body[data-fit=1] #app { gap: 0; /* main.js keeps top/height on the visible viewport */
-		padding: max(2px, env(safe-area-inset-top, 0px)) max(2px, env(safe-area-inset-right, 0px))
-			max(2px, env(safe-area-inset-bottom, 0px)) max(2px, env(safe-area-inset-left, 0px)); }
-	/* The fit box and the rail are anchored to #app's padding edge, so #app's own
-	   padding above — the safe area included — is the only inset they need. */
-	body[data-fit=1] #boardWrap { position: absolute; left: 0; top: 0; bottom: 0; right: 66px;
-		flex: none; display: block; overflow: hidden; aspect-ratio: auto; max-height: none; }
-	body[data-fit=1] canvas { position: absolute; left: 0; top: 0; }
+	/* The panel takes its current width; the canvas takes the entire remaining pane. */
+	body[data-fit=1] #app { gap: 0; padding: 0; }
+	body[data-fit=1] #boardWrap { position: relative; flex: 1 1 0; aspect-ratio: auto; max-height: none; }
+	body[data-fit=1] canvas { position: absolute; left: 0; top: 0; border-radius: 0; }
 	/* A short or narrow screen strips the drawer's own chrome (the panel's outer padding
 	   is the fit drawer's, not the generic compact rule's). */
 	@media (max-width: 960px), (max-height: 600px) {
 		body[data-fit=1] #panel.open { padding: 8px 10px 16px; }
 	}
-	body[data-fit=1] #panel { position: absolute; right: 0; top: 0; bottom: 0; z-index: 15; width: 66px;
-		max-width: none; box-sizing: border-box; padding: 6px 5px; border-radius: 8px 0 0 8px;
-		overflow: hidden; transition: width 0.2s ease; }
+	body[data-fit=1] #panel { flex: none; z-index: 15; width: 66px; border-left: 1px solid var(--line);
+		max-width: none; box-sizing: border-box; padding: 6px 5px; border-radius: 0;
+		overflow-y: auto; }
 	body[data-fit=1] #panel.open { width: min(360px, 92vw); padding: 12px 12px 20px;
 		box-shadow: -8px 0 28px rgba(0,0,0,0.45); overflow-y: auto; }
 	body[data-fit=1] #btnSettings { display: block; }
@@ -147,8 +138,7 @@
 	/* A phone in portrait: the rail is a bar under the board and the drawer rises over
 	   the bottom of the screen with the settings in it. */
 	@media (orientation: portrait) and (max-width: 900px), (max-width: 560px) and (min-height: 480px) {
-		body[data-fit=1] #boardWrap { left: 0; right: 0; bottom: 52px; max-height: none; }
-		body[data-fit=1] #panel { top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 52px;
+		body[data-fit=1] #panel { width: auto; height: 52px; border-left: 0; border-top: 1px solid var(--line);
 			padding: 4px 5px; border-radius: 6px 6px 0 0; transition: none; }
 		body[data-fit=1] #panel.open { height: min(88vh, 660px); width: auto; }
 		body[data-fit=1] #actions { flex-direction: row; flex-wrap: nowrap; align-items: stretch; gap: 3px; height: 100%; }
@@ -158,18 +148,23 @@
 		body[data-fit=1] #panel.open #actions button { flex: 0 1 auto; padding: 7px 9px; }
 	}
 	@media (prefers-reduced-motion: reduce) { body[data-fit=1] #panel { transition: none; } }
+	#panel[hidden], #menuTab[hidden] { display: none; }
+	#panel, #help { touch-action: pan-y; }
+	#menuTab { position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 16; }
 </style>
 </head>
 <body data-fit="1">
 <div id="app">
-	<div id="boardWrap"><canvas id="c"></canvas></div>
+	<div id="boardWrap" data-fit="1"><canvas id="c"></canvas></div>
+	<button id="menuTab" hidden aria-controls="panel" aria-label="Open menu">☰</button>
 	<div id="panel">
 		<div id="actions">
 			<button id="btnThrow" class="go">Throw ␣</button><button id="btnClear">Clear</button>
 			<button id="btnAuto">auto-ω</button><button id="btnReset">Reset</button><button id="btnPause">Pause</button>
+			<button id="btnCollapse" aria-controls="panel" title="Collapse menu" aria-label="Collapse menu">›</button>
 			<button id="btnSettings" title="the settings panel" aria-expanded="false">☰</button>
 		</div>
-		<div class="row dim">swipe in from the left edge — or press <b>?</b> — for the rules</div>
+		<div class="row dim">When not aiming, swipe the board right for rules or left for the menu. Swipe the menu right to hide it.</div>
 		<div class="row"><label>preset <select id="preset"></select></label></div>
 		<div class="row"><label>view <select id="view"></select></label></div>
 		<fieldset><legend id="ballsLegend">players — 4 balls each, one push per turn</legend>
@@ -228,14 +223,13 @@
 	puck's rotation — the rest are flung onto the cold floor.</p>
 	<h2>controls</h2>
 	<ul>
-		<li><b>press or drag</b> anywhere clear of your puck to set a stroke: the arrow runs
-		from the puck to your finger, direction + power, 0–3 m/s. Inside the faint grab ring
-		the stroke does not start — a touch there is the throw instead</li>
-		<li><b>double-tap your puck</b> to throw it (mouse and pen: one click on it, or the Throw
-		button) · <kbd>Space</kbd> throws · <kbd>Esc</kbd> clears the stroke · <kbd>R</kbd> resets</li>
+		<li><b>press the board or drag from your puck</b> to aim. The faint ring marks
+		where power starts building. Release a drag to keep the aim without throwing.</li>
+		<li><b>tap or click your puck once</b> to throw the aimed shot. The Throw button and
+		<kbd>Space</kbd> also throw · <kbd>Esc</kbd> clears aim · <kbd>R</kbd> resets</li>
 		<li>hold <kbd>shift</kbd> while dragging for fine control: speed 32× finer, aim 8×</li>
 		<li><kbd>←</kbd> <kbd>→</kbd> nudge the aim, <kbd>↑</kbd> <kbd>↓</kbd> the speed (shift = fine there too)</li>
-		<li>swipe in from the left edge for this panel</li>
+		<li>when not aiming, swipe right for rules or left for the menu</li>
 	</ul>
 	<h2>score</h2>
 	<p>From the push, each seat earns <i>dt × the red area of the big disk its pucks cover</i>

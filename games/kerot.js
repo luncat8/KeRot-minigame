@@ -64,13 +64,7 @@
 				botDelay: 0.7, // seconds a bot "thinks" (aim shown) before throwing
 				settleTime: 3,
 				dragFull: 0.90,
-				// The stroke starts only when the pointer is clear of the puck by this much; a touch
-				// at the centre of a circle carries no direction, so the grab ring is wider than the
-				// puck and the throw finger never needs to sit on it.
-				aimGrabMargin: 0.22,
-				// Two taps on the puck within this many ms and about this far apart throw the stroke
-				// in hand; the puck is 20 cm across, so a finger that lands anywhere on it counts.
-				doubleTapT: 350, doubleTapSlop: 0.24,
+				aimGrabMargin: 0.22, // radius beyond the puck where power starts building
 				preciseGain: 0.03125, // shift-held speed gain: 1/32 of plain
 				preciseAimGain: 0.125, // shift-held aim gain: 1/8 of plain
 				endMode: 'settle',
@@ -102,6 +96,7 @@
 				{ x: 0.48, y: 0, r: 0.18 },
 				{ x: 0.48, y: CFG.boardH, r: 0.18 },
 			];
+			Object.assign(CFG, { returnZone: RETURN_ZONES, advanceZone: ADVANCE_ZONES, holes: BLACK_HOLES });
 			const MAX_PUCKS = 40;
 			const ST_SLIDE = 0, ST_LOCKED = 1, ST_SLEEP = 2;
 			
@@ -544,8 +539,8 @@
 					if (w.vx[i] > 0) consider(i, -1, 0, (cfg.boardW - r - w.x[i]) / w.vx[i], rem);
 					if (w.vy[i] < 0) consider(i, -1, 1, (r - w.y[i]) / w.vy[i], rem);
 					if (w.vy[i] > 0) consider(i, -1, 1, (cfg.boardH - r - w.y[i]) / w.vy[i], rem);
-					for (let k = 0; k < BLACK_HOLES.length; k++) {
-						const tau = holeEntryTime(w, i, BLACK_HOLES[k], rem);
+					for (let k = 0; k < w.cfg.holes.length; k++) {
+						const tau = holeEntryTime(w, i, w.cfg.holes[k], rem);
 						if (tau >= 0) considerHole(i, k, tau, rem);
 					}
 				}
@@ -690,8 +685,8 @@
 			function absorbBlackHoles(w) {
 				for (let i = w.n - 1; i >= 0; i--) {
 					let captured = false;
-					for (let k = 0; k < BLACK_HOLES.length; k++) {
-						const hole = BLACK_HOLES[k], dx = w.x[i] - hole.x, dy = w.y[i] - hole.y;
+					for (let k = 0; k < w.cfg.holes.length; k++) {
+						const hole = w.cfg.holes[k], dx = w.x[i] - hole.x, dy = w.y[i] - hole.y;
 						const r = hole.r + w.r[i];
 						if (dx * dx + dy * dy <= r * r) { captured = true; break; }
 					}
@@ -1009,9 +1004,9 @@
 			// the guard — no second test needed, and no extra exemption the picture does not show.
 			function inReturnZone(cfg, mode, x, y) {
 				if (mode === 'none') return false;
-				if (mode === 'zones') return inTri(RETURN_ZONES, x, y) && !inGuard(cfg, x, y);
+				if (mode === 'zones') return inTri(cfg.returnZone, x, y) && !inGuard(cfg, x, y);
 				if (mode === 'advance') {
-					const v = ADVANCE_ZONES;
+					const v = cfg.advanceZone;
 					if (inTri(v, x, y) && !inGuard(cfg, x, y)) return true;
 					return x >= v.lx && x <= v.lx + v.lw; // launch lane; the guard cannot reach it
 				}
@@ -1306,14 +1301,14 @@
 				for (let j = 0; j < w.n; j++) {
 					if (j === i || w.own[j] === owner) continue;
 					let holeDistance = Infinity, holeIndex = 0;
-					for (let k = 0; k < BLACK_HOLES.length; k++) {
-						const hole = BLACK_HOLES[k];
+					for (let k = 0; k < cfg.holes.length; k++) {
+						const hole = cfg.holes[k];
 						const d = Math.hypot(w.x[j] - hole.x, w.y[j] - hole.y) - (hole.r + cfg.puckR);
 						if (d < holeDistance) { holeDistance = d; holeIndex = k; }
 					}
 					if (holeDistance >= best) continue;
 					best = holeDistance;
-					const hole = BLACK_HOLES[holeIndex], pushX = hole.x - w.x[j], pushY = hole.y - w.y[j];
+					const hole = cfg.holes[holeIndex], pushX = hole.x - w.x[j], pushY = hole.y - w.y[j];
 					const pushD = Math.hypot(pushX, pushY) || 1;
 					targetX = w.x[j] - pushX / pushD * 2 * cfg.puckR;
 					targetY = w.y[j] - pushY / pushD * 2 * cfg.puckR;
@@ -1805,6 +1800,7 @@
 			function createGame(env) {
 				const PRED_COOLDOWN = 0.08; // s between ghost re-sims during a drag
 				const cfg = env.cfg || CFG;
+				const baseW = cfg.boardW, baseH = cfg.boardH;
 				const w = env.world || createWorld(cfg);
 				// A simulated copy: no input, no ghost, no planning of its own — and every seat
 				// plays itself with the light search (js/bots.js), so a human opponent does not stall
@@ -1828,6 +1824,7 @@
 				// released. Plain drag is absolute; a shift segment counts only a preciseGain (speed)
 				// or preciseAimGain (aim) share of further drag.
 				const aim = { pending: -1, hasStroke: false, vx: 0, vy: 0, dragging: false, len: 0, raw: 0, anchorLen: 0, anchorSp: cfg.vMin, anchorRaw: NaN, anchorAng: 0, precise: false };
+				let aimTurn = 0;
 				const queue = []; // {type:'throw', timeStamp}
 				// The time-warp planner (js/warp.js) and the shortlist its search works through.
 				let planner = null, planning = false, rank = null, warpNote = '';
@@ -1859,6 +1856,8 @@
 				// has a ball left -> the board spins down; a seat that has a ball but no room for
 				// it is retired and the turn moves on.
 				function armTurn() {
+					aimTurn++;
+					aim.dragging = false;
 					const next = nextSeat(roster, turn);
 					if (next < 0) { state = 'settle'; beginSettle(w); return; }
 					turn = next;
@@ -1878,6 +1877,7 @@
 					pending = -1; aim.pending = -1; aim.hasStroke = false;
 				}
 				function reset() {
+					queue.length = 0;
 					if (!isNaN(omegaBase)) { cfg.omega = omegaBase; omegaBase = NaN; }
 					resetWorld(w);
 					for (let i = 0; i < roster.length; i++) { roster[i].balls = cfg.ballsPerPlayer; roster[i].score = 0; }
@@ -2092,95 +2092,102 @@
 					if (sim) { botPrep(); commitThrow(); return; }
 					startPlan();
 				}
-				// Pointer aiming: the stroke runs from the armed puck to the pointer, and only a
-				// pointer clear of the puck by aimGrab may set it — a touch on the centre of a circle
-				// carries no direction, and the throw finger never has to sit on the puck. A touch on
-				// the puck is the throw gesture: two taps within doubleTapT (and doubleTapSlop apart)
-				// throw the stroke in hand, and a mouse or pen click throws in one. A click on the
-				// board while nothing is aimed places the arrow's end, so a fresh turn is one pointer
-				// long.
-				function bindInput(canvas) {
+				const canAim = () => state === 'aim' && pending >= 0 && !isBot(roster[turn]) && !paused;
+				// Expand the ice, not the pieces. Keep the disk left, the launch lane right,
+				// and the playing line halfway down the available pane.
+				function fitBoard(aspect = baseW / baseH) {
+					const width = Math.max(baseW, baseH * aspect), height = Math.max(baseH, baseW / aspect);
+					if (Math.abs(width - cfg.boardW) + Math.abs(height - cfg.boardH) < 1e-6) return false;
+					const dy = height / 2 - cfg.diskY, dx = width - cfg.boardW;
+					for (let i = 0; i < w.n; i++) {
+						const r = w.r[i], lane = clamp((w.x[i] - cfg.diskX - cfg.diskR - r) / (cfg.launchMinX - cfg.diskX - cfg.diskR - r), 0, 1);
+						w.x[i] = clamp(w.x[i] + dx * lane, r, width - r);
+						w.y[i] = clamp(w.y[i] + dy, r, height - r);
+					}
+					cfg.boardW = width; cfg.boardH = height;
+					cfg.diskY = cfg.launchY = height / 2;
+					cfg.launchX += dx; cfg.launchMinX += dx; cfg.launchMaxX += dx;
+					cfg.launchMinY += dy; cfg.launchMaxY += dy;
+					cfg.returnZone = { ax: cfg.diskX, ay: cfg.diskY, bx: width, by: 0, cx: width, cy: height };
+					cfg.advanceZone = { ax: 0, ay: height, bx: 0, by: 0, cx: cfg.diskX, cy: cfg.diskY, lx: cfg.launchMinX, lw: width - cfg.launchMinX };
+					cfg.holes = [BLACK_HOLES[0], { ...BLACK_HOLES[1], y: height }];
+					cancelPlan(); invalidateGhost();
+					return true;
+				}
+				function bindPointer(canvas, renderer, onChange = () => {}) {
 					canvas.style.touchAction = 'none';
-					const MODE_NONE = 0, MODE_AIM = 1, MODE_PLACE = 2, MODE_TAP = 3;
-					let dragId = -1, dragMode = MODE_NONE;
-					let lastTapT = -Infinity, lastTapX = 0, lastTapY = 0;
-					// A touch on the puck itself is the throw gesture; the grab ring around it aims, and
-					// a touch on the ring's margin goes to the stroke, so a throw that misses the puck
-					// by a little re-aims instead of being eaten.
-					function onPuck(p) {
-						const dx = p.x - w.x[pending], dy = p.y - w.y[pending], r = cfg.puckR;
-						return dx * dx + dy * dy <= r * r;
-					}
-					// The stroke of a pointer at p: the arrow runs from the puck to the pointer, and
-					// the power is the pointer's distance past the grab ring, vMin..vMax over dragFull.
-					// Each event is its own anchor, so the stroke is absolute — the arrow jumps to
-					// wherever the pointer is (that is what makes a press on the board a place rather
-					// than a drag from the puck) and no earlier event can scale it. Inside the ring
-					// the power is vMin, and a drag back home is a soft throw, not a lost stroke.
-					function aimFrom(p, precise) {
-						const dx = p.x - w.x[pending], dy = p.y - w.y[pending], grab = aimGrab(cfg);
+					let id = null, turnAtPress, startX, startY, tap, moved, relative, lastLen, lastAngle, angle, speed;
+					function sample(e) {
+						const p = renderer.toWorld(e.clientX, e.clientY);
+						const dx = p.x - w.x[pending], dy = p.y - w.y[pending];
 						const d = Math.hypot(dx, dy);
-						const len = Math.max(0, Math.min(d - grab, cfg.dragFull));
-						const ang = d > 1e-6 ? Math.atan2(dy, dx) : Math.atan2(aim.vy, aim.vx);
-						rebase(0, cfg.vMin, precise);
-						setStroke(Math.cos(ang) * len, Math.sin(ang) * len, precise, ang);
-						// On the puck the speed is poked in by hand: there the distance past the ring
-						// is float noise around zero, and the setStroke round trip would leave a
-						// rounding crumb instead of a clean vMin.
-						if (d <= grab) setAimVel(Math.cos(ang) * cfg.vMin, Math.sin(ang) * cfg.vMin);
-					}
-					// A second tap within the window and the slop of the first is the throw, wherever
-					// it lands — a finger that drifts off the puck while double-tapping still means
-					// the puck. The first tap only arms the gesture; nothing is thrown without a
-					// stroke in hand.
-					function secondTap(p, e) {
-						return e.pointerType === 'touch' && e.timeStamp - lastTapT <= cfg.doubleTapT &&
-							Math.hypot(p.x - lastTapX, p.y - lastTapY) <= cfg.doubleTapSlop;
-					}
-					function tap(p, e) {
-						if (e.pointerType !== 'touch') { // a mouse/pen click on the puck is the throw
-							if (aim.hasStroke) queue.push({ type: 'throw', timeStamp: e.timeStamp });
-							return;
+						const len = Math.max(0, d - aimGrab(cfg));
+						const bearing = d > cfg.puckR ? Math.atan2(dy, dx) : lastAngle;
+						if (!relative && !e.shiftKey) {
+							angle = bearing;
+							speed = rawSpeed(len);
+						} else {
+							// Once fine control is used, keep its offset for the rest of this drag.
+							// Releasing Shift restores normal gains, not the absolute pointer position.
+							relative = true;
+							angle += angDelta(bearing, lastAngle) * (e.shiftKey ? cfg.preciseAimGain : 1);
+							speed = clamp(speed + (len - lastLen) / cfg.dragFull * (cfg.vMax - cfg.vMin) * (e.shiftKey ? cfg.preciseGain : 1), cfg.vMin, cfg.vMax);
 						}
-						if (secondTap(p, e)) {
-							lastTapT = -Infinity;
-							if (aim.hasStroke) queue.push({ type: 'throw', timeStamp: e.timeStamp });
-							return;
-						}
-						lastTapT = e.timeStamp; lastTapX = p.x; lastTapY = p.y;
+						lastLen = len; lastAngle = bearing;
+						setAimVel(Math.cos(angle) * speed, Math.sin(angle) * speed);
 					}
-					canvas.addEventListener('pointerdown', e => {
-						if (state !== 'aim' || isBot(roster[turn]) || pending < 0) return;
-						const p = Render.toWorld(e.clientX, e.clientY);
-						if (onPuck(p) || secondTap(p, e)) {
-							dragId = e.pointerId; dragMode = MODE_TAP;
-							tap(p, e);
-							return;
+					function down(e) {
+						if (id !== null || !canAim() || e.button > 0 || e.isPrimary === false) return;
+						if (e.cancelable) e.preventDefault();
+						canvas.focus?.({ preventScroll: true });
+						id = e.pointerId; turnAtPress = aimTurn;
+						startX = e.clientX; startY = e.clientY; moved = false;
+						const p = renderer.toWorld(startX, startY);
+						const dx = p.x - w.x[pending], dy = p.y - w.y[pending];
+						const d = Math.hypot(dx, dy);
+						tap = d <= cfg.puckR;
+						lastLen = Math.max(0, d - aimGrab(cfg));
+						lastAngle = tap ? Math.atan2(aim.vy, aim.vx) : Math.atan2(dy, dx);
+						relative = !!e.shiftKey && aim.hasStroke && !tap;
+						angle = relative ? Math.atan2(aim.vy, aim.vx) : lastAngle;
+						speed = relative ? Math.hypot(aim.vx, aim.vy) : rawSpeed(lastLen);
+						if (!tap) { sample(e); aim.dragging = true; }
+						canvas.setPointerCapture?.(id);
+						onChange();
+					}
+					function update(e) {
+						moved ||= Math.hypot(e.clientX - startX, e.clientY - startY) >= 6;
+						if (tap && !moved) return;
+						if (tap && !aim.dragging) {
+							const p = renderer.toWorld(e.clientX, e.clientY);
+							if (Math.hypot(p.x - w.x[pending], p.y - w.y[pending]) <= cfg.puckR) return;
+							lastAngle = angle = Math.atan2(p.y - w.y[pending], p.x - w.x[pending]);
 						}
-						// A click (mouse/pen) on the board while nothing is aimed only places the
-						// arrow end; it does not drag it away on the release the click brings.
-						dragMode = e.pointerType !== 'touch' && !aim.hasStroke ? MODE_PLACE : MODE_AIM;
-						dragId = e.pointerId;
-						aim.dragging = dragMode === MODE_AIM;
-						aimFrom(p, e.shiftKey);
-						if (dragMode === MODE_AIM) canvas.setPointerCapture(e.pointerId);
-					});
-					// Only a stroke drag moves the stroke. A press on the puck is a tap and nothing
-					// else — a finger slides a little while it lifts, and that slide must not re-aim
-					// the throw; a placed click is not dragged either.
-					canvas.addEventListener('pointermove', e => {
-						if (e.pointerId !== dragId || dragMode !== MODE_AIM || state !== 'aim') return;
-						aimFrom(Render.toWorld(e.clientX, e.clientY), e.shiftKey);
-					});
-					canvas.addEventListener('pointerup', e => {
-						if (e.pointerId !== dragId) return;
-						dragId = -1; dragMode = MODE_NONE; aim.dragging = false;
-					});
-					canvas.addEventListener('pointercancel', e => {
-						if (e.pointerId !== dragId) return;
-						if (dragMode !== MODE_PLACE) aim.hasStroke = false; // the stroke left with the pointer
-						dragId = -1; dragMode = MODE_NONE; aim.dragging = false;
-					});
+						sample(e);
+						aim.dragging = true;
+					}
+					function move(e) {
+						if (e.pointerId !== id || turnAtPress !== aimTurn || !canAim()) return;
+						update(e); onChange();
+					}
+					function finish(e) {
+						if (e.pointerId !== id) return;
+						if (e.type === 'pointerup' && turnAtPress === aimTurn && canAim()) {
+							update(e);
+							if (tap && !moved && aim.hasStroke) api.queueThrow(e.timeStamp);
+						}
+						id = null; aim.dragging = false;
+						onChange();
+					}
+					const handlers = { pointerdown: down, pointermove: move, pointerup: finish, pointercancel: finish, lostpointercapture: finish };
+					for (const type in handlers) canvas.addEventListener(type, handlers[type]);
+					return () => {
+						for (const type in handlers) canvas.removeEventListener(type, handlers[type]);
+						aim.dragging = false;
+					};
+				}
+				function bindInput(canvas) {
+					bindPointer(canvas, Render);
 					window.addEventListener('keydown', e => {
 						if (e.code === 'Space') {
 							e.preventDefault();
@@ -2251,7 +2258,7 @@
 					return true;
 				}
 				const api = {
-					world: w, aim, pred, roster, cfg, reset, bindInput, beforeSteps, afterSteps, tick,
+					world: w, aim, pred, roster, cfg, reset, fitBoard, canAim, bindInput, bindPointer, beforeSteps, afterSteps, tick,
 					setStroke, setAimVel, commitThrow, setSeatType, setSeatTypes, addPlayer, removePlayer,
 					invalidateGhost, setPuckMass, setDiskSchema, giveBack, setOmega, setSpeedRule, setVote: setVoteOf,
 					// The bot brain, through the one entry point that owns a running plan: turning
@@ -2293,7 +2300,7 @@
 			if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'), require('./field.js'), require('./physics.js'), require('./score.js'), require('./players.js'));
 			function createRenderer() {
 				let cfg = CFG;
-				let cv, ctx, scale = 100, ox = 0, oy = 0, dpr = 1;
+				let cv, ctx, sx = 100, sy = 100, dpr = 1;
 				let texDisk = null, texSchema = '', ppmDisk = 96, puckGrad = null, wallPath = null, gridPath = null;
 				let zoneFan = null, zoneAdv = null, hatchPath = null, sectorPath = null, bandPath = null;
 				const Z_FILL = 'rgba(32,178,170,0.16)', Z_LINE = 'rgba(46,204,196,0.55)', Z_HATCH = 'rgba(46,204,196,0.16)';
@@ -2356,7 +2363,7 @@
 					theme.inkSolid = 'rgb(' + theme.ink + ')';
 				}
 				function buildZonePaths() {
-					const z = RETURN_ZONES, v = ADVANCE_ZONES;
+					const z = cfg.returnZone, v = cfg.advanceZone;
 					// Both return rules: a fill with the on-disk guard (diskR + puckR) punched
 					// out of it, so the exemption is drawn instead of implied, plus the outline
 					// to stroke. The 'advance' rule adds the launch lane to its wedge.
@@ -2438,29 +2445,14 @@
 					path.addPath(fill); path.addPath(hole);
 					return { path: path, line: line };
 				}
-				// The board is fitted into its box by hand instead of by CSS: it takes the largest
-				// rect of the board's aspect that fits both ways, so the canvas never grows past the
-				// viewport and never raises a scrollbar. In the fit view the box is wider than the
-				// board: fitting both ways would letterbox, and a centred board reads as wasted
-				// margin — above all above the canvas. The fit box therefore binds by its height
-				// alone when that is the binding axis, and the board is pinned to the box's top edge
-				// in every shape the screen takes (centred across the width, which is the rail's
-				// side in landscape and the free space beside it in portrait). Refits are cheap —
-				// an unchanged size returns before re-baking the textures.
-				function resize() {
+				function resize(geometryChanged = false) {
 					const box = cv.parentElement;
 					const availW = box.clientWidth || 960;
 					const availH = box.clientHeight || Math.round(availW * cfg.boardH / cfg.boardW);
 					const aspect = cfg.boardW / cfg.boardH;
 					const fit = !!box.dataset && box.dataset.fit === '1';
-					const fitH = fit && availW > availH * aspect;
-					let wpx, hpx;
-					if (fitH) { hpx = availH; wpx = availH * aspect; }
-					else {
-						wpx = availW; hpx = availW / aspect;
-						if (hpx > availH) { hpx = availH; wpx = availH * aspect; }
-					}
-					wpx = Math.max(1, Math.floor(wpx)); hpx = Math.max(1, Math.floor(hpx));
+					const wpx = Math.max(1, Math.floor(fit ? availW : Math.min(availW, availH * aspect)));
+					const hpx = Math.max(1, Math.floor(fit ? availH : Math.min(availH, availW / aspect)));
 					// Supersampling is the cheap antialiasing: draw at the device ratio, capped so
 					// a huge window cannot ask for a backing store no frame loop could fill.
 					dpr = Math.min(3, window.devicePixelRatio || 1);
@@ -2469,15 +2461,15 @@
 					if (cv.style.width !== cssW) cv.style.width = cssW;
 					if (cv.style.height !== cssH) cv.style.height = cssH;
 					const bw = Math.round(wpx * dpr), bh = Math.round(hpx * dpr);
-					if (bw === cv.width && bh === cv.height) return;
+					if (!geometryChanged && bw === cv.width && bh === cv.height) return;
+					if (geometryChanged) buildZonePaths();
 					cv.width = bw; cv.height = bh;
-					scale = Math.min(cv.width / cfg.boardW, cv.height / cfg.boardH);
-					ox = (cv.width - cfg.boardW * scale) / 2;
-					oy = fit ? 0 : (cv.height - cfg.boardH * scale) / 2; // fit: the top edge, never a margin above
+					sx = cv.width / cfg.boardW;
+					sy = cv.height / cfg.boardH;
 					bake();
 				}
 				function bake() {
-					ppmDisk = Math.max(96, Math.min(512, 2 * scale / dpr));
+					ppmDisk = Math.max(96, Math.min(512, 2 * Math.max(sx, sy) / dpr));
 					bakeDisk();
 					wallPath = new Path2D();
 					wallPath.rect(0, 0, cfg.boardW, cfg.boardH);
@@ -2500,7 +2492,7 @@
 				}
 				function toWorld(clientX, clientY) {
 					const r = cv.getBoundingClientRect();
-					return { x: ((clientX - r.left) * dpr - ox) / scale, y: ((clientY - r.top) * dpr - oy) / scale };
+					return { x: (clientX - r.left) * cfg.boardW / r.width, y: (clientY - r.top) * cfg.boardH / r.height };
 				}
 				function drawZones(mode) {
 					if (mode === 'none') return;
@@ -2514,7 +2506,7 @@
 					ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = Z_LINE;
 					ctx.stroke(z.line); ctx.setLineDash([]);
 					if (mode === 'advance') {
-						const v = ADVANCE_ZONES;
+						const v = cfg.advanceZone;
 						// upright in both halves: the wedge's live part is its left edge, the only
 						// stretch of it the disk guard does not cover, and the lane is the strip
 						drawZoneLabel(0.10, cfg.diskY, -Math.PI / 2);
@@ -2528,8 +2520,8 @@
 				function drawBlackHoles() {
 					ctx.save();
 					ctx.beginPath(); ctx.rect(0, 0, cfg.boardW, cfg.boardH); ctx.clip();
-					for (let i = 0; i < BLACK_HOLES.length; i++) {
-						const hole = BLACK_HOLES[i];
+					for (let i = 0; i < cfg.holes.length; i++) {
+						const hole = cfg.holes[i];
 						ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r + cfg.puckR, 0, 2 * Math.PI);
 						ctx.strokeStyle = 'rgba(186, 104, 200, 0.65)'; ctx.lineWidth = 0.012; ctx.setLineDash([0.035, 0.025]); ctx.stroke();
 						ctx.setLineDash([]);
@@ -2584,7 +2576,7 @@
 					if (cfg.diskSchema !== texSchema) bakeDisk();
 					ctx.setTransform(1, 0, 0, 1, 0, 0);
 					ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, cv.width, cv.height);
-					ctx.setTransform(scale, 0, 0, scale, ox, oy);
+					ctx.setTransform(sx, 0, 0, sy, 0, 0);
 					// Floor: plain ice in the scheme's tint. It used to carry a faint copy of the field
 					// frozen at θ = 0, which no longer matches once the disk turns — nor any schema
 					// but the one it was baked from.
@@ -2732,10 +2724,7 @@
 					}
 					ctx.restore();
 				}
-				// The stroke arrow: from the puck to the drag's standstill distance (the grab ring
-				// plus the power the stroke holds), so the board point under the pointer is the
-				// point the arrow ends at. The faint circle is the grab ring — the stroke is set by
-				// a pointer clear of it, and a touch on the puck is the throw gesture.
+				// In plain aim, the tip tracks the pointer between the zero-power ring and full power.
 				function drawAim(w, aim) {
 					if (!aim || aim.pending < 0) return;
 					const sx = w.x[aim.pending], sy = w.y[aim.pending];
@@ -2747,17 +2736,17 @@
 					ctx.globalAlpha = 1;
 					const sp = Math.hypot(aim.vx, aim.vy);
 					if (!aim.hasStroke || sp < 1e-6) { ctx.restore(); return; }
-					const len = grab + sp / cfg.vMax * cfg.dragFull;
+					const len = grab + (sp - cfg.vMin) / (cfg.vMax - cfg.vMin) * cfg.dragFull;
 					const ux = aim.vx / sp, uy = aim.vy / sp;
 					ctx.lineWidth = 0.018;
-					ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + ux * (len + 0.15), sy + uy * (len + 0.15)); ctx.stroke();
+					ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + ux * (len - 0.13), sy + uy * (len - 0.13)); ctx.stroke();
 					ctx.beginPath();
-					ctx.moveTo(sx + ux * (len + 0.28), sy + uy * (len + 0.28));
-					ctx.lineTo(sx + ux * (len + 0.12) - uy * 0.05, sy + uy * (len + 0.12) + ux * 0.05);
-					ctx.lineTo(sx + ux * (len + 0.12) + uy * 0.05, sy + uy * (len + 0.12) - ux * 0.05);
+					ctx.moveTo(sx + ux * len, sy + uy * len);
+					ctx.lineTo(sx + ux * (len - 0.16) - uy * 0.05, sy + uy * (len - 0.16) + ux * 0.05);
+					ctx.lineTo(sx + ux * (len - 0.16) + uy * 0.05, sy + uy * (len - 0.16) - ux * 0.05);
 					ctx.closePath(); ctx.fill();
 					ctx.font = font.label;
-					ctx.fillText(sp.toFixed(2) + ' m/s, stops ~' + stopDistance(cfg, sp).toFixed(1) + ' m', sx + ux * (len + 0.45), sy + uy * (len + 0.45));
+					ctx.fillText(sp.toFixed(2) + ' m/s, stops ~' + stopDistance(cfg, sp).toFixed(1) + ' m', sx + ux * (len + 0.17), sy + uy * (len + 0.17));
 					ctx.restore();
 				}
 				return { setup, resize, drawWorld, toWorld, themes: THEMES };
@@ -2899,7 +2888,6 @@
 				};
 				let active = true, intersecting = true, pageVisible = document.visibilityState !== 'hidden';
 				let rafId = 0, last = 0, acc = 0, uiT = 0, finished = false;
-				let lastTapT = -Infinity, lastTapX = 0, lastTapY = 0;
 				let observer = null, resizeObserver = null;
 			
 				function canAim() { return game.state === 'aim' && game.turn === 0 && game.pending >= 0; }
@@ -2974,45 +2962,6 @@
 					ev.preventDefault();
 					nudge(ev.key, ev.shiftKey);
 				}
-				// The mini-game aims and throws the way the standalone page does (js/game.js
-				// bindInput): the arrow runs from the puck to a pointer clear of the grab ring, and
-				// two taps on the puck throw it. The button stays for the story's conventions.
-				function onPuck(p) {
-					const dx = p.x - game.world.x[game.pending], dy = p.y - game.world.y[game.pending];
-					return dx * dx + dy * dy <= cfg.puckR * cfg.puckR;
-				}
-				function aimFrom(p, ev) {
-					const dx = p.x - game.world.x[game.pending], dy = p.y - game.world.y[game.pending];
-					const grab = aimGrab(cfg), ang = Math.atan2(dy, dx);
-					const len = Math.max(0, Math.min(Math.hypot(dx, dy) - grab, cfg.dragFull)); // the ring margin aims at vMin
-					game.setStroke(Math.cos(ang) * len, Math.sin(ang) * len, !!ev.shiftKey);
-				}
-				function pointerDown(ev) {
-					if (!canAim() || game.paused) return;
-					if (ev.cancelable) ev.preventDefault();
-					const p = renderer.toWorld(ev.clientX, ev.clientY);
-					canvas.focus({ preventScroll: true });
-					const dx = p.x - game.world.x[game.pending], dy = p.y - game.world.y[game.pending];
-					const second = ev.pointerType === 'touch' && ev.timeStamp - lastTapT <= cfg.doubleTapT &&
-						Math.hypot(p.x - lastTapX, p.y - lastTapY) <= cfg.doubleTapSlop;
-					if (onPuck(p) || second) { // the throw gesture: two taps, or a click on the puck
-						if (ev.pointerType !== 'touch') queueThrow();
-						else if (second) { lastTapT = -Infinity; queueThrow(); }
-						else { lastTapT = ev.timeStamp; lastTapX = p.x; lastTapY = p.y; }
-						updateControls(); draw();
-						return;
-					}
-					if (canvas.setPointerCapture) canvas.setPointerCapture(ev.pointerId);
-					game.aim.dragging = true;
-					aimFrom(p, ev);
-					updateControls(); draw();
-				}
-				function pointerMove(ev) {
-					if (!game.aim.dragging || !canAim() || game.paused) return;
-					aimFrom(renderer.toWorld(ev.clientX, ev.clientY), ev);
-					updateControls(); draw();
-				}
-				function pointerUp() { game.aim.dragging = false; }
 				function clearAim() {
 					if (!canAim()) return;
 					game.aim.hasStroke = false;
@@ -3084,11 +3033,7 @@
 				renderer.setup(canvas, cfg);
 				draw();
 			
-				canvas.addEventListener('pointerdown', pointerDown);
-				canvas.addEventListener('pointermove', pointerMove);
-				canvas.addEventListener('pointerup', pointerUp);
-				canvas.addEventListener('pointercancel', pointerUp);
-				canvas.addEventListener('lostpointercapture', pointerUp);
+				const unbindPointer = game.bindPointer(canvas, renderer, () => { updateControls(); draw(); });
 				g.el.addEventListener('keydown', onKeyDown);
 				throwButton.addEventListener('click', queueThrow);
 				clearButton.addEventListener('click', clearAim);
@@ -3113,11 +3058,7 @@
 					stopLoop();
 					if (observer) observer.disconnect();
 					if (resizeObserver) resizeObserver.disconnect();
-					canvas.removeEventListener('pointerdown', pointerDown);
-					canvas.removeEventListener('pointermove', pointerMove);
-					canvas.removeEventListener('pointerup', pointerUp);
-					canvas.removeEventListener('pointercancel', pointerUp);
-					canvas.removeEventListener('lostpointercapture', pointerUp);
+					unbindPointer();
 					g.el.removeEventListener('keydown', onKeyDown);
 					throwButton.removeEventListener('click', queueThrow);
 					clearButton.removeEventListener('click', clearAim);

@@ -30,9 +30,9 @@ function inTri(z, x, y) {
 // the guard — no second test needed, and no extra exemption the picture does not show.
 function inReturnZone(cfg, mode, x, y) {
 	if (mode === 'none') return false;
-	if (mode === 'zones') return inTri(RETURN_ZONES, x, y) && !inGuard(cfg, x, y);
+	if (mode === 'zones') return inTri(cfg.returnZone, x, y) && !inGuard(cfg, x, y);
 	if (mode === 'advance') {
-		const v = ADVANCE_ZONES;
+		const v = cfg.advanceZone;
 		if (inTri(v, x, y) && !inGuard(cfg, x, y)) return true;
 		return x >= v.lx && x <= v.lx + v.lw; // launch lane; the guard cannot reach it
 	}

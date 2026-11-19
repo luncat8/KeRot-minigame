@@ -92,14 +92,14 @@ function strategicTargets(w, cfg, i) {
 	for (let j = 0; j < w.n; j++) {
 		if (j === i || w.own[j] === owner) continue;
 		let holeDistance = Infinity, holeIndex = 0;
-		for (let k = 0; k < BLACK_HOLES.length; k++) {
-			const hole = BLACK_HOLES[k];
+		for (let k = 0; k < cfg.holes.length; k++) {
+			const hole = cfg.holes[k];
 			const d = Math.hypot(w.x[j] - hole.x, w.y[j] - hole.y) - (hole.r + cfg.puckR);
 			if (d < holeDistance) { holeDistance = d; holeIndex = k; }
 		}
 		if (holeDistance >= best) continue;
 		best = holeDistance;
-		const hole = BLACK_HOLES[holeIndex], pushX = hole.x - w.x[j], pushY = hole.y - w.y[j];
+		const hole = cfg.holes[holeIndex], pushX = hole.x - w.x[j], pushY = hole.y - w.y[j];
 		const pushD = Math.hypot(pushX, pushY) || 1;
 		targetX = w.x[j] - pushX / pushD * 2 * cfg.puckR;
 		targetY = w.y[j] - pushY / pushD * 2 * cfg.puckR;

@@ -17,7 +17,13 @@
 		if (app.style.top !== topCss) app.style.top = topCss;
 		if (app.style.height !== hCss) app.style.height = hCss;
 	}
-	const refit = () => { syncAppBox(); Render.resize(); };
+	const refit = () => {
+		syncAppBox();
+		const box = cv.parentElement;
+		box.dataset.fit = document.body.dataset.fit;
+		const aspect = box.dataset.fit === '1' && box.clientHeight && box.clientWidth ? box.clientWidth / box.clientHeight : undefined;
+		Render.resize(Game.fitBoard(aspect));
+	};
 	syncAppBox();
 	Render.setup(cv);
 	Game.reset();
@@ -37,7 +43,7 @@
 		requestAnimationFrame(refit);
 		setTimeout(refit, 120);
 	});
-	if (window.ResizeObserver) new window.ResizeObserver(() => Render.resize()).observe(cv.parentElement);
+	if (window.ResizeObserver) new window.ResizeObserver(refit).observe(cv.parentElement);
 	if (window.visualViewport) {
 		window.visualViewport.addEventListener('resize', refit);
 		window.visualViewport.addEventListener('scroll', refit);

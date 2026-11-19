@@ -34,13 +34,13 @@ function makeCanvas() {
 		width: 0, height: 0, style: {}, _events: {}, _ctx: null,
 		parentElement: { clientWidth: 720, clientHeight: 440 },
 		getContext() { return this._ctx || (this._ctx = makeContext()); },
-		getBoundingClientRect() { return { left: 0, top: 0 }; },
+		getBoundingClientRect() { return { left: 0, top: 0, width: parseFloat(this.style.width), height: parseFloat(this.style.height) }; },
 		addEventListener(type, fn) { (this._events[type] = this._events[type] || []).push(fn); },
 		removeEventListener(type, fn) {
 			const list = this._events[type] || [];
 			this._events[type] = list.filter(item => item !== fn);
 		},
-		dispatch(type, event) { for (const fn of this._events[type] || []) fn(event); },
+		dispatch(type, event) { for (const fn of this._events[type] || []) fn({ type, ...event }); },
 		setPointerCapture: noop, focus: noop
 	};
 	return canvas;
@@ -53,7 +53,7 @@ function makeElement() {
 			const list = this._events[type] || [];
 			this._events[type] = list.filter(item => item !== fn);
 		},
-		dispatch(type, event) { for (const fn of this._events[type] || []) fn(event); },
+		dispatch(type, event) { for (const fn of this._events[type] || []) fn({ type, ...event }); },
 		setAttribute(name, value) { this.attrs[name] = String(value); },
 		click() { for (const fn of this._events.click || []) fn({ target: this }); }
 	};
@@ -150,13 +150,6 @@ secondCleanup();
 assert.strictEqual(frames.size, 1, 'tearing one session down leaves the other running');
 
 const canvas = firstMount.nodes['.kerot-board'];
-// The adapter aims the way the page does: a pointer clear of the puck's grab ring
-// starts the stroke (the mount's canvas maps 1:1 onto world units here), and a press
-// on the puck with no stroke in hand is the throw gesture, which throws nothing yet.
-// The mount's renderer maps its box by hand: the board point under a client pixel is
-// the renderer's own mapping, so ask the canvas's session context for it. The session
-// armed the puck at CFG.launch*, and the first session runs the classic theme on a box
-// the stub canvas reports as 720x440 at the launch spot's share of it.
 // The stub canvas reports a 720 x 440 box; the renderer fits the 3.6 x 2.2 m board
 // into it (a 0.5 dpr stub keeps client px = world * fitScale) and centres it, so a
 // board point maps to its own fraction of the box. The mount's armed puck is at
@@ -183,6 +176,7 @@ assert.strictEqual(firstMount.nodes['.kerot-throw'].disabled, false,
 // A click on the puck throws the stroke in hand; the throw is queued and the
 // mini-game's own frame commits it, so the turn is no longer the human's after one.
 canvas.dispatch('pointerdown', onBoard(launchX, launchY));
+canvas.dispatch('pointerup', onBoard(launchX, launchY));
 const idleFrame = frames.entries().next().value;
 frames.delete(idleFrame[0]);
 now += 1000 / 60;

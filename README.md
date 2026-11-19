@@ -6,8 +6,9 @@ and no build step.
 
 ## Run
 
-Open `index.html` in a modern browser, or serve the repository as static files. Drag on the board to
-aim, then throw with the button or Space. The page includes the full settings panel, bot profiles,
+Open `index.html` in a modern browser, or serve the repository as static files. Press the board or drag from
+your puck to aim. Hold Shift while dragging for fine adjustments. Tap or click the puck once
+to throw, or use the Throw button or Space. The page includes the full settings panel, bot profiles,
 score maps, recycling rules, and speed voting.
 
 ## Snowfall VN integration

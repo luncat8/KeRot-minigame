@@ -308,8 +308,8 @@ function findEvent(w, rem) {
 		if (w.vx[i] > 0) consider(i, -1, 0, (cfg.boardW - r - w.x[i]) / w.vx[i], rem);
 		if (w.vy[i] < 0) consider(i, -1, 1, (r - w.y[i]) / w.vy[i], rem);
 		if (w.vy[i] > 0) consider(i, -1, 1, (cfg.boardH - r - w.y[i]) / w.vy[i], rem);
-		for (let k = 0; k < BLACK_HOLES.length; k++) {
-			const tau = holeEntryTime(w, i, BLACK_HOLES[k], rem);
+		for (let k = 0; k < w.cfg.holes.length; k++) {
+			const tau = holeEntryTime(w, i, w.cfg.holes[k], rem);
 			if (tau >= 0) considerHole(i, k, tau, rem);
 		}
 	}
@@ -454,8 +454,8 @@ function isSettled(w) {
 function absorbBlackHoles(w) {
 	for (let i = w.n - 1; i >= 0; i--) {
 		let captured = false;
-		for (let k = 0; k < BLACK_HOLES.length; k++) {
-			const hole = BLACK_HOLES[k], dx = w.x[i] - hole.x, dy = w.y[i] - hole.y;
+		for (let k = 0; k < w.cfg.holes.length; k++) {
+			const hole = w.cfg.holes[k], dx = w.x[i] - hole.x, dy = w.y[i] - hole.y;
 			const r = hole.r + w.r[i];
 			if (dx * dx + dy * dy <= r * r) { captured = true; break; }
 		}

@@ -15,6 +15,35 @@ const View = (() => {
 		if (btn) { btn.classList.toggle('on', open); btn.setAttribute('aria-expanded', open ? 'true' : 'false'); }
 		if (onResize) onResize(); // the drawer owns the rail's width: the board box moved
 	}
+	function collapse(v) {
+		panel.hidden = v;
+		document.getElementById('menuTab').hidden = !v;
+		setOpen(!v);
+	}
+	function bindSwipes() {
+		const canvas = document.getElementById('c'), help = document.getElementById('help');
+		let id = null, from, x, y;
+		window.addEventListener('pointerdown', e => {
+			if (e.button !== 0 || e.isPrimary === false) return;
+			if (e.target === canvas && !Game.canAim()) from = 'board';
+			else if (panel.contains(e.target) && !e.target.closest('input,select,textarea')) from = 'menu';
+			else if (help.contains(e.target)) from = 'help';
+			else return;
+			id = e.pointerId; x = e.clientX; y = e.clientY;
+		});
+		window.addEventListener('pointercancel', e => { if (e.pointerId === id) id = null; });
+		window.addEventListener('pointerup', e => {
+			if (id === null || e.pointerId !== id) return;
+			id = null;
+			const dx = e.clientX - x;
+			if (Math.abs(dx) < 48 || Math.abs(dx) < 1.5 * Math.abs(e.clientY - y)) return;
+			if (from === 'menu' && dx > 0) collapse(true);
+			if (from === 'help' && dx < 0) Help.dismiss();
+			if (from !== 'board' || Game.canAim()) return;
+			if (dx > 0) Help.pin();
+			else collapse(false);
+		});
+	}
 	function toggle() { setOpen(!open); }
 	function set(m) {
 		if (!MODES[m] || m === mode) return mode !== m;
@@ -28,12 +57,9 @@ const View = (() => {
 		btn = document.getElementById('btnSettings');
 		panel = document.getElementById('panel');
 		btn.addEventListener('click', toggle);
-		// Moving off the settings closes them (a pointer left of the panel, or a tap out
-		// on the board, does the same). Touch has no hover: there ☰ is the way in and out.
-		window.addEventListener('pointermove', e => {
-			if (!isFit() || !open || e.pointerType === 'touch') return;
-			if (e.clientX < window.innerWidth - (panel.offsetWidth || 0) - 4) setOpen(false);
-		});
+		document.getElementById('btnCollapse').addEventListener('click', () => collapse(true));
+		document.getElementById('menuTab').addEventListener('click', () => collapse(false));
+		bindSwipes();
 		window.addEventListener('pointerdown', e => {
 			if (open && !panel.contains(e.target)) setOpen(false);
 		});

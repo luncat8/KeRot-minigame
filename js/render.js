@@ -3,7 +3,7 @@
 if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'), require('./field.js'), require('./physics.js'), require('./score.js'), require('./players.js'));
 function createRenderer() {
 	let cfg = CFG;
-	let cv, ctx, scale = 100, ox = 0, oy = 0, dpr = 1;
+	let cv, ctx, sx = 100, sy = 100, dpr = 1;
 	let texDisk = null, texSchema = '', ppmDisk = 96, puckGrad = null, wallPath = null, gridPath = null;
 	let zoneFan = null, zoneAdv = null, hatchPath = null, sectorPath = null, bandPath = null;
 	const Z_FILL = 'rgba(32,178,170,0.16)', Z_LINE = 'rgba(46,204,196,0.55)', Z_HATCH = 'rgba(46,204,196,0.16)';
@@ -66,7 +66,7 @@ function createRenderer() {
 		theme.inkSolid = 'rgb(' + theme.ink + ')';
 	}
 	function buildZonePaths() {
-		const z = RETURN_ZONES, v = ADVANCE_ZONES;
+		const z = cfg.returnZone, v = cfg.advanceZone;
 		// Both return rules: a fill with the on-disk guard (diskR + puckR) punched
 		// out of it, so the exemption is drawn instead of implied, plus the outline
 		// to stroke. The 'advance' rule adds the launch lane to its wedge.
@@ -148,29 +148,14 @@ function createRenderer() {
 		path.addPath(fill); path.addPath(hole);
 		return { path: path, line: line };
 	}
-	// The board is fitted into its box by hand instead of by CSS: it takes the largest
-	// rect of the board's aspect that fits both ways, so the canvas never grows past the
-	// viewport and never raises a scrollbar. In the fit view the box is wider than the
-	// board: fitting both ways would letterbox, and a centred board reads as wasted
-	// margin — above all above the canvas. The fit box therefore binds by its height
-	// alone when that is the binding axis, and the board is pinned to the box's top edge
-	// in every shape the screen takes (centred across the width, which is the rail's
-	// side in landscape and the free space beside it in portrait). Refits are cheap —
-	// an unchanged size returns before re-baking the textures.
-	function resize() {
+	function resize(geometryChanged = false) {
 		const box = cv.parentElement;
 		const availW = box.clientWidth || 960;
 		const availH = box.clientHeight || Math.round(availW * cfg.boardH / cfg.boardW);
 		const aspect = cfg.boardW / cfg.boardH;
 		const fit = !!box.dataset && box.dataset.fit === '1';
-		const fitH = fit && availW > availH * aspect;
-		let wpx, hpx;
-		if (fitH) { hpx = availH; wpx = availH * aspect; }
-		else {
-			wpx = availW; hpx = availW / aspect;
-			if (hpx > availH) { hpx = availH; wpx = availH * aspect; }
-		}
-		wpx = Math.max(1, Math.floor(wpx)); hpx = Math.max(1, Math.floor(hpx));
+		const wpx = Math.max(1, Math.floor(fit ? availW : Math.min(availW, availH * aspect)));
+		const hpx = Math.max(1, Math.floor(fit ? availH : Math.min(availH, availW / aspect)));
 		// Supersampling is the cheap antialiasing: draw at the device ratio, capped so
 		// a huge window cannot ask for a backing store no frame loop could fill.
 		dpr = Math.min(3, window.devicePixelRatio || 1);
@@ -179,15 +164,15 @@ function createRenderer() {
 		if (cv.style.width !== cssW) cv.style.width = cssW;
 		if (cv.style.height !== cssH) cv.style.height = cssH;
 		const bw = Math.round(wpx * dpr), bh = Math.round(hpx * dpr);
-		if (bw === cv.width && bh === cv.height) return;
+		if (!geometryChanged && bw === cv.width && bh === cv.height) return;
+		if (geometryChanged) buildZonePaths();
 		cv.width = bw; cv.height = bh;
-		scale = Math.min(cv.width / cfg.boardW, cv.height / cfg.boardH);
-		ox = (cv.width - cfg.boardW * scale) / 2;
-		oy = fit ? 0 : (cv.height - cfg.boardH * scale) / 2; // fit: the top edge, never a margin above
+		sx = cv.width / cfg.boardW;
+		sy = cv.height / cfg.boardH;
 		bake();
 	}
 	function bake() {
-		ppmDisk = Math.max(96, Math.min(512, 2 * scale / dpr));
+		ppmDisk = Math.max(96, Math.min(512, 2 * Math.max(sx, sy) / dpr));
 		bakeDisk();
 		wallPath = new Path2D();
 		wallPath.rect(0, 0, cfg.boardW, cfg.boardH);
@@ -210,7 +195,7 @@ function createRenderer() {
 	}
 	function toWorld(clientX, clientY) {
 		const r = cv.getBoundingClientRect();
-		return { x: ((clientX - r.left) * dpr - ox) / scale, y: ((clientY - r.top) * dpr - oy) / scale };
+		return { x: (clientX - r.left) * cfg.boardW / r.width, y: (clientY - r.top) * cfg.boardH / r.height };
 	}
 	function drawZones(mode) {
 		if (mode === 'none') return;
@@ -224,7 +209,7 @@ function createRenderer() {
 		ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = Z_LINE;
 		ctx.stroke(z.line); ctx.setLineDash([]);
 		if (mode === 'advance') {
-			const v = ADVANCE_ZONES;
+			const v = cfg.advanceZone;
 			// upright in both halves: the wedge's live part is its left edge, the only
 			// stretch of it the disk guard does not cover, and the lane is the strip
 			drawZoneLabel(0.10, cfg.diskY, -Math.PI / 2);
@@ -238,8 +223,8 @@ function createRenderer() {
 	function drawBlackHoles() {
 		ctx.save();
 		ctx.beginPath(); ctx.rect(0, 0, cfg.boardW, cfg.boardH); ctx.clip();
-		for (let i = 0; i < BLACK_HOLES.length; i++) {
-			const hole = BLACK_HOLES[i];
+		for (let i = 0; i < cfg.holes.length; i++) {
+			const hole = cfg.holes[i];
 			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r + cfg.puckR, 0, 2 * Math.PI);
 			ctx.strokeStyle = 'rgba(186, 104, 200, 0.65)'; ctx.lineWidth = 0.012; ctx.setLineDash([0.035, 0.025]); ctx.stroke();
 			ctx.setLineDash([]);
@@ -294,7 +279,7 @@ function createRenderer() {
 		if (cfg.diskSchema !== texSchema) bakeDisk();
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, cv.width, cv.height);
-		ctx.setTransform(scale, 0, 0, scale, ox, oy);
+		ctx.setTransform(sx, 0, 0, sy, 0, 0);
 		// Floor: plain ice in the scheme's tint. It used to carry a faint copy of the field
 		// frozen at θ = 0, which no longer matches once the disk turns — nor any schema
 		// but the one it was baked from.
@@ -442,10 +427,7 @@ function createRenderer() {
 		}
 		ctx.restore();
 	}
-	// The stroke arrow: from the puck to the drag's standstill distance (the grab ring
-	// plus the power the stroke holds), so the board point under the pointer is the
-	// point the arrow ends at. The faint circle is the grab ring — the stroke is set by
-	// a pointer clear of it, and a touch on the puck is the throw gesture.
+	// In plain aim, the tip tracks the pointer between the zero-power ring and full power.
 	function drawAim(w, aim) {
 		if (!aim || aim.pending < 0) return;
 		const sx = w.x[aim.pending], sy = w.y[aim.pending];
@@ -457,17 +439,17 @@ function createRenderer() {
 		ctx.globalAlpha = 1;
 		const sp = Math.hypot(aim.vx, aim.vy);
 		if (!aim.hasStroke || sp < 1e-6) { ctx.restore(); return; }
-		const len = grab + sp / cfg.vMax * cfg.dragFull;
+		const len = grab + (sp - cfg.vMin) / (cfg.vMax - cfg.vMin) * cfg.dragFull;
 		const ux = aim.vx / sp, uy = aim.vy / sp;
 		ctx.lineWidth = 0.018;
-		ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + ux * (len + 0.15), sy + uy * (len + 0.15)); ctx.stroke();
+		ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + ux * (len - 0.13), sy + uy * (len - 0.13)); ctx.stroke();
 		ctx.beginPath();
-		ctx.moveTo(sx + ux * (len + 0.28), sy + uy * (len + 0.28));
-		ctx.lineTo(sx + ux * (len + 0.12) - uy * 0.05, sy + uy * (len + 0.12) + ux * 0.05);
-		ctx.lineTo(sx + ux * (len + 0.12) + uy * 0.05, sy + uy * (len + 0.12) - ux * 0.05);
+		ctx.moveTo(sx + ux * len, sy + uy * len);
+		ctx.lineTo(sx + ux * (len - 0.16) - uy * 0.05, sy + uy * (len - 0.16) + ux * 0.05);
+		ctx.lineTo(sx + ux * (len - 0.16) + uy * 0.05, sy + uy * (len - 0.16) - ux * 0.05);
 		ctx.closePath(); ctx.fill();
 		ctx.font = font.label;
-		ctx.fillText(sp.toFixed(2) + ' m/s, stops ~' + stopDistance(cfg, sp).toFixed(1) + ' m', sx + ux * (len + 0.45), sy + uy * (len + 0.45));
+		ctx.fillText(sp.toFixed(2) + ' m/s, stops ~' + stopDistance(cfg, sp).toFixed(1) + ' m', sx + ux * (len + 0.17), sy + uy * (len + 0.17));
 		ctx.restore();
 	}
 	return { setup, resize, drawWorld, toWorld, themes: THEMES };

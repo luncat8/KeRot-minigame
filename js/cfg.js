@@ -48,13 +48,7 @@ const CFG = {
 	botDelay: 0.7, // seconds a bot "thinks" (aim shown) before throwing
 	settleTime: 3,
 	dragFull: 0.90,
-	// The stroke starts only when the pointer is clear of the puck by this much; a touch
-	// at the centre of a circle carries no direction, so the grab ring is wider than the
-	// puck and the throw finger never needs to sit on it.
-	aimGrabMargin: 0.22,
-	// Two taps on the puck within this many ms and about this far apart throw the stroke
-	// in hand; the puck is 20 cm across, so a finger that lands anywhere on it counts.
-	doubleTapT: 350, doubleTapSlop: 0.24,
+	aimGrabMargin: 0.22, // radius beyond the puck where power starts building
 	preciseGain: 0.03125, // shift-held speed gain: 1/32 of plain
 	preciseAimGain: 0.125, // shift-held aim gain: 1/8 of plain
 	endMode: 'settle',
@@ -86,6 +80,7 @@ const BLACK_HOLES = [
 	{ x: 0.48, y: 0, r: 0.18 },
 	{ x: 0.48, y: CFG.boardH, r: 0.18 },
 ];
+Object.assign(CFG, { returnZone: RETURN_ZONES, advanceZone: ADVANCE_ZONES, holes: BLACK_HOLES });
 const MAX_PUCKS = 40;
 const ST_SLIDE = 0, ST_LOCKED = 1, ST_SLEEP = 2;
 
