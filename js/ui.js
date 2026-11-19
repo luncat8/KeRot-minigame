@@ -346,7 +346,9 @@ const UI = (() => {
 		if (Game.state === 'aim') return seat.type === 'human'
 			? 'P' + (Game.turn + 1) + ': drag to set the stroke, Space to throw'
 			: 'P' + (Game.turn + 1) + ' (' + SEAT_LABELS[seat.type] + ') is aiming…';
-		if (Game.state === 'resolve') return 'resolving… next seat in ' + Math.max(0, CFG.handoffT - Game.resolveT).toFixed(1) + ' s';
+		// The scoring window may be the last one; a recycled ball can still bring a
+		// seat back, so naming the next seat here would promise a turn that may not come.
+		if (Game.state === 'resolve') return 'resolving… scoring window closes in ' + Math.max(0, CFG.handoffT - Game.resolveT).toFixed(1) + ' s';
 		if (Game.state === 'vote') return 'speed vote — P' + (Game.turn + 1) + ' throws when it closes';
 		if (Game.state === 'settle') return 'disk spinning down…';
 		return 'game over — ' + (tied(Game.roster) ? 'a draw' : seatName(Game.winner) + ' wins') + ' · double-click the board for a new game';

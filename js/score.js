@@ -20,13 +20,15 @@ const SC_LUT_N = 128; // red grid over the disk's bounding square: 1.25 cm cells
 const SC_LUT_W = SC_LUT_N + 1; // nodes per side (cell corners, so the rim is a node)
 const RED_MAX = 255; // fieldColor's ceiling (v = +1); the display reference uses it
 
-const _luts = {}; // per disk schema
-const _means = {}; // per disk schema: mean red of the baked grid inside the disk circle
+const _luts = {}; // per disk schema and radius
+const _means = {}; // same key: mean red of the baked grid inside the disk circle
 const _rgb = [0, 0, 0];
-// Red channel over the disk, in disk-local metres, baked once per schema. The field is
-// fixed in the disk's frame, so turning never rebuilds it: the disk's rotation is
-// applied to the sample point, never to the grid.
+function lutKey(cfg) { return cfg.diskSchema + '@' + cfg.diskR; }
+// Red channel over the disk, in disk-local metres, baked once per paint and radius. The
+// field is fixed in the disk's frame, so turning never rebuilds it: the disk's rotation
+// is applied to the sample point, never to the grid.
 function bakeScoreLUT(cfg) {
+	const key = lutKey(cfg);
 	const out = new Float32Array(SC_LUT_W * SC_LUT_W), step = 2 * cfg.diskR / SC_LUT_N;
 	let mean = 0, inside = 0;
 	for (let j = 0; j < SC_LUT_W; j++) {
@@ -38,13 +40,13 @@ function bakeScoreLUT(cfg) {
 			if (x * x + y * y <= cfg.diskR * cfg.diskR) { mean += _rgb[0]; inside++; }
 		}
 	}
-	_means[cfg.diskSchema] = mean / inside;
+	_means[key] = mean / inside;
 	return out;
 }
-function scoreLUT(cfg) { return _luts[cfg.diskSchema] || (_luts[cfg.diskSchema] = bakeScoreLUT(cfg)); }
+function scoreLUT(cfg) { const key = lutKey(cfg); return _luts[key] || (_luts[key] = bakeScoreLUT(cfg)); }
 // The mean red a puck would cover if parked somewhere on the disk, weighting nothing:
 // the bots' ball-value unit (how much one more puck on the board is worth, on average).
-function diskMeanRed(cfg) { return _means[cfg.diskSchema] !== undefined ? _means[cfg.diskSchema] : (scoreLUT(cfg), _means[cfg.diskSchema]); }
+function diskMeanRed(cfg) { const key = lutKey(cfg); return _means[key] !== undefined ? _means[key] : (scoreLUT(cfg), _means[key]); }
 
 // Per-world geometry, refreshed once per score pass (not per puck): the disk's
 // rotation and the grid scale.

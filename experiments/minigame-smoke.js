@@ -132,7 +132,7 @@ firstMount.nodes['.kerot-game'].style = { props: {}, setProperty(k, v) { this.pr
 const answers = [];
 let firstCleanup = null;
 const first = { el: firstMount, key: 'kerot.match-1', opts: { balls: 1, bot: 'random', botDelay: 0, handoffT: 1.5, settleTime: 0.25, schema: 'rim6', theme: 'classic', title: '<safe text>' },
-	answer(value) { answers.push(value); spec.result(first, value, 'live'); firstCleanup(); } };
+	answer(value) { answers.push(value); spec.result(first, value, 'live'); } };
 firstCleanup = spec.run(first);
 assert.strictEqual(firstMount.nodes['.kerot-game'].style.props['--kerot-vh'], '312px',
 	'live session publishes visible mobile viewport height to CSS');
@@ -197,11 +197,11 @@ assert([-1, 0, 1].includes(answers[0]), 'the engine receives one scalar win/draw
 assert.strictEqual(firstMount.nodes['.kerot-game'].dataset.outcome,
 	answers[0] > 0 ? 'win' : answers[0] < 0 ? 'loss' : 'draw', 'the live result is painted');
 assert.strictEqual(frames.size, 0, 'the resolved game leaves no frame callback behind');
+firstCleanup(); // the host may tear down later; stopping the ticker is the game's own job
 assert.strictEqual(Object.values(canvas._events).reduce((n, events) => n + events.length, 0), 0,
 	'the completed session removes its pointer handlers');
 assert.strictEqual((vvListeners.resize || []).length, 0,
 	'the completed session removes its visualViewport listener');
-firstCleanup();
 
 const skipped = makeMount();
 spec.result({ el: skipped }, 0, 'default');

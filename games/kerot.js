@@ -730,13 +730,15 @@
 			const SC_LUT_W = SC_LUT_N + 1; // nodes per side (cell corners, so the rim is a node)
 			const RED_MAX = 255; // fieldColor's ceiling (v = +1); the display reference uses it
 			
-			const _luts = {}; // per disk schema
-			const _means = {}; // per disk schema: mean red of the baked grid inside the disk circle
+			const _luts = {}; // per disk schema and radius
+			const _means = {}; // same key: mean red of the baked grid inside the disk circle
 			const _rgb = [0, 0, 0];
-			// Red channel over the disk, in disk-local metres, baked once per schema. The field is
-			// fixed in the disk's frame, so turning never rebuilds it: the disk's rotation is
-			// applied to the sample point, never to the grid.
+			function lutKey(cfg) { return cfg.diskSchema + '@' + cfg.diskR; }
+			// Red channel over the disk, in disk-local metres, baked once per paint and radius. The
+			// field is fixed in the disk's frame, so turning never rebuilds it: the disk's rotation
+			// is applied to the sample point, never to the grid.
 			function bakeScoreLUT(cfg) {
+				const key = lutKey(cfg);
 				const out = new Float32Array(SC_LUT_W * SC_LUT_W), step = 2 * cfg.diskR / SC_LUT_N;
 				let mean = 0, inside = 0;
 				for (let j = 0; j < SC_LUT_W; j++) {
@@ -748,13 +750,13 @@
 						if (x * x + y * y <= cfg.diskR * cfg.diskR) { mean += _rgb[0]; inside++; }
 					}
 				}
-				_means[cfg.diskSchema] = mean / inside;
+				_means[key] = mean / inside;
 				return out;
 			}
-			function scoreLUT(cfg) { return _luts[cfg.diskSchema] || (_luts[cfg.diskSchema] = bakeScoreLUT(cfg)); }
+			function scoreLUT(cfg) { const key = lutKey(cfg); return _luts[key] || (_luts[key] = bakeScoreLUT(cfg)); }
 			// The mean red a puck would cover if parked somewhere on the disk, weighting nothing:
 			// the bots' ball-value unit (how much one more puck on the board is worth, on average).
-			function diskMeanRed(cfg) { return _means[cfg.diskSchema] !== undefined ? _means[cfg.diskSchema] : (scoreLUT(cfg), _means[cfg.diskSchema]); }
+			function diskMeanRed(cfg) { const key = lutKey(cfg); return _means[key] !== undefined ? _means[key] : (scoreLUT(cfg), _means[key]); }
 			
 			// Per-world geometry, refreshed once per score pass (not per puck): the disk's
 			// rotation and the grid scale.
@@ -2358,6 +2360,9 @@
 					},
 				};
 				let theme = THEMES.classic, themeName = '';
+				// Gradients belong to this renderer's canvas and board height. The theme table is
+				// shared by every renderer on the page, so the fills live here instead.
+				const floorFill = {};
 				const font = { hud: '', label: '', zone: '', hole: '', num: '', tag: '' };
 				const ghostInk = [];
 				function setup(canvas, config) {
@@ -2367,15 +2372,19 @@
 					ctx.imageSmoothingQuality = 'high';
 					puckGrad = ctx.createRadialGradient(-0.03, -0.03, 0.01, 0, 0, cfg.puckR);
 					puckGrad.addColorStop(0, '#f5f6fa'); puckGrad.addColorStop(0.7, '#b2bec3'); puckGrad.addColorStop(1, '#636e72');
-					for (const name in THEMES) {
-						const t = THEMES[name];
-						if (t.floor.length === 1) { t.floorFill = t.floor[0]; continue; }
-						t.floorFill = ctx.createLinearGradient(0, 0, 0, cfg.boardH);
-						for (let k = 0; k < t.floor.length; k++) t.floorFill.addColorStop(k / (t.floor.length - 1), t.floor[k]);
-					}
+					buildFloorFills();
 					applyTheme('classic');
 					buildZonePaths();
 					resize();
+				}
+				function buildFloorFills() {
+					for (const name in THEMES) {
+						const colors = THEMES[name].floor;
+						if (colors.length === 1) { floorFill[name] = colors[0]; continue; }
+						const grad = ctx.createLinearGradient(0, 0, 0, cfg.boardH);
+						for (let k = 0; k < colors.length; k++) grad.addColorStop(k / (colors.length - 1), colors[k]);
+						floorFill[name] = grad;
+					}
 				}
 				function applyTheme(name) {
 					themeName = name; theme = THEMES[name];
@@ -2485,7 +2494,7 @@
 					if (cv.style.height !== cssH) cv.style.height = cssH;
 					const bw = Math.round(wpx * dpr), bh = Math.round(hpx * dpr);
 					if (!geometryChanged && bw === cv.width && bh === cv.height) return;
-					if (geometryChanged) buildZonePaths();
+					if (geometryChanged) { buildZonePaths(); buildFloorFills(); }
 					cv.width = bw; cv.height = bh;
 					sx = cv.width / cfg.boardW;
 					sy = cv.height / cfg.boardH;
@@ -2604,7 +2613,7 @@
 					// frozen at θ = 0, which no longer matches once the disk turns — nor any schema
 					// but the one it was baked from.
 					ctx.save(); ctx.beginPath(); ctx.rect(0, 0, cfg.boardW, cfg.boardH); ctx.clip();
-					ctx.fillStyle = theme.floorFill; ctx.fillRect(0, 0, cfg.boardW, cfg.boardH);
+					ctx.fillStyle = floorFill[themeName]; ctx.fillRect(0, 0, cfg.boardW, cfg.boardH);
 					if (theme.grid) { ctx.strokeStyle = theme.grid; ctx.lineWidth = 0.006; ctx.stroke(gridPath); }
 					drawZones(opts.mode);
 					// Disk: field sprite rotated by theta. It is already cut to the circle, so this
@@ -2939,7 +2948,9 @@
 					rafId = 0;
 				}
 				function schedule() {
-					if (!active || !intersecting || !pageVisible || game.paused || rafId) return;
+					// A resolved match is answered and its DOM can be replaced by the story; the
+					// board has nothing left to draw, so its ticker must not outlive the result.
+					if (!active || finished || !intersecting || !pageVisible || game.paused || rafId) return;
 					rafId = window.requestAnimationFrame(frame);
 				}
 				function statusText() {

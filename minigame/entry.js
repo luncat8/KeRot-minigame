@@ -151,7 +151,9 @@ function run(g) {
 		rafId = 0;
 	}
 	function schedule() {
-		if (!active || !intersecting || !pageVisible || game.paused || rafId) return;
+		// A resolved match is answered and its DOM can be replaced by the story; the
+		// board has nothing left to draw, so its ticker must not outlive the result.
+		if (!active || finished || !intersecting || !pageVisible || game.paused || rafId) return;
 		rafId = window.requestAnimationFrame(frame);
 	}
 	function statusText() {

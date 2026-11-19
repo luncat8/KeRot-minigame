@@ -38,6 +38,9 @@ function createRenderer() {
 		},
 	};
 	let theme = THEMES.classic, themeName = '';
+	// Gradients belong to this renderer's canvas and board height. The theme table is
+	// shared by every renderer on the page, so the fills live here instead.
+	const floorFill = {};
 	const font = { hud: '', label: '', zone: '', hole: '', num: '', tag: '' };
 	const ghostInk = [];
 	function setup(canvas, config) {
@@ -47,15 +50,19 @@ function createRenderer() {
 		ctx.imageSmoothingQuality = 'high';
 		puckGrad = ctx.createRadialGradient(-0.03, -0.03, 0.01, 0, 0, cfg.puckR);
 		puckGrad.addColorStop(0, '#f5f6fa'); puckGrad.addColorStop(0.7, '#b2bec3'); puckGrad.addColorStop(1, '#636e72');
-		for (const name in THEMES) {
-			const t = THEMES[name];
-			if (t.floor.length === 1) { t.floorFill = t.floor[0]; continue; }
-			t.floorFill = ctx.createLinearGradient(0, 0, 0, cfg.boardH);
-			for (let k = 0; k < t.floor.length; k++) t.floorFill.addColorStop(k / (t.floor.length - 1), t.floor[k]);
-		}
+		buildFloorFills();
 		applyTheme('classic');
 		buildZonePaths();
 		resize();
+	}
+	function buildFloorFills() {
+		for (const name in THEMES) {
+			const colors = THEMES[name].floor;
+			if (colors.length === 1) { floorFill[name] = colors[0]; continue; }
+			const grad = ctx.createLinearGradient(0, 0, 0, cfg.boardH);
+			for (let k = 0; k < colors.length; k++) grad.addColorStop(k / (colors.length - 1), colors[k]);
+			floorFill[name] = grad;
+		}
 	}
 	function applyTheme(name) {
 		themeName = name; theme = THEMES[name];
@@ -165,7 +172,7 @@ function createRenderer() {
 		if (cv.style.height !== cssH) cv.style.height = cssH;
 		const bw = Math.round(wpx * dpr), bh = Math.round(hpx * dpr);
 		if (!geometryChanged && bw === cv.width && bh === cv.height) return;
-		if (geometryChanged) buildZonePaths();
+		if (geometryChanged) { buildZonePaths(); buildFloorFills(); }
 		cv.width = bw; cv.height = bh;
 		sx = cv.width / cfg.boardW;
 		sy = cv.height / cfg.boardH;
@@ -284,7 +291,7 @@ function createRenderer() {
 		// frozen at θ = 0, which no longer matches once the disk turns — nor any schema
 		// but the one it was baked from.
 		ctx.save(); ctx.beginPath(); ctx.rect(0, 0, cfg.boardW, cfg.boardH); ctx.clip();
-		ctx.fillStyle = theme.floorFill; ctx.fillRect(0, 0, cfg.boardW, cfg.boardH);
+		ctx.fillStyle = floorFill[themeName]; ctx.fillRect(0, 0, cfg.boardW, cfg.boardH);
 		if (theme.grid) { ctx.strokeStyle = theme.grid; ctx.lineWidth = 0.006; ctx.stroke(gridPath); }
 		drawZones(opts.mode);
 		// Disk: field sprite rotated by theta. It is already cut to the circle, so this

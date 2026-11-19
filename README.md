@@ -6,9 +6,9 @@ and no build step.
 
 ## Run
 
-Open `index.html` in a modern browser, or serve the repository as static files. Press the board or drag from
-your puck to aim. Hold Shift while dragging for fine adjustments. Tap or click the puck once
-to throw, or use the Throw button or Space. When the last throw is done the result card over the
+Open `index.html` in a modern browser, or serve the repository as static files. Press or drag on
+the ice outside your puck to aim. Hold Shift while dragging for fine adjustments. Tap or click the
+puck once to throw, or use the Throw button or Space. When the last throw is done the result card over the
 board names the winner; **double-click the board** (or press **R**) to deal a new game. The page
 includes the full settings panel, bot profiles, score maps, recycling rules, and speed voting.
 

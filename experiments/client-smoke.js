@@ -10,6 +10,7 @@ let fail = 0;
 function check(ok, name, extra) { if (!ok) { console.log('FAIL ' + name + (extra ? ' — ' + extra : '')); fail = 1; } }
 
 const ops = [];
+const linearGradients = []; // floor fills: recreated when the board's geometry changes
 let bakes = 0; // createImageData calls: one per field texture baked
 function makeCtx() {
 	return {
@@ -20,7 +21,7 @@ function makeCtx() {
 		clip(p, rule) { ops.push('clip' + (rule ? ':' + rule : '')); }, setLineDash() { }, drawImage() { },
 		fillText(t) { ops.push('text:' + t); }, strokeText(t) { ops.push('outline:' + t); },
 		createRadialGradient() { return { addColorStop() { } }; },
-		createLinearGradient() { return { addColorStop() { } }; },
+		createLinearGradient(x0, y0, x1, y1) { const g = { x0, y0, x1, y1, stops: [] }; linearGradients.push(g); g.addColorStop = at => g.stops.push(at); return g; },
 		createImageData(w, h) { bakes++; return { data: new Uint8ClampedArray(w * h * 4) }; },
 		putImageData() { },
 	};
@@ -156,7 +157,13 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		'a fit board is pinned to the top left, not centred', JSON.stringify(Render.toWorld(0, 0)));
 	const corner = Render.toWorld(900, 300);
 	check(Math.abs(corner.x - CFG.boardW) + Math.abs(corner.y - CFG.boardH) < 1e-9, 'the pane corner maps to the board corner');
-	Game.fitBoard(3.6 / 2.2);
+	// Refitting changes boardH, so the kerot-s floor gradient has to be rebuilt too;
+	// otherwise the lower part of the ice keeps the old gradient's last colour.
+	const grads0 = linearGradients.length;
+	Render.resize(Game.fitBoard(1));
+	check(linearGradients.slice(grads0).some(g => Math.abs(g.y1 - CFG.boardH) < 1e-9),
+		'a geometry change rebakes the floor fills at the new height', String(CFG.boardH));
+	Render.resize(Game.fitBoard(3.6 / 2.2));
 	const sideBox = makeCanvas();
 	sideBox.parentElement = { clientWidth: 900, clientHeight: 300, dataset: { fit: '0' } };
 	Render.setup(sideBox);
@@ -541,6 +548,9 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		range.value = '0.5'; range.on.input(); UI.update(Game.world);
 		check(Game.roster[0].vote === VOTE_SET && valText.textContent === '+.50' && !keepBox.checked, 'the slider casts a change vote', valText.textContent);
 		Game.setAimVel(-0.6, 0.05); Game.commitThrow();
+		UI.update(Game.world);
+		check(Game.state === 'resolve' && els.state.textContent.includes('scoring window closes in') &&
+			!els.state.textContent.includes('next seat'), 'a resolve names its window, not an unpromised next seat', els.state.textContent);
 		let k = 0;
 		const frame = () => { Game.tick(1 / 60); Game.beforeSteps(); for (let s = 0; s < 8; s++) stepWorld(Game.world, CFG.h); Game.afterSteps(8 * CFG.h); };
 		while (Game.state !== 'vote' && k++ < 20000) frame();
