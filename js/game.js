@@ -109,10 +109,10 @@ function createGame(env) {
 	// (aim) share of further drag counts — precision mode, finer on speed than on aim.
 	// The angle anchor starts at the drag's own direction, so scaling the first event
 	// cannot turn an absolute angle into nonsense.
-	function setStroke(dx, dy, precise) {
+	function setStroke(dx, dy, precise, angle) {
 		const len = Math.hypot(dx, dy);
+		const raw = angle === undefined ? Math.atan2(dy, dx) : angle; // a caller may hold the angle
 		if (len < 1e-6) { aim.hasStroke = false; return; }
-		const raw = Math.atan2(dy, dx);
 		if (precise !== aim.precise) {
 			rebase(len, aim.hasStroke ? Math.hypot(aim.vx, aim.vy) : rawSpeed(len), precise);
 			aim.anchorRaw = raw;
@@ -307,22 +307,95 @@ function createGame(env) {
 		if (sim) { botPrep(); commitThrow(); return; }
 		startPlan();
 	}
+	// Pointer aiming: the stroke runs from the armed puck to the pointer, and only a
+	// pointer clear of the puck by aimGrab may set it — a touch on the centre of a circle
+	// carries no direction, and the throw finger never has to sit on the puck. A touch on
+	// the puck is the throw gesture: two taps within doubleTapT (and doubleTapSlop apart)
+	// throw the stroke in hand, and a mouse or pen click throws in one. A click on the
+	// board while nothing is aimed places the arrow's end, so a fresh turn is one pointer
+	// long.
 	function bindInput(canvas) {
 		canvas.style.touchAction = 'none';
-		let sx = 0, sy = 0;
+		const MODE_NONE = 0, MODE_AIM = 1, MODE_PLACE = 2, MODE_TAP = 3;
+		let dragId = -1, dragMode = MODE_NONE;
+		let lastTapT = -Infinity, lastTapX = 0, lastTapY = 0;
+		// A touch on the puck itself is the throw gesture; the grab ring around it aims, and
+		// a touch on the ring's margin goes to the stroke, so a throw that misses the puck
+		// by a little re-aims instead of being eaten.
+		function onPuck(p) {
+			const dx = p.x - w.x[pending], dy = p.y - w.y[pending], r = cfg.puckR;
+			return dx * dx + dy * dy <= r * r;
+		}
+		// The stroke of a pointer at p: the arrow runs from the puck to the pointer, and
+		// the power is the pointer's distance past the grab ring, vMin..vMax over dragFull.
+		// Each event is its own anchor, so the stroke is absolute — the arrow jumps to
+		// wherever the pointer is (that is what makes a press on the board a place rather
+		// than a drag from the puck) and no earlier event can scale it. Inside the ring
+		// the power is vMin, and a drag back home is a soft throw, not a lost stroke.
+		function aimFrom(p, precise) {
+			const dx = p.x - w.x[pending], dy = p.y - w.y[pending], grab = aimGrab(cfg);
+			const d = Math.hypot(dx, dy);
+			const len = Math.max(0, Math.min(d - grab, cfg.dragFull));
+			const ang = d > 1e-6 ? Math.atan2(dy, dx) : Math.atan2(aim.vy, aim.vx);
+			rebase(0, cfg.vMin, precise);
+			setStroke(Math.cos(ang) * len, Math.sin(ang) * len, precise, ang);
+			// On the puck the speed is poked in by hand: there the distance past the ring
+			// is float noise around zero, and the setStroke round trip would leave a
+			// rounding crumb instead of a clean vMin.
+			if (d <= grab) setAimVel(Math.cos(ang) * cfg.vMin, Math.sin(ang) * cfg.vMin);
+		}
+		// A second tap within the window and the slop of the first is the throw, wherever
+		// it lands — a finger that drifts off the puck while double-tapping still means
+		// the puck. The first tap only arms the gesture; nothing is thrown without a
+		// stroke in hand.
+		function secondTap(p, e) {
+			return e.pointerType === 'touch' && e.timeStamp - lastTapT <= cfg.doubleTapT &&
+				Math.hypot(p.x - lastTapX, p.y - lastTapY) <= cfg.doubleTapSlop;
+		}
+		function tap(p, e) {
+			if (e.pointerType !== 'touch') { // a mouse/pen click on the puck is the throw
+				if (aim.hasStroke) queue.push({ type: 'throw', timeStamp: e.timeStamp });
+				return;
+			}
+			if (secondTap(p, e)) {
+				lastTapT = -Infinity;
+				if (aim.hasStroke) queue.push({ type: 'throw', timeStamp: e.timeStamp });
+				return;
+			}
+			lastTapT = e.timeStamp; lastTapX = p.x; lastTapY = p.y;
+		}
 		canvas.addEventListener('pointerdown', e => {
-			if (state !== 'aim' || isBot(roster[turn])) return;
-			canvas.setPointerCapture(e.pointerId);
+			if (state !== 'aim' || isBot(roster[turn]) || pending < 0) return;
 			const p = Render.toWorld(e.clientX, e.clientY);
-			sx = w.x[pending]; sy = w.y[pending]; aim.dragging = true;
-			rebase(0, cfg.vMin, e.shiftKey); setStroke(p.x - sx, p.y - sy, e.shiftKey);
+			if (onPuck(p) || secondTap(p, e)) {
+				dragId = e.pointerId; dragMode = MODE_TAP;
+				tap(p, e);
+				return;
+			}
+			// A click (mouse/pen) on the board while nothing is aimed only places the
+			// arrow end; it does not drag it away on the release the click brings.
+			dragMode = e.pointerType !== 'touch' && !aim.hasStroke ? MODE_PLACE : MODE_AIM;
+			dragId = e.pointerId;
+			aim.dragging = dragMode === MODE_AIM;
+			aimFrom(p, e.shiftKey);
+			if (dragMode === MODE_AIM) canvas.setPointerCapture(e.pointerId);
 		});
+		// Only a stroke drag moves the stroke. A press on the puck is a tap and nothing
+		// else — a finger slides a little while it lifts, and that slide must not re-aim
+		// the throw; a placed click is not dragged either.
 		canvas.addEventListener('pointermove', e => {
-			if (!aim.dragging || state !== 'aim') return;
-			const p = Render.toWorld(e.clientX, e.clientY);
-			setStroke(p.x - sx, p.y - sy, e.shiftKey);
+			if (e.pointerId !== dragId || dragMode !== MODE_AIM || state !== 'aim') return;
+			aimFrom(Render.toWorld(e.clientX, e.clientY), e.shiftKey);
 		});
-		canvas.addEventListener('pointerup', () => { aim.dragging = false; });
+		canvas.addEventListener('pointerup', e => {
+			if (e.pointerId !== dragId) return;
+			dragId = -1; dragMode = MODE_NONE; aim.dragging = false;
+		});
+		canvas.addEventListener('pointercancel', e => {
+			if (e.pointerId !== dragId) return;
+			if (dragMode !== MODE_PLACE) aim.hasStroke = false; // the stroke left with the pointer
+			dragId = -1; dragMode = MODE_NONE; aim.dragging = false;
+		});
 		window.addEventListener('keydown', e => {
 			if (e.code === 'Space') {
 				e.preventDefault();

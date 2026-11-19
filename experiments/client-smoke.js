@@ -39,7 +39,15 @@ class Path2D {
 	addPath(p) { for (const o of p.ops) this.ops.push(o); }
 }
 function makeCanvas() {
-	return { width: 0, height: 0, style: {}, clientWidth: 640, parentElement: { clientWidth: 900, clientHeight: 550 }, getContext: () => makeCtx(), addEventListener() { }, getBoundingClientRect: () => ({ left: 0, top: 0 }) };
+	return { width: 0, height: 0, style: {}, clientWidth: 640, parentElement: { clientWidth: 900, clientHeight: 550 },
+		getContext: () => makeCtx(), getBoundingClientRect: () => ({ left: 0, top: 0 }),
+		_events: {}, _captured: -1,
+		addEventListener(type, fn) { (this._events[type] = this._events[type] || []).push(fn); },
+		removeEventListener(type, fn) { this._events[type] = (this._events[type] || []).filter(f => f !== fn); },
+		dispatch(type, ev) { for (const fn of this._events[type] || []) fn(ev); },
+		setPointerCapture(id) { this._captured = id; },
+		hasPointerCapture(id) { return this._captured === id; },
+	};
 }
 globalThis.Path2D = Path2D;
 const winListeners = {};
@@ -50,10 +58,10 @@ globalThis.document = { createElement: () => makeCanvas(), getElementById: () =>
 // top-level consts become real globals (node would keep them module-local). Strict
 // mode turns an assignment to an undeclared name — a silent implicit global in a
 // classic script — into a ReferenceError the moment the code runs.
-for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/render.js', '../js/game.js', '../js/warp.js', '../js/ui.js', '../js/help.js']) {
+for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/render.js', '../js/game.js', '../js/warp.js', '../js/ui.js', '../js/help.js', '../js/view.js']) {
 	const src = fs.readFileSync(require('path').join(__dirname, f), 'utf8')
 		.replace(/^if \(typeof module !== 'undefined'\).*$/gm, '') // node-only require/export guards
-		.replace(/\bconst (Render|Game|UI|Help|SEAT_COLORS|SEAT_TYPES|SEAT_LABELS|SEAT_NAMES|SC_LUT_N|SC_LUT_W|RED_MAX|WARP_MAX_TRIES) =/, 'globalThis.$1 =')
+		.replace(/\bconst (Render|Game|UI|Help|View|SEAT_COLORS|SEAT_TYPES|SEAT_LABELS|SEAT_NAMES|SC_LUT_N|SC_LUT_W|RED_MAX|WARP_MAX_TRIES) =/, 'globalThis.$1 =')
 		.replace(/\bfunction (bakeFieldCanvas|createGame|createWarp)/, 'globalThis.$1 = function $1');
 	eval('"use strict";' + src);
 }
@@ -139,6 +147,20 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		'horizontal smartphone box fits strictly inside visible height', phoneLand.style.width + 'x' + phoneLand.style.height);
 	// Even if a huge display hits the 6 Mpx backing-store cap at two sizes that round
 	// to the same backing dimensions, cv.style.width/height still track the CSS box.
+	// Fit view: a box wider than the board's aspect binds by its height alone and pins
+	// the canvas to its top left, so a landscape phone never gets a letterbox margin
+	// above the board and the rail keeps the rest of the width.
+	const fitBox = makeCanvas();
+	fitBox.parentElement = { clientWidth: 900, clientHeight: 300, dataset: { fit: '1' } };
+	Render.setup(fitBox);
+	check(parseFloat(fitBox.style.height) === 300 && Math.abs(parseFloat(fitBox.style.width) - 300 * CFG.boardW / CFG.boardH) < 1,
+		'a fit box binds the board by its height', fitBox.style.width + 'x' + fitBox.style.height);
+	check(Render.toWorld(0, 0).x === 0 && Math.abs(Render.toWorld(0, 0).y) < 0.01,
+		'a fit board is pinned to the top left, not centred', JSON.stringify(Render.toWorld(0, 0)));
+	const sideBox = makeCanvas();
+	sideBox.parentElement = { clientWidth: 900, clientHeight: 300, dataset: { fit: '0' } };
+	Render.setup(sideBox);
+	check(Math.abs(parseFloat(sideBox.style.height) - 300) < 1, 'the side layout still letterboxes both ways', sideBox.style.width + 'x' + sideBox.style.height);
 	const huge = makeCanvas();
 	huge.parentElement = { clientWidth: 4000, clientHeight: 2444 };
 	Render.setup(huge);
@@ -605,14 +627,151 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		console.log('presets/url smoke: ' + Object.keys(PRESETS).length + ' presets, parameters applied and clamped, sliders pulled, roster swapped, link echoed');
 		els.chkRing.checked = true; els.chkPreview.checked = true;
 	}
+	// Input: the stroke starts only clear of the puck by the grab ring and ends where
+	// the pointer is; a touch on the puck is the throw gesture (two taps), a mouse/pen
+	// click on it throws the stroke in hand, and a click on the board places the arrow.
+	// Pointer positions are mapped through the renderer the page itself uses.
+	{
+		Game.setSeatTypes(['human', 'balanced']);
+		Game.reset();
+		const cv = makeCanvas();
+		Game.bindInput(cv);
+		const w = Game.world, grab = aimGrab(CFG);
+		const o0 = Render.toWorld(0, 0), o1 = Render.toWorld(1, 0), o2 = Render.toWorld(0, 1);
+		const kx = 1 / (o1.x - o0.x), ky = 1 / (o2.y - o0.y); // world -> client px of the renderer
+		const px = w.x[Game.pending], py = w.y[Game.pending];
+		const cx = dx => (px + dx - o0.x) * kx, cy = dy => (py + dy - o0.y) * ky;
+		const ev = (x, y, o) => Object.assign({ pointerId: 1, clientX: x, clientY: y, shiftKey: false, timeStamp: 1000, pointerType: 'touch', preventDefault() { } }, o || {});
+		const fire = (type, dx, dy, o) => cv.dispatch(type, ev(cx(dx), cy(dy), o));
+		const speed = () => Math.hypot(Game.aim.vx, Game.aim.vy);
+		// Expire any half-made double tap: a tap on the puck stamped before the epoch can
+		// never pair with a later one, so the next gesture starts from a clean slate.
+		const lastTapReset = () => fire('pointerdown', 0, 0, { timeStamp: -1e9 });
+		const angDeg = () => Math.atan2(Game.aim.vy, Game.aim.vx) * 180 / Math.PI;
+		// A touch on the puck does not start a stroke and is not a throw on its own.
+		fire('pointerdown', 0, 0); fire('pointerup', 0, 0);
+		check(!Game.aim.hasStroke && !Game.aim.dragging, 'a touch on the puck starts no stroke');
+		fire('pointerdown', 0.03, 0, { timeStamp: 1100 }); fire('pointerup', 0.03, 0, { timeStamp: 1100 });
+		check(Game.state === 'aim', 'an unaimed double tap throws nothing');
+		// A press on the puck is the throw gesture, not an aim; on the ring's margin it is
+		// already a stroke at vMin, and past the ring the arrow ends where the pointer
+		// stands (the grab ring plus vMin..vMax over dragFull).
+		const onPuck = CFG.puckR - 0.01, ringMargin = grab - 0.01, outside = grab + 0.45;
+		Game.aim.hasStroke = false;
+		fire('pointerdown', onPuck, 0); fire('pointerup', onPuck, 0);
+		check(!Game.aim.hasStroke, 'a press on the puck does not aim');
+		Game.aim.hasStroke = false;
+		lastTapReset(); // the taper's taps above are not part of this gesture
+		fire('pointerdown', ringMargin, 0);
+		check(Game.aim.hasStroke && speed() === CFG.vMin, 'a press on the ring margin aims at vMin', speed().toFixed(3));
+		fire('pointerup', ringMargin, 0);
+		Game.aim.hasStroke = false;
+		fire('pointerdown', outside, 0);
+		const want = Math.min(CFG.vMax, CFG.vMin + (outside - grab) / CFG.dragFull * (CFG.vMax - CFG.vMin));
+		console.log('input: press ' + outside.toFixed(2) + ' m from the puck (grab ' + grab.toFixed(2) + ') aims ' + speed().toFixed(3) + ' m/s at ' + angDeg().toFixed(1) + '°');
+		check(Game.aim.dragging && Math.abs(speed() - want) < 1e-6, 'the stroke is set from the grab ring to the pointer', speed().toFixed(3) + ' vs ' + want.toFixed(3));
+		check(Math.abs(angDeg()) < 1e-6, 'the arrow points at the pointer');
+		fire('pointermove', grab + 3, 0);
+		check(speed() === CFG.vMax, 'a drag past the full-drag distance clamps to vMax');
+		fire('pointermove', 0, grab + 0.4);
+		check(Math.abs(angDeg() - 90) < 1e-6, 'the arrow follows the drag around the puck', angDeg().toFixed(2));
+		fire('pointermove', -0.4, 0);
+		check(Math.abs(Math.abs(angDeg()) - 180) < 1e-6, 'and around the other way', angDeg().toFixed(2));
+		// Dragged back onto the puck the stroke holds at vMin instead of being lost.
+		fire('pointermove', 0.01, 0);
+		check(speed() === CFG.vMin && Game.aim.hasStroke, 'dragged home the stroke holds at vMin',
+			speed().toFixed(3) + ' at ' + angDeg().toFixed(2));
+		fire('pointerup', -0.5, grab);
+		check(!Game.aim.dragging && Game.aim.hasStroke, 'letting go keeps the stroke (a throw still needs the gesture)');
+		// Two taps on the puck within the window throw the stroke in hand.
+		fire('pointerdown', 0, 0, { timeStamp: 5000 }); fire('pointerup', 0, 0, { timeStamp: 5000 });
+		check(Game.state === 'aim', 'the first tap only arms the gesture');
+
+		fire('pointerdown', 0.05, 0, { timeStamp: 5150 }); fire('pointerup', 0.05, 0, { timeStamp: 5150 });
+		Game.beforeSteps(); // the throw is queued, like Space's, and committed between steps
+		check(Game.state === 'resolve', 'two taps on the puck within the window throw it');
+		// The second tap counts even when the finger drifts off the puck (the slop is
+		// there for exactly that), and a first tap left far outside the window expires.
+		Game.reset();
+		Game.setAimVel(-1.2, 0.1);
+		fire('pointerdown', 0, 0, { timeStamp: 20000 }); fire('pointerup', 0, 0, { timeStamp: 20000 });
+		fire('pointerdown', 0.2, 0, { timeStamp: 20250 }); fire('pointerup', 0.2, 0, { timeStamp: 20250 });
+		Game.beforeSteps();
+		check(Game.state === 'resolve', 'the second tap may land off the puck, within the slop');
+		Game.reset();
+		Game.setAimVel(-1.2, 0.1);
+		fire('pointerdown', 0, 0, { timeStamp: 30000 }); fire('pointerup', 0, 0, { timeStamp: 30000 });
+		fire('pointerdown', 0, 0, { timeStamp: 30600 }); fire('pointerup', 0, 0, { timeStamp: 30600 });
+		Game.beforeSteps();
+		check(Game.state === 'aim', 'two taps too far apart in time are two separate taps');
+		// A mouse click on the puck throws what is aimed; a click on the board places the
+		// arrow instead of dragging it away on the click's own release.
+		Game.reset();
+		const mouse = (type, dx, dy, o) => fire(type, dx, dy, Object.assign({ pointerType: 'mouse' }, o || {}));
+		mouse('pointerdown', 0, 0, { timeStamp: 7000 });
+		check(Game.state === 'aim', 'a mouse click on the puck with no stroke in hand throws nothing');
+		mouse('pointerup', 0, 0, { timeStamp: 7000 });
+		mouse('pointerdown', grab + 0.4, 0, { timeStamp: 8000 });
+		check(!Game.aim.dragging && Game.aim.hasStroke && Game.state === 'aim', 'a click on the board places the arrow');
+		const placed = speed();
+		mouse('pointerup', grab + 0.4, 0, { timeStamp: 8000 });
+		check(speed() === placed, 'the click release does not drag the placed arrow');
+		mouse('pointerdown', 0, 0, { timeStamp: 9000 });
+		Game.beforeSteps();
+		check(Game.state === 'resolve', 'a click on the puck throws the placed stroke');
+		check(Game.world.thrown === 1, 'the throw went through the real state machine', String(Game.world.thrown));
+	}
+	// View: fit is the default and a URL key; the panel is the rail with a settings
+	// drawer in it, and the body attribute is what the CSS keys both shapes off.
+	{
+		const html2 = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+		check(/<body data-fit="1">/.test(html2), 'the page boots in the fit view');
+		document.body.dataset.fit = '1'; // the page's own body starts in fit (the UI stub above replaced it)
+		View.set('side'); View.set('fit');
+		check(View.isFit() && document.body.dataset.fit === '1', 'fit is the shipped view mode');
+		let fits = 0;
+		els.panel = Object.assign(makeEl('panel'), { scrollTop: 0, contains() { return false; } });
+		els.btnSettings = makeEl('btnSettings');
+		const panel = els.panel, b = els.btnSettings;
+		View.bind(() => { fits++; });
+		UI.bindSettings();
+		b.on.click();
+		check(panel.cls.open === true && b.attrs['aria-expanded'] === 'true', 'the settings switch opens the drawer', String(panel.cls.open));
+		check(fits > 0, 'opening the drawer refits the board it just narrowed');
+		b.on.click();
+		check(!panel.cls.open, 'and closes it again');
+		// A tap out on the board closes the drawer; a touch hover never opens anything.
+		b.on.click();
+		fireWindow('pointerdown', { target: { id: 'c' } });
+		check(!panel.cls.open, 'a tap out on the board closes the drawer');
+		fireWindow('pointermove', { pointerType: 'touch', clientX: 8 });
+		check(!panel.cls.open, 'a touch move does not open it');
+		// The view select switches to the side layout, which is a link key.
+		const historyCalls2 = [];
+		globalThis.history = { replaceState(a, b2, url) { historyCalls2.push(url); } };
+		globalThis.location = { pathname: '/index.html', hash: '', search: '' };
+		els.view.value = 'side'; els.view.on.change();
+		check(!View.isFit() && document.body.dataset.fit === '0', 'the view select switches to the side layout');
+		check(/view=side/.test(historyCalls2[historyCalls2.length - 1] || ''), 'the side layout is named in the link', historyCalls2.join(','));
+		const qSide = parseQuery('?view=SIDE');
+		check(qSide && qSide.view === 'side', 'view is a URL key, case-insensitive');
+		check(parseQuery('?view=nowhere') === null, 'an unknown view is dropped');
+		UI.applySetup(parseQuery('?view=fit'));
+		check(View.isFit() && els.view.value === 'fit', 'a link switches back to fit', View.isFit() + ' ' + els.view.value);
+		UI.applySetup(parseQuery('?view=fit'));
+		historyCalls2.length = 0;
+		check(!/view=/.test(historyCalls2[historyCalls2.length - 1] || ''), 'fit is the shipped view: it is not written into links');
+		console.log('view smoke: fit -> side -> fit, the drawer toggles, the link names side only');
+	}
 	// Mobile layout + live visualViewport sync: #app avoids 100vh overflow, #boardWrap
 	// top-aligns the canvas without wasted centering gap, horizontal widescreen phones
 	// stay in row layout, and main.js pins #app to visualViewport height when unzoomed.
 	{
 		check(!/#app\s*\{[^}]*100vh/.test(html) && /#app\s*\{[^}]*position:\s*fixed/.test(html),
 			'#app avoids 100vh overflow and pins to the layout viewport');
-		check(/#boardWrap\s*\{[^}]*align-items:\s*flex-start/.test(html),
-			'#boardWrap top-aligns the canvas so vertical surplus never pads above it');
+		check(/body\[data-fit=1\] #boardWrap\s*\{[^}]*position:\s*absolute/.test(html) &&
+			/body\[data-fit=1\] canvas\s*\{[^}]*left:\s*0;\s*top:\s*0/.test(html),
+			'the fit board box hangs off the pinned #app and the canvas sits at its top left');
 		check(/@media\s*\(max-width:\s*960px\),\s*\(max-height:\s*600px\)/.test(html) &&
 			/@media\s*\(orientation:\s*portrait\)/.test(html),
 			'small/short screens compact chrome and only portrait stacks the panel under the board');

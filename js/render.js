@@ -150,15 +150,26 @@ function createRenderer() {
 	}
 	// The board is fitted into its box by hand instead of by CSS: it takes the largest
 	// rect of the board's aspect that fits both ways, so the canvas never grows past the
-	// viewport and never raises a scrollbar. Refits are cheap — an unchanged size
-	// returns before re-baking the textures.
+	// viewport and never raises a scrollbar. In the fit view the box is wider than the
+	// board: fitting both ways would letterbox, and a centred board reads as wasted
+	// margin — above all above the canvas. The fit box therefore binds by its height
+	// alone when that is the binding axis, and the board is pinned to the box's top edge
+	// in every shape the screen takes (centred across the width, which is the rail's
+	// side in landscape and the free space beside it in portrait). Refits are cheap —
+	// an unchanged size returns before re-baking the textures.
 	function resize() {
 		const box = cv.parentElement;
 		const availW = box.clientWidth || 960;
 		const availH = box.clientHeight || Math.round(availW * cfg.boardH / cfg.boardW);
 		const aspect = cfg.boardW / cfg.boardH;
-		let wpx = availW, hpx = availW / aspect;
-		if (hpx > availH) { hpx = availH; wpx = availH * aspect; }
+		const fit = !!box.dataset && box.dataset.fit === '1';
+		const fitH = fit && availW > availH * aspect;
+		let wpx, hpx;
+		if (fitH) { hpx = availH; wpx = availH * aspect; }
+		else {
+			wpx = availW; hpx = availW / aspect;
+			if (hpx > availH) { hpx = availH; wpx = availH * aspect; }
+		}
 		wpx = Math.max(1, Math.floor(wpx)); hpx = Math.max(1, Math.floor(hpx));
 		// Supersampling is the cheap antialiasing: draw at the device ratio, capped so
 		// a huge window cannot ask for a backing store no frame loop could fill.
@@ -171,7 +182,8 @@ function createRenderer() {
 		if (bw === cv.width && bh === cv.height) return;
 		cv.width = bw; cv.height = bh;
 		scale = Math.min(cv.width / cfg.boardW, cv.height / cfg.boardH);
-		ox = (cv.width - cfg.boardW * scale) / 2; oy = (cv.height - cfg.boardH * scale) / 2;
+		ox = (cv.width - cfg.boardW * scale) / 2;
+		oy = fit ? 0 : (cv.height - cfg.boardH * scale) / 2; // fit: the top edge, never a margin above
 		bake();
 	}
 	function bake() {
@@ -430,15 +442,24 @@ function createRenderer() {
 		}
 		ctx.restore();
 	}
+	// The stroke arrow: from the puck to the drag's standstill distance (the grab ring
+	// plus the power the stroke holds), so the board point under the pointer is the
+	// point the arrow ends at. The faint circle is the grab ring — the stroke is set by
+	// a pointer clear of it, and a touch on the puck is the throw gesture.
 	function drawAim(w, aim) {
-		if (!aim || aim.pending < 0 || !aim.hasStroke) return;
+		if (!aim || aim.pending < 0) return;
 		const sx = w.x[aim.pending], sy = w.y[aim.pending];
+		const grab = aimGrab(cfg);
+		ctx.save(); ctx.setLineDash([]);
+		ctx.strokeStyle = theme.inkSolid; ctx.fillStyle = theme.inkSolid;
+		ctx.globalAlpha = 0.3; ctx.lineWidth = 0.01;
+		ctx.beginPath(); ctx.arc(sx, sy, grab, 0, Math.PI * 2); ctx.stroke();
+		ctx.globalAlpha = 1;
 		const sp = Math.hypot(aim.vx, aim.vy);
-		if (sp < 1e-6) return;
-		const len = sp / cfg.vMax * cfg.dragFull;
+		if (!aim.hasStroke || sp < 1e-6) { ctx.restore(); return; }
+		const len = grab + sp / cfg.vMax * cfg.dragFull;
 		const ux = aim.vx / sp, uy = aim.vy / sp;
-		ctx.save();
-		ctx.strokeStyle = theme.inkSolid; ctx.fillStyle = theme.inkSolid; ctx.lineWidth = 0.018;
+		ctx.lineWidth = 0.018;
 		ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + ux * (len + 0.15), sy + uy * (len + 0.15)); ctx.stroke();
 		ctx.beginPath();
 		ctx.moveTo(sx + ux * (len + 0.28), sy + uy * (len + 0.28));

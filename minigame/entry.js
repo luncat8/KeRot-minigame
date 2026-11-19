@@ -12,6 +12,7 @@ const registry = globalThis.SnowfallGames;
 const BASE_CFG = cfgModule.CFG;
 const BOT_PROFILES = botModule.BOT_PROFILES;
 const { createRoster } = playerModule;
+const { aimGrab } = cfgModule;
 const { stepWorld } = physicsModule;
 const { displayScore } = scoreModule;
 const { createGame } = gameModule;
@@ -127,7 +128,8 @@ function run(g) {
 		turn: game.turn, resolveT: game.resolveT, voteT: game.voteT, state: game.state
 	};
 	let active = true, intersecting = true, pageVisible = document.visibilityState !== 'hidden';
-	let rafId = 0, last = 0, acc = 0, uiT = 0, dragX = 0, dragY = 0, finished = false;
+	let rafId = 0, last = 0, acc = 0, uiT = 0, finished = false;
+	let lastTapT = -Infinity, lastTapX = 0, lastTapY = 0;
 	let observer = null, resizeObserver = null;
 
 	function canAim() { return game.state === 'aim' && game.turn === 0 && game.pending >= 0; }
@@ -202,21 +204,42 @@ function run(g) {
 		ev.preventDefault();
 		nudge(ev.key, ev.shiftKey);
 	}
+	// The mini-game aims and throws the way the standalone page does (js/game.js
+	// bindInput): the arrow runs from the puck to a pointer clear of the grab ring, and
+	// two taps on the puck throw it. The button stays for the story's conventions.
+	function onPuck(p) {
+		const dx = p.x - game.world.x[game.pending], dy = p.y - game.world.y[game.pending];
+		return dx * dx + dy * dy <= cfg.puckR * cfg.puckR;
+	}
+	function aimFrom(p, ev) {
+		const dx = p.x - game.world.x[game.pending], dy = p.y - game.world.y[game.pending];
+		const grab = aimGrab(cfg), ang = Math.atan2(dy, dx);
+		const len = Math.max(0, Math.min(Math.hypot(dx, dy) - grab, cfg.dragFull)); // the ring margin aims at vMin
+		game.setStroke(Math.cos(ang) * len, Math.sin(ang) * len, !!ev.shiftKey);
+	}
 	function pointerDown(ev) {
 		if (!canAim() || game.paused) return;
 		if (ev.cancelable) ev.preventDefault();
-		if (canvas.setPointerCapture) canvas.setPointerCapture(ev.pointerId);
 		const p = renderer.toWorld(ev.clientX, ev.clientY);
-		dragX = game.world.x[game.pending]; dragY = game.world.y[game.pending];
-		game.aim.dragging = true;
-		game.setStroke(p.x - dragX, p.y - dragY, !!ev.shiftKey);
 		canvas.focus({ preventScroll: true });
+		const dx = p.x - game.world.x[game.pending], dy = p.y - game.world.y[game.pending];
+		const second = ev.pointerType === 'touch' && ev.timeStamp - lastTapT <= cfg.doubleTapT &&
+			Math.hypot(p.x - lastTapX, p.y - lastTapY) <= cfg.doubleTapSlop;
+		if (onPuck(p) || second) { // the throw gesture: two taps, or a click on the puck
+			if (ev.pointerType !== 'touch') queueThrow();
+			else if (second) { lastTapT = -Infinity; queueThrow(); }
+			else { lastTapT = ev.timeStamp; lastTapX = p.x; lastTapY = p.y; }
+			updateControls(); draw();
+			return;
+		}
+		if (canvas.setPointerCapture) canvas.setPointerCapture(ev.pointerId);
+		game.aim.dragging = true;
+		aimFrom(p, ev);
 		updateControls(); draw();
 	}
 	function pointerMove(ev) {
 		if (!game.aim.dragging || !canAim() || game.paused) return;
-		const p = renderer.toWorld(ev.clientX, ev.clientY);
-		game.setStroke(p.x - dragX, p.y - dragY, !!ev.shiftKey);
+		aimFrom(renderer.toWorld(ev.clientX, ev.clientY), ev);
 		updateControls(); draw();
 	}
 	function pointerUp() { game.aim.dragging = false; }

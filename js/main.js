@@ -23,6 +23,9 @@
 	Game.reset();
 	Game.bindInput(cv);
 	UI.bind(() => Game.reset());
+	// The fit drawer's switch and open/close, and the board refit a layout change needs.
+	View.bind(refit);
+	UI.bindSettings();
 	// URL parameters configure the boot (?schema=rim6&seats=human,hunter, see
 	// js/presets.js); no parameters, and this is exactly the page as shipped.
 	UI.applySetup(parseQuery(location.search));

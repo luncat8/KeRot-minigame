@@ -150,21 +150,45 @@ secondCleanup();
 assert.strictEqual(frames.size, 1, 'tearing one session down leaves the other running');
 
 const canvas = firstMount.nodes['.kerot-board'];
-const pointer = { pointerId: 1, clientX: 500, clientY: 220, shiftKey: false, cancelable: true, preventDefault: noop };
-canvas.dispatch('pointerdown', pointer);
-canvas.dispatch('pointermove', pointer);
-canvas.dispatch('pointerup', pointer);
+// The adapter aims the way the page does: a pointer clear of the puck's grab ring
+// starts the stroke (the mount's canvas maps 1:1 onto world units here), and a press
+// on the puck with no stroke in hand is the throw gesture, which throws nothing yet.
+// The mount's renderer maps its box by hand: the board point under a client pixel is
+// the renderer's own mapping, so ask the canvas's session context for it. The session
+// armed the puck at CFG.launch*, and the first session runs the classic theme on a box
+// the stub canvas reports as 720x440 at the launch spot's share of it.
+// The stub canvas reports a 720 x 440 box; the renderer fits the 3.6 x 2.2 m board
+// into it (a 0.5 dpr stub keeps client px = world * fitScale) and centres it, so a
+// board point maps to its own fraction of the box. The mount's armed puck is at
+// CFG.launchX/launchY, 3.25 / 1.10 m.
+const onBoard = (wx, wy) => ({
+	pointerId: 1, clientX: wx * 200, clientY: wy * 200,
+	shiftKey: false, cancelable: true, pointerType: 'mouse', timeStamp: 0, preventDefault: noop,
+});
+const launchX = 3.25, launchY = 1.1;
+canvas.dispatch('pointerdown', onBoard(launchX, launchY));
+assert.strictEqual(firstMount.nodes['.kerot-throw'].disabled, true, 'a tap on the puck throws nothing while nothing is aimed');
+canvas.dispatch('pointerup', onBoard(launchX, launchY));
+canvas.dispatch('pointerdown', onBoard(launchX - 0.32 - 0.45, launchY));
+canvas.dispatch('pointermove', onBoard(launchX - 0.32 - 0.45, launchY - 0.2));
+canvas.dispatch('pointerup', onBoard(launchX - 1.0, launchY - 0.2));
 assert.strictEqual(firstMount.nodes['.kerot-throw'].disabled, false, 'aiming enables the throw button');
+// Space on a control button is that button's business, not a throw; the stroke is
+// still in hand, so the throw button stays enabled.
 firstMount.nodes['.kerot-game'].dispatch('keydown', {
 	target: firstMount.nodes['.kerot-pause'], code: 'Space', key: ' ', preventDefault: noop
 });
+assert.strictEqual(firstMount.nodes['.kerot-throw'].disabled, false,
+	'Space on a control button does not trigger an unintended throw');
+// A click on the puck throws the stroke in hand; the throw is queued and the
+// mini-game's own frame commits it, so the turn is no longer the human's after one.
+canvas.dispatch('pointerdown', onBoard(launchX, launchY));
 const idleFrame = frames.entries().next().value;
 frames.delete(idleFrame[0]);
 now += 1000 / 60;
 idleFrame[1](now);
-assert.strictEqual(firstMount.nodes['.kerot-throw'].disabled, false,
-	'Space on a control button does not trigger an unintended throw');
-firstMount.nodes['.kerot-throw'].click();
+assert.strictEqual(firstMount.nodes['.kerot-throw'].disabled, true, 'a click on the puck throws the stroke');
+firstMount.nodes['.kerot-throw'].click(); // a press while the bot is on turn is a no-op
 
 let frameCount = 0;
 while (frames.size && !answers.length && frameCount < 6000) {

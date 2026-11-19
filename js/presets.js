@@ -38,6 +38,7 @@ const NUM_RANGES = { omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.
 	warpTries: [1, 16], warpTurns: [0, 6], warpGoal: [0, 3] };
 const RECYCLES = ['none', 'zones', 'advance'];
 const SPEED_RULES = ['off', 'turn', 'round'], VOTE_MODES = ['delta', 'exact']; // CFG.speedVote, CFG.voteMode
+const VIEWS = ['fit', 'side']; // the layout keys of index.html; fit is the shipped one
 
 // The CFG-level share of a setup: numbers, disk schema, return rule, speed rule, balls. Called
 // by the boot path before the first deal and by the panel preset. Theme, seats and
@@ -105,6 +106,8 @@ function parseQuery(search) {
 	if (SPEED_RULES.includes(vote)) { out.vote = vote; found = true; }
 	if (VOTE_MODES.includes(voteMode)) { out.voteMode = voteMode; found = true; }
 	if (q.theme) { out.theme = q.theme.toLowerCase(); found = true; } // validated where themes live (ui.js)
+	const view = q.view && q.view.toLowerCase();
+	if (VIEWS.includes(view)) { out.view = view; found = true; }
 	const botspeed = q.botspeed && q.botspeed.toLowerCase();
 	if (SPEED_STRATS[botspeed]) { out.botspeed = botspeed; found = true; }
 	// The look-ahead is a switch and three numbers; `warp` reads like the view toggles.
@@ -124,4 +127,4 @@ function parseQuery(search) {
 // and the same page state comes back when it is opened.
 function presetQuery(name) { return 'preset=' + name; }
 
-if (typeof module !== 'undefined') module.exports = { PRESETS, SPEED_RULES, VOTE_MODES, parseQuery, applyCfg, presetQuery };
+if (typeof module !== 'undefined') module.exports = { PRESETS, SPEED_RULES, VOTE_MODES, VIEWS, parseQuery, applyCfg, presetQuery };

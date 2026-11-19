@@ -19,7 +19,11 @@ const UI = (() => {
 	function setText(id, txt) { if (lastText[id] !== txt) { lastText[id] = txt; els[id].textContent = txt; } }
 	function setNode(el, txt) { if (el.textContent !== txt) el.textContent = txt; }
 	function bind(onReset) {
-		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
+		// The transport bar and the settings switch sit at the top of the panel, so they
+		// are the first controls bound; the rest of the panel is read below.
+		for (const id of ['btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'btnSettings'])
+			els[id] = $(id);
+		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
 			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus'])
 			els[id] = $(id);
 		// Every physics input invalidates the ghost: it is only valid for the settings
@@ -53,6 +57,9 @@ const UI = (() => {
 		syncWarp();
 		fillSelect(els.diskSchema, DISK_SCHEMAS, CFG.diskSchema);
 		els.diskSchema.addEventListener('change', () => { Game.setDiskSchema(els.diskSchema.value); markCustom(); });
+		els.view = $('view'); // the view switch: layout, not a game setting, so no CFG key
+		fillSelect(els.view, View.modes, View.isFit() ? 'fit' : 'side');
+		els.view.addEventListener('change', () => { View.set(els.view.value); markCustom(); });
 		fillSelect(els.theme, Render.themes, opts.theme);
 		els.theme.addEventListener('change', () => { opts.theme = els.theme.value; document.body.dataset.theme = opts.theme; markCustom(); });
 		// The preset select keeps a placeholder until a bundle is picked, and goes back
@@ -110,6 +117,7 @@ const UI = (() => {
 		if (CFG.ballsPerPlayer !== SHIPPED.balls) parts.push('balls=' + CFG.ballsPerPlayer);
 		const seats = Game.seatTypes.join(',');
 		if (seats !== SHIPPED.seats) parts.push('seats=' + seats);
+		if (View.query()) parts.push(View.query());
 		if (els.chkRing && !els.chkRing.checked) parts.push('ring=0');
 		if (els.chkPreview && !els.chkPreview.checked) parts.push('ghost=0');
 		return parts.join('&');
@@ -131,6 +139,7 @@ const UI = (() => {
 		els.mass.value = String(Math.log10(CFG.puckM));
 		els.diskSchema.value = CFG.diskSchema;
 		els.theme.value = opts.theme;
+		if (els.view) els.view.value = View.isFit() ? 'fit' : 'side';
 		for (const r of radios('recycle')) r.checked = r.value === CFG.recycleMode;
 		opts.mode = CFG.recycleMode;
 		for (const r of radios('speedVote')) r.checked = r.value === CFG.speedVote;
@@ -163,6 +172,7 @@ const UI = (() => {
 		applyCfg(setup);
 		if (setup.omega !== undefined || setup.autoOmega) Game.setOmega(CFG.omega); // a set speed, not a voted one
 		if (setup.theme && Render.themes[setup.theme]) { opts.theme = setup.theme; document.body.dataset.theme = opts.theme; }
+		if (setup.view) View.set(setup.view);
 		if (setup.ring !== undefined) els.chkRing.checked = setup.ring;
 		if (setup.ghost !== undefined) els.chkPreview.checked = setup.ghost;
 		if (setup.seats && setup.seats.length) Game.setSeatTypes(setup.seats); // resets itself
@@ -341,6 +351,7 @@ const UI = (() => {
 	}
 	function update(w) {
 		const roster = Game.roster, n = roster.length;
+		actions(Game.state === 'aim' && !Game.paused && roster[Game.turn] && roster[Game.turn].type === 'human');
 		syncRoster();
 		syncVotes();
 		if (Game.omegaNow !== shownOmega) pullOmega(); // follow the motor during a vote ramp
@@ -367,9 +378,19 @@ const UI = (() => {
 			(i === Game.winner ? ' ← winner' : '') + '<br>';
 		if (lastText.breakdown !== html) { lastText.breakdown = html; els.breakdown.innerHTML = html; }
 	}
+	// The transport bar stays reachable in every layout, so the two buttons that need a
+	// stroke in hand say when there is none; reset and pause always work. ☰ opens and
+	// closes the fit drawer (js/view.js owns that state and the refit).
+	function actions(active) {
+		els.btnThrow.disabled = !active;
+		els.btnClear.disabled = !active || !Game.aim.hasStroke;
+		setText('btnPause', Game.paused ? 'Resume' : 'Pause');
+		els.btnSettings.setAttribute('aria-expanded', View.open ? 'true' : 'false');
+	}
+	function bindSettings() { els.btnSettings.addEventListener('click', () => View.toggle()); }
 	function optsNow() {
 		opts.ring = els.chkRing.checked; opts.preview = els.chkPreview.checked;
 		return opts;
 	}
-	return { bind, update, opts: optsNow, applySetup, applyPreset };
+	return { bind, bindSettings, update, actions, opts: optsNow, applySetup, applyPreset };
 })();

@@ -48,6 +48,13 @@ const CFG = {
 	botDelay: 0.7, // seconds a bot "thinks" (aim shown) before throwing
 	settleTime: 3,
 	dragFull: 0.90,
+	// The stroke starts only when the pointer is clear of the puck by this much; a touch
+	// at the centre of a circle carries no direction, so the grab ring is wider than the
+	// puck and the throw finger never needs to sit on it.
+	aimGrabMargin: 0.22,
+	// Two taps on the puck within this many ms and about this far apart throw the stroke
+	// in hand; the puck is 20 cm across, so a finger that lands anywhere on it counts.
+	doubleTapT: 350, doubleTapSlop: 0.24,
 	preciseGain: 0.03125, // shift-held speed gain: 1/32 of plain
 	preciseAimGain: 0.125, // shift-held aim gain: 1/8 of plain
 	endMode: 'settle',
@@ -92,6 +99,9 @@ function muKEff(cfg) { return cfg.muK * loadFactor(cfg, cfg.puckM); }
 function muSEff(cfg) { return cfg.muS * loadFactor(cfg, cfg.puckM); }
 function holdRadius(cfg) { return cfg.omega > 0 ? muSEff(cfg) * cfg.g / (cfg.omega * cfg.omega) : Infinity; }
 function autoOmega(cfg) { return Math.sqrt(muSEff(cfg) * cfg.g / (0.9 * cfg.diskR)); }
+// The radius a pointer has to clear around the armed puck before it aims the stroke:
+// the puck plus its margin.
+function aimGrab(cfg) { return cfg.puckR + cfg.aimGrabMargin; }
 function stopDistance(cfg, v) { return v * v / (2 * muKEff(cfg) * cfg.g); } // on bare ice
 
-if (typeof module !== 'undefined') module.exports = { CFG, RETURN_ZONES, ADVANCE_ZONES, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, loadFactor, muKEff, muSEff, holdRadius, autoOmega, stopDistance, clamp };
+if (typeof module !== 'undefined') module.exports = { CFG, aimGrab, RETURN_ZONES, ADVANCE_ZONES, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, loadFactor, muKEff, muSEff, holdRadius, autoOmega, stopDistance, clamp };
