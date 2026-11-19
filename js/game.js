@@ -98,6 +98,7 @@ function createGame(env) {
 	}
 	function reset() {
 		queue.length = 0;
+		paused = false; // a fresh board is live, whatever the last one was doing
 		if (!isNaN(omegaBase)) { cfg.omega = omegaBase; omegaBase = NaN; }
 		resetWorld(w);
 		for (let i = 0; i < roster.length; i++) { roster[i].balls = cfg.ballsPerPlayer; roster[i].score = 0; }
@@ -406,16 +407,38 @@ function createGame(env) {
 			aim.dragging = false;
 		};
 	}
+	// A spent board is also its own "play again" button: two taps anywhere on the canvas,
+	// a hand's width apart and within RESTART_TAP_MS, deal a new game. A mouse
+	// double-click is exactly that pair; on touch it is a double tap. The gesture is
+	// live once the last throw is done, and js/ui.js shows the result card asking for it
+	// when the board has scored.
+	const RESTART_TAP_MS = 600, RESTART_SLOP = 40; // ms, css px
+	function bindRestart(canvas) {
+		let lastT = -Infinity, lastX = 0, lastY = 0;
+		canvas.addEventListener('pointerup', e => {
+			if (e.button > 0 || (state !== 'settle' && state !== 'scored')) return;
+			const t = e.timeStamp || performance.now();
+			const near = Math.abs(e.clientX - lastX) <= RESTART_SLOP && Math.abs(e.clientY - lastY) <= RESTART_SLOP;
+			if (near && t - lastT <= RESTART_TAP_MS) { lastT = -Infinity; reset(); return; }
+			lastT = t; lastX = e.clientX; lastY = e.clientY;
+		});
+	}
 	function bindInput(canvas) {
 		bindPointer(canvas, Render);
+		bindRestart(canvas);
 		window.addEventListener('keydown', e => {
+			// Space and the arrows belong to the control that has focus (a slider, a
+			// select, a button); the game reads them only from the board and the page.
+			const owned = e.target && e.target.closest && e.target.closest('button, input, select, textarea');
+			const key = e.key || '';
+			if (owned && (e.code === 'Space' || key.startsWith('Arrow'))) return;
 			if (e.code === 'Space') {
 				e.preventDefault();
-				if (!isBot(roster[turn])) queue.push({ type: 'throw', timeStamp: e.timeStamp });
+				if (!paused && !isBot(roster[turn])) queue.push({ type: 'throw', timeStamp: e.timeStamp });
 			}
-			else if (e.key === 'Escape') { aim.hasStroke = false; rebase(0, cfg.vMin, false); }
-			else if (e.key === 'r' || e.key === 'R') reset();
-			else if (state === 'aim' && !isBot(roster[turn]) && e.key.startsWith('Arrow')) { e.preventDefault(); nudge(e); }
+			else if (key === 'Escape') { aim.hasStroke = false; rebase(0, cfg.vMin, false); }
+			else if (key === 'r' || key === 'R') reset();
+			else if (!paused && state === 'aim' && !isBot(roster[turn]) && key.startsWith('Arrow')) { e.preventDefault(); nudge(e); }
 		});
 	}
 	function nudge(e) {

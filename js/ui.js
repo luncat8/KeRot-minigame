@@ -15,7 +15,7 @@ const UI = (() => {
 	};
 	const rows = []; // one per seat: {root, sel, balls, score, rm}
 	const voteRows = []; // one per human seat: {seat, root, none, keep, range, val}
-	let voteKey = '', shownOmega = NaN, lastText = {};
+	let voteKey = '', shownOmega = NaN, resultKey = '', lastText = {};
 	function setText(id, txt) { if (lastText[id] !== txt) { lastText[id] = txt; els[id].textContent = txt; } }
 	function setNode(el, txt) { if (el.textContent !== txt) el.textContent = txt; }
 	function bind(onReset) {
@@ -24,8 +24,10 @@ const UI = (() => {
 		for (const id of ['btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'btnSettings'])
 			els[id] = $(id);
 		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
-			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus'])
+			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus',
+			'result', 'resultWinner', 'resultScores'])
 			els[id] = $(id);
+		els.canvas = $('c');
 		// Every physics input invalidates the ghost: it is only valid for the settings
 		// it was simulated with, so a slider move must re-sim it on the next frame.
 		// On a spent board (the disk has spun down after the game) the new setting
@@ -347,7 +349,39 @@ const UI = (() => {
 		if (Game.state === 'resolve') return 'resolving… next seat in ' + Math.max(0, CFG.handoffT - Game.resolveT).toFixed(1) + ' s';
 		if (Game.state === 'vote') return 'speed vote — P' + (Game.turn + 1) + ' throws when it closes';
 		if (Game.state === 'settle') return 'disk spinning down…';
-		return 'game over — ' + seatName(Game.winner) + ' wins · Reset board for a new game';
+		return 'game over — ' + (tied(Game.roster) ? 'a draw' : seatName(Game.winner) + ' wins') + ' · double-click the board for a new game';
+	}
+	// A tie is the seats' raw scores being equal; the display rounds, so comparing the
+	// numbers on the board instead would call a win a draw.
+	function tied(roster) {
+		if (roster.length < 2) return false; // a solo board is its one seat's game
+		for (let i = 1; i < roster.length; i++) if (Math.abs(roster[i].score - roster[0].score) > 1e-9) return false;
+		return true;
+	}
+	// The result card: hidden while the game runs, then pinned exactly over the canvas
+	// (the board box can be larger than the letterboxed canvas in the side view) and
+	// rewritten when the winner or any score changes — a seat can still be removed.
+	function syncResult() {
+		if (Game.state !== 'scored') {
+			if (resultKey !== '') { els.result.hidden = true; resultKey = ''; }
+			return;
+		}
+		const cv = els.canvas, style = els.result.style;
+		const x = cv.offsetLeft, y = cv.offsetTop, w = cv.offsetWidth, h = cv.offsetHeight;
+		if (style.left !== x + 'px') style.left = x + 'px';
+		if (style.top !== y + 'px') style.top = y + 'px';
+		if (style.width !== w + 'px') style.width = w + 'px';
+		if (style.height !== h + 'px') style.height = h + 'px';
+		const roster = Game.roster, n = roster.length;
+		let key = Game.winner + '|' + n;
+		for (let i = 0; i < n; i++) key += '|' + roster[i].score;
+		if (key === resultKey) return;
+		resultKey = key;
+		els.result.hidden = false;
+		setText('resultWinner', tied(roster) ? 'draw' : seatName(Game.winner) + ' wins');
+		let line = '';
+		for (let i = 0; i < n; i++) line += (i ? ' · ' : '') + 'P' + (i + 1) + ' ' + displayScore(CFG, n, roster[i].score);
+		setText('resultScores', line);
 	}
 	function update(w) {
 		const roster = Game.roster, n = roster.length;
@@ -364,11 +398,12 @@ const UI = (() => {
 		setText('liveScore', 'on turn: ' + seatName(Game.turn) + ' earns ' + scoreRate(w, Game.turn).toFixed(1) + '/s');
 		setText('state', stateText(seat));
 		setText('warpStatus', Game.warpStatus);
+		syncResult();
 		for (let i = 0; i < rows.length; i++) {
 			const r = rows[i], s = roster[i];
 			setNode(r.balls, ballDots(s.balls));
 			setNode(r.score, String(displayScore(CFG, n, s.score)));
-			r.root.classList.toggle('on', i === Game.turn);
+			r.root.classList.toggle('on', i === (Game.state === 'scored' ? Game.winner : Game.turn));
 			r.rm.disabled = rows.length <= 1; // the last seat cannot be removed
 		}
 		if (Game.state !== 'scored') { if (lastText.breakdown !== '') { lastText.breakdown = ''; els.breakdown.innerHTML = ''; } return; }
@@ -387,10 +422,9 @@ const UI = (() => {
 		setText('btnPause', Game.paused ? 'Resume' : 'Pause');
 		els.btnSettings.setAttribute('aria-expanded', View.open ? 'true' : 'false');
 	}
-	function bindSettings() { els.btnSettings.addEventListener('click', () => View.toggle()); }
 	function optsNow() {
 		opts.ring = els.chkRing.checked; opts.preview = els.chkPreview.checked;
 		return opts;
 	}
-	return { bind, bindSettings, update, actions, opts: optsNow, applySetup, applyPreset };
+	return { bind, update, actions, opts: optsNow, applySetup, applyPreset };
 })();

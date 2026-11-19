@@ -1878,6 +1878,7 @@
 				}
 				function reset() {
 					queue.length = 0;
+					paused = false; // a fresh board is live, whatever the last one was doing
 					if (!isNaN(omegaBase)) { cfg.omega = omegaBase; omegaBase = NaN; }
 					resetWorld(w);
 					for (let i = 0; i < roster.length; i++) { roster[i].balls = cfg.ballsPerPlayer; roster[i].score = 0; }
@@ -2186,16 +2187,38 @@
 						aim.dragging = false;
 					};
 				}
+				// A spent board is also its own "play again" button: two taps anywhere on the canvas,
+				// a hand's width apart and within RESTART_TAP_MS, deal a new game. A mouse
+				// double-click is exactly that pair; on touch it is a double tap. The gesture is
+				// live once the last throw is done, and js/ui.js shows the result card asking for it
+				// when the board has scored.
+				const RESTART_TAP_MS = 600, RESTART_SLOP = 40; // ms, css px
+				function bindRestart(canvas) {
+					let lastT = -Infinity, lastX = 0, lastY = 0;
+					canvas.addEventListener('pointerup', e => {
+						if (e.button > 0 || (state !== 'settle' && state !== 'scored')) return;
+						const t = e.timeStamp || performance.now();
+						const near = Math.abs(e.clientX - lastX) <= RESTART_SLOP && Math.abs(e.clientY - lastY) <= RESTART_SLOP;
+						if (near && t - lastT <= RESTART_TAP_MS) { lastT = -Infinity; reset(); return; }
+						lastT = t; lastX = e.clientX; lastY = e.clientY;
+					});
+				}
 				function bindInput(canvas) {
 					bindPointer(canvas, Render);
+					bindRestart(canvas);
 					window.addEventListener('keydown', e => {
+						// Space and the arrows belong to the control that has focus (a slider, a
+						// select, a button); the game reads them only from the board and the page.
+						const owned = e.target && e.target.closest && e.target.closest('button, input, select, textarea');
+						const key = e.key || '';
+						if (owned && (e.code === 'Space' || key.startsWith('Arrow'))) return;
 						if (e.code === 'Space') {
 							e.preventDefault();
-							if (!isBot(roster[turn])) queue.push({ type: 'throw', timeStamp: e.timeStamp });
+							if (!paused && !isBot(roster[turn])) queue.push({ type: 'throw', timeStamp: e.timeStamp });
 						}
-						else if (e.key === 'Escape') { aim.hasStroke = false; rebase(0, cfg.vMin, false); }
-						else if (e.key === 'r' || e.key === 'R') reset();
-						else if (state === 'aim' && !isBot(roster[turn]) && e.key.startsWith('Arrow')) { e.preventDefault(); nudge(e); }
+						else if (key === 'Escape') { aim.hasStroke = false; rebase(0, cfg.vMin, false); }
+						else if (key === 'r' || key === 'R') reset();
+						else if (!paused && state === 'aim' && !isBot(roster[turn]) && key.startsWith('Arrow')) { e.preventDefault(); nudge(e); }
 					});
 				}
 				function nudge(e) {
@@ -2618,12 +2641,14 @@
 				function drawHud(view) {
 					const seats = view.roster, n = seats.length;
 					if (!n) return;
+					// A spent board lights the winner, not the seat that happened to throw last.
+					const lit = view.state === 'scored' ? leader(seats) : view.turn;
 					const cw = Math.min(HUD_MAX, (cfg.boardW - 0.12) / n - HUD_GAP);
 					const x0 = (cfg.boardW - (n * cw + (n - 1) * HUD_GAP)) / 2;
 					ctx.save();
 					ctx.font = font.hud; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
 					for (let i = 0; i < n; i++) {
-						const x = x0 + i * (cw + HUD_GAP), col = seatColor(i), on = i === view.turn;
+						const x = x0 + i * (cw + HUD_GAP), col = seatColor(i), on = i === lit;
 						ctx.fillStyle = on ? 'rgba(255,255,255,0.13)' : theme.hud;
 						ctx.fillRect(x, HUD_Y, cw, HUD_H);
 						if (on) { ctx.strokeStyle = col; ctx.lineWidth = 0.014; ctx.strokeRect(x, HUD_Y, cw, HUD_H); }
@@ -2632,8 +2657,12 @@
 						ctx.beginPath(); ctx.arc(x + 0.055, HUD_Y + 0.072, 0.042, 0, Math.PI * 2); ctx.fill();
 						ctx.fillStyle = on ? '#ffffff' : theme.text;
 						ctx.fillText(String(displayScore(cfg, n, seats[i].score)), x + 0.115, HUD_Y + 0.075);
+						// The ball dots fit the cell at any count: a URL can ask for up to 8, and
+						// a fixed 0.062 step would spill the last ones into the next seat's cell.
+						const step = Math.min(0.062, (cw - 0.16) / Math.max(1, cfg.ballsPerPlayer - 1));
+						const dot = Math.min(0.022, step * 0.38);
 						for (let k = 0; k < cfg.ballsPerPlayer; k++) {
-							ctx.beginPath(); ctx.arc(x + 0.135 + k * 0.062, HUD_Y + 0.178, 0.022, 0, Math.PI * 2);
+							ctx.beginPath(); ctx.arc(x + 0.135 + k * step, HUD_Y + 0.178, dot, 0, Math.PI * 2);
 							if (k < seats[i].balls) { ctx.fillStyle = col; ctx.fill(); }
 							else { ctx.strokeStyle = 'rgba(223,230,233,0.40)'; ctx.lineWidth = 0.009; ctx.stroke(); }
 						}
@@ -2745,7 +2774,7 @@
 					ctx.lineTo(sx + ux * (len - 0.16) - uy * 0.05, sy + uy * (len - 0.16) + ux * 0.05);
 					ctx.lineTo(sx + ux * (len - 0.16) + uy * 0.05, sy + uy * (len - 0.16) - ux * 0.05);
 					ctx.closePath(); ctx.fill();
-					ctx.font = font.label;
+					ctx.font = font.label; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 					ctx.fillText(sp.toFixed(2) + ' m/s, stops ~' + stopDistance(cfg, sp).toFixed(1) + ' m', sx + ux * (len + 0.17), sy + uy * (len + 0.17));
 					ctx.restore();
 				}

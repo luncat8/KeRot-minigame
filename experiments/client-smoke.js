@@ -412,8 +412,11 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 			appendChild(c) { c.parent = this; this.children.push(c); return c; },
 			append(...cs) { for (const c of cs) { c.parent = this; this.children.push(c); } },
 			remove() { const p = this.parent; if (p) p.children.splice(p.children.indexOf(this), 1); },
-			addEventListener(type, fn) { (this.on = this.on || {})[type] = fn; },
-			click() { if (this.on && this.on.click) this.on.click(); },
+			// Like the DOM: every listener fires, not just the last one bound. A control
+			// bound twice (the settings switch was) must show up here, not only in a browser.
+			handlers: {},
+			addEventListener(type, fn) { (this.handlers[type] = this.handlers[type] || []).push(fn); (this.on = this.on || {})[type] = fn; },
+			click() { for (const fn of this.handlers.click || []) fn(); },
 		};
 		return el;
 	}
@@ -441,6 +444,16 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(els.breakdown.innerHTML.includes('winner'), 'the final scores are listed with the winner');
 	check(String(els.liveScore.textContent).includes('/s'), 'the live rate is shown');
 	check(String(els.puckCount.textContent).includes('seat'), 'the board readout counts seats');
+	check(els.result.hidden === false, 'the result card is up when the game is over');
+	check(String(els.resultWinner.textContent).includes('wins'), 'the card names the winner', els.resultWinner.textContent);
+	check(String(els.resultScores.textContent).startsWith('P1 ') && /P4 /.test(els.resultScores.textContent),
+		'the card lists every seat score', els.resultScores.textContent);
+	const savedScores = Game.roster.map(s => s.score);
+	for (const s of Game.roster) s.score = 500;
+	UI.update(Game.world);
+	check(els.resultWinner.textContent === 'draw', 'equal scores read as a draw', els.resultWinner.textContent);
+	for (let i = 0; i < Game.roster.length; i++) Game.roster[i].score = savedScores[i];
+	UI.update(Game.world);
 	els.btnAdd.click(); // "+ add player" on a finished game starts a new one
 	UI.update(Game.world);
 	check(Game.roster.length === 5 && els.roster.children.length === 5, 'add player adds a row and a seat');
@@ -458,6 +471,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	els.btnReset.click();
 	UI.update(Game.world);
 	check(Game.state === 'aim' && Game.roster.every((s, i) => s.balls === CFG.ballsPerPlayer - (i === Game.turn ? 1 : 0)), 'reset re-deals every seat');
+	check(els.result.hidden === true, 'the result card hides again on a new game');
 	// Help drawer: the pointer near the left edge opens it, the tab pins it, a tap out
 	// on the board closes it, and a swipe in from the edge does the same on touch.
 	Help.bind();
@@ -562,7 +576,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		check(els.voteStatus.textContent.startsWith('the speed is voted'), 'a new game has no last vote', els.voteStatus.textContent);
 	}
 	console.log('ui smoke: ' + els.roster.children.length + ' rows, breakdown ' +
-		(els.breakdown.innerHTML ? 'filled' : 'empty') + ', no exceptions');
+		(els.breakdown.innerHTML ? 'filled' : 'empty') + ', result card up on SCORED and gone on reset, no exceptions');
 	// Presets and URL parameters: the same setup objects applied at boot or from the
 	// panel — CFG clamped to the ranges, the controls pulled to what was applied,
 	// the roster swapped for a table preset, and a named bundle echoed into the
@@ -677,6 +691,55 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		fire('pointerdown', 0, 0, mouse); fire('pointerup', 0, 0, mouse);
 		Game.beforeSteps();
 		check(Game.state === 'resolve', 'a mouse click throws the placed stroke');
+		// A focused panel control owns Space and the arrow keys; the game must not move
+		// the stroke or throw underneath it.
+		Game.setSeatTypes(['human', 'balanced']);
+		Game.setStroke(-CFG.dragFull * 0.5, 0.1, false);
+		const guardAng = angDeg();
+		const control = { closest: () => ({ tagName: 'INPUT' }) };
+		fireWindow('keydown', { code: 'ArrowLeft', key: 'ArrowLeft', target: control, preventDefault() { } });
+		check(angDeg() === guardAng, 'an arrow key on a focused control does not nudge the stroke');
+		fireWindow('keydown', { code: 'Space', key: ' ', target: control, preventDefault() { } });
+		Game.beforeSteps();
+		check(Game.state === 'aim', 'Space on a focused control does not throw the stroke');
+		// A paused board reads neither the arrows nor Space; the stroke waits as it was.
+		Game.togglePause();
+		const pauseAng = angDeg();
+		fireWindow('keydown', { code: 'ArrowLeft', key: 'ArrowLeft', preventDefault() { } });
+		check(angDeg() === pauseAng, 'a paused board ignores the arrow keys');
+		fireWindow('keydown', { code: 'Space', key: ' ', timeStamp: 5000, preventDefault() { } });
+		Game.beforeSteps();
+		check(Game.state === 'aim' && Game.world.thrown === 0, 'a paused board ignores Space');
+		Game.togglePause();
+		// The spent board is the play-again button: two taps (a mouse double-click) deal
+		// a new game; a pair far apart or too slow does not, and reset unpauses.
+		const balls0 = CFG.ballsPerPlayer;
+		CFG.ballsPerPlayer = 1;
+		Game.setSeatTypes(['human', 'balanced']);
+		let sc = 0;
+		while (Game.state !== 'scored' && sc++ < 60000) {
+			if (Game.state === 'aim' && Game.roster[Game.turn].type === 'human') { Game.setStroke(-CFG.dragFull, 0.05, false); Game.commitThrow(); }
+			Game.tick(1 / 60); Game.beforeSteps();
+			for (let s = 0; s < 8; s++) stepWorld(Game.world, CFG.h);
+			Game.afterSteps(8 * CFG.h);
+		}
+		check(Game.state === 'scored', 'a one-ball game reaches SCORED', String(sc));
+		const tap = (x, y, ts) => cv.dispatch('pointerup', { pointerId: 1, button: 0, clientX: x, clientY: y, timeStamp: ts, preventDefault() { } });
+		tap(300, 200, 1000);
+		check(Game.state === 'scored', 'one tap on the spent board does not restart it');
+		tap(900, 500, 1300);
+		check(Game.state === 'scored', 'two taps far apart are not the play-again gesture');
+		tap(900, 500, 2600);
+		check(Game.state === 'scored', 'two taps too slow are not the play-again gesture');
+		Game.togglePause();
+		check(Game.paused, 'the spent board can be paused');
+		tap(900, 500, 2750);
+		Game.beforeSteps();
+		check(Game.state === 'aim' && Game.world.thrown === 0 && !Game.paused,
+			'a double-click on the spent board deals a live new game');
+		CFG.ballsPerPlayer = balls0;
+		Game.setSeatTypes(['human', 'balanced']);
+		console.log('restart smoke: the spent board restarts on a double-click (' + sc + ' frames to SCORED), ignores stray and slow taps, and unpauses');
 	}
 	// View: fit is the default and a URL key; the panel is the rail with a settings
 	// drawer in it, and the body attribute is what the CSS keys both shapes off.
@@ -691,14 +754,13 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		els.btnSettings = makeEl('btnSettings');
 		const panel = els.panel, b = els.btnSettings;
 		View.bind(() => { fits++; });
-		UI.bindSettings();
-		b.on.click();
+		b.click();
 		check(panel.cls.open === true && b.attrs['aria-expanded'] === 'true', 'the settings switch opens the drawer', String(panel.cls.open));
 		check(fits > 0, 'opening the drawer refits the board it just narrowed');
-		b.on.click();
+		b.click();
 		check(!panel.cls.open, 'and closes it again');
 		// A tap out on the board closes the drawer; a touch hover never opens anything.
-		b.on.click();
+		b.click();
 		fireWindow('pointerdown', { target: { id: 'c' } });
 		check(!panel.cls.open, 'a tap out on the board closes the drawer');
 		fireWindow('pointermove', { pointerType: 'touch', clientX: 8 });

@@ -321,12 +321,14 @@ function createRenderer() {
 	function drawHud(view) {
 		const seats = view.roster, n = seats.length;
 		if (!n) return;
+		// A spent board lights the winner, not the seat that happened to throw last.
+		const lit = view.state === 'scored' ? leader(seats) : view.turn;
 		const cw = Math.min(HUD_MAX, (cfg.boardW - 0.12) / n - HUD_GAP);
 		const x0 = (cfg.boardW - (n * cw + (n - 1) * HUD_GAP)) / 2;
 		ctx.save();
 		ctx.font = font.hud; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
 		for (let i = 0; i < n; i++) {
-			const x = x0 + i * (cw + HUD_GAP), col = seatColor(i), on = i === view.turn;
+			const x = x0 + i * (cw + HUD_GAP), col = seatColor(i), on = i === lit;
 			ctx.fillStyle = on ? 'rgba(255,255,255,0.13)' : theme.hud;
 			ctx.fillRect(x, HUD_Y, cw, HUD_H);
 			if (on) { ctx.strokeStyle = col; ctx.lineWidth = 0.014; ctx.strokeRect(x, HUD_Y, cw, HUD_H); }
@@ -335,8 +337,12 @@ function createRenderer() {
 			ctx.beginPath(); ctx.arc(x + 0.055, HUD_Y + 0.072, 0.042, 0, Math.PI * 2); ctx.fill();
 			ctx.fillStyle = on ? '#ffffff' : theme.text;
 			ctx.fillText(String(displayScore(cfg, n, seats[i].score)), x + 0.115, HUD_Y + 0.075);
+			// The ball dots fit the cell at any count: a URL can ask for up to 8, and
+			// a fixed 0.062 step would spill the last ones into the next seat's cell.
+			const step = Math.min(0.062, (cw - 0.16) / Math.max(1, cfg.ballsPerPlayer - 1));
+			const dot = Math.min(0.022, step * 0.38);
 			for (let k = 0; k < cfg.ballsPerPlayer; k++) {
-				ctx.beginPath(); ctx.arc(x + 0.135 + k * 0.062, HUD_Y + 0.178, 0.022, 0, Math.PI * 2);
+				ctx.beginPath(); ctx.arc(x + 0.135 + k * step, HUD_Y + 0.178, dot, 0, Math.PI * 2);
 				if (k < seats[i].balls) { ctx.fillStyle = col; ctx.fill(); }
 				else { ctx.strokeStyle = 'rgba(223,230,233,0.40)'; ctx.lineWidth = 0.009; ctx.stroke(); }
 			}
@@ -448,7 +454,7 @@ function createRenderer() {
 		ctx.lineTo(sx + ux * (len - 0.16) - uy * 0.05, sy + uy * (len - 0.16) + ux * 0.05);
 		ctx.lineTo(sx + ux * (len - 0.16) + uy * 0.05, sy + uy * (len - 0.16) - ux * 0.05);
 		ctx.closePath(); ctx.fill();
-		ctx.font = font.label;
+		ctx.font = font.label; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 		ctx.fillText(sp.toFixed(2) + ' m/s, stops ~' + stopDistance(cfg, sp).toFixed(1) + ' m', sx + ux * (len + 0.17), sy + uy * (len + 0.17));
 		ctx.restore();
 	}

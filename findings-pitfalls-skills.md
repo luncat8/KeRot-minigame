@@ -267,3 +267,13 @@
   nothing and only the score moves (+15, noise). A wins gate needs at least two seats;
   when one profile's cell needs more power, run the same multi-seat table with more
   games rather than a narrower table.
+- A stub `addEventListener` that keeps only the last handler hides every double binding.
+  The page bound `#btnSettings` twice (View's toggle and a UI helper), so in a browser one
+  click opened the drawer and the second closed it: the switch looked dead while the swipe
+  route still worked. Keep listeners in arrays in the stub and make `click()` fire them
+  all; the same test then catches a duplicate before play does.
+- A DOM overlay pinned to a canvas can read `offsetLeft/Top/Width/Height` only when the
+  canvas's offsetParent is the board box: `position: relative` on `#boardWrap` in every
+  layout, not just the fit view. jsdom has no layout (all offsets 0), so a real-DOM smoke
+  feeds the offsets explicitly and checks the style writes; only a browser can check the
+  rendered box.
