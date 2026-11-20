@@ -16,15 +16,19 @@ function check(ok, name, extra) { if (!ok) { console.log('FAIL ' + name + (extra
 const ops = [], canvases = [], injected = [], winListeners = {}, docListeners = {};
 let attached = 'unset', attachCalls = 0;
 function makeCtx() {
+	const stack = [];
 	return {
 		globalAlpha: 1, globalCompositeOperation: 'source-over', fillStyle: '', strokeStyle: '', lineWidth: 1,
 		lineCap: '', lineJoin: '', font: '', textAlign: '', textBaseline: '',
 		imageSmoothingEnabled: true, imageSmoothingQuality: 'high',
-		save() { }, restore() { }, translate() { }, rotate() { }, scale() { }, setTransform() { },
+		save() { stack.push(this.globalAlpha, this.globalCompositeOperation); },
+		restore() { this.globalCompositeOperation = stack.pop(); this.globalAlpha = stack.pop(); },
+		translate() { }, rotate() { }, scale() { }, setTransform() { },
 		beginPath() { }, closePath() { }, moveTo() { }, lineTo() { }, arc() { }, rect() { },
 		fillRect() { ops.push('fillRect'); }, strokeRect() { ops.push('strokeRect'); },
 		fill() { ops.push('fill'); }, stroke() { ops.push('stroke'); }, clip() { }, setLineDash() { },
-		drawImage() { ops.push('drawImage'); }, fillText() { }, strokeText() { },
+		drawImage() { ops.push(this.globalCompositeOperation === 'multiply' ? 'shade' : this.globalCompositeOperation === 'lighter' ? 'glow' : 'drawImage'); },
+		fillText() { }, strokeText() { },
 		putImageData() { },
 		createRadialGradient() { return { addColorStop() { } }; },
 		createLinearGradient() { return { addColorStop() { } }; },
@@ -158,15 +162,22 @@ for (const theme of ['classic', 'kerot']) {
 		theme + ': the disk stacks scattered paint, glaze and polish', String(ops.length));
 	ops.length = 0;
 	GlassFX.skin.surface(ctx, view, CFG);
-	check(ops.filter(o => o === 'drawImage').length === 3,
-		theme + ': the ice-surface hook draws the veil and its two lamp groups', String(ops.length));
+	const layers = ops.join(',');
+	check(layers === 'drawImage,shade,glow,shade,glow',
+		theme + ': the veil, each lamp seat multiplied, each tube added', layers);
+	const surfaceOps = ops.length;
 	for (let i = 0; i < w.n; i++) {
 		GlassFX.skin.shadow(ctx, view, CFG, i, false);
 		GlassFX.skin.puck(ctx, view, CFG, i, i === a);
 	}
-	check(ops.filter(o => o === 'drawImage').length >= 3 + 2 * w.n,
-		theme + ': cached shadow and puck sprites are drawn', String(ops.length));
+	check(ops.filter(o => o === 'drawImage').length >= 2 * w.n,
+		theme + ': cached shadow and puck sprites are drawn', String(ops.length - surfaceOps));
 }
+// A mirrored lamp is a tube, not a slab: a couple of centimetres wide and many times
+// longer, so it can read as a fixture while it stays faint enough to sit under the paint.
+const lamps = GlassFX.lamps;
+check(lamps.length === 5 && lamps.every(l => l.w <= 0.020 && l.len >= 10 * l.w),
+	'every mirrored lamp is a narrow tube', lamps.map(l => l.w.toFixed(3)).join(','));
 // The scattered paint is a bake per schema, never per frame.
 const fieldBakes = canvases.length;
 GlassFX.skin.disk(makeCtx(), view, CFG);

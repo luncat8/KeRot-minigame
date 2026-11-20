@@ -34,11 +34,15 @@ soft, partly missing edges (`decor=hex`). The sound is stereo around a mic head 
 disk's centre — contacts, throws and voids pan to where they happened — with a
 listener facing setting (`face=launch|up|bottom`) and a volume slider (`vol`, 100 % is
 the original level, 130 % as shipped). The disk's markings are drawn as paint under
-ice: a scattered copy of the schema, a milky glaze with frost and trapped air over it,
-and the brushed surface polish above that. Ceiling lamps are mirrored in the ice in a
-few places as blurry bright bars, baked in board space so they never turn with the
-disk. Every seat colour rings at its own note — a pentatonic ladder with its own partial
-spread — and a contact between two colours rings between them.
+ice: a scattered copy of the schema, a thin glaze with frost and trapped air over it,
+and the brushed surface polish above that. Ice costs light rather than adding it, so
+the skin never lifts the room: the frozen veil is a cold depth tint, the grain is
+zero-mean, and a ceiling lamp lands in two passes — a soft dark seat where its housing
+blocks the sky, multiplied in, then a narrow tube with a hot filament, rubbed-out ribs
+and a cool fringe, added on top. The five reflections are baked in board space at
+200 px/m (so the bar's detail survives at 1:1) and never turn with the disk. Every seat
+colour rings at its own note — a pentatonic ladder with its own partial spread — and a
+contact between two colours rings between them.
 `js/render.js` exposes six no-op hook points, and `js/main.js` passes one world
 observation per frame to the optional sound layer. With the option off, the base page
 downloads no add-on and pays only those hook checks.
@@ -51,7 +55,9 @@ the page chrome, so the story-page artifact keeps its small single-file payload.
 Validate the optional layer with `node experiments/fx-smoke.js`; render real before/
 after PNGs with `node experiments/render-frames.js [outDir]` and
 `node experiments/render-frames.js --glass [outDir]` (the latter needs
-`npm install` once in `experiments/tools`).
+`npm install` once in `experiments/tools`). `node experiments/render-frames.js --tone`
+is the gate for the lighting: it draws the same board plain and with the skin and fails
+if the ice lifts the floor, the polished plate or the frame average beyond its budget.
 
 ## Snowfall VN integration
 

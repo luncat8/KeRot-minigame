@@ -11,11 +11,11 @@ const GlassFX = (() => {
 		? !!window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
 	let visual = false, soundOn = false, pageHidden = false, audio = null, needsReset = true;
 	let floorTex = null, diskTex = null, grainTex = null, glossTex = null, shadowTex = null, bakedCfg = null;
-	let glazeTex = null, milkTex = null, softTex = null, softSchema = '';
+	let glazeTex = null, veilTex = null, softTex = null, softSchema = '';
 	// Page-controlled options (pushed by FX.set): the disk's etched finish, the
 	// listener's placement and facing, and the volume in units of VOL.
 	let decorMode = 'radial', faceMode = 'launch', volLevel = 1.3, bakedDecor = '';
-	const lampTex = [null, null];
+	const lampTex = [null, null], lampShade = [null, null];
 	const seenUid = new Uint32Array(TABLE), alive = new Uint8Array(TABLE);
 	const pvx = new Float64Array(TABLE), pvy = new Float64Array(TABLE);
 	const ppx = new Float64Array(TABLE), ppy = new Float64Array(TABLE); // last known spot, for the pan of a puck that just left
@@ -47,18 +47,18 @@ const GlassFX = (() => {
 			const o = p * 4, light = r(), a = r();
 			if (light > 0.5) { data[o] = 225; data[o + 1] = 240; data[o + 2] = 255; }
 			else { data[o] = 8; data[o + 1] = 20; data[o + 2] = 36; }
-			data[o + 3] = a > 0.975 ? 34 : a > 0.72 ? 13 : 5;
+			data[o + 3] = a > 0.975 ? 12 : a > 0.72 ? 5 : 2;
 		}
 		g.putImageData(img, 0, 0);
 		g.lineCap = 'round';
 		for (let k = 0; k < 8; k++) { // broad, soft frost swaths under the fine grain
 			const x = r() * W, y = r() * H, len = 120 + r() * 260, ang = -0.85 + r() * 0.5;
-			g.strokeStyle = 'rgba(220,240,255,0.028)'; g.lineWidth = 10 + r() * 24;
+			g.strokeStyle = 'rgba(196,222,248,0.016)'; g.lineWidth = 10 + r() * 24;
 			g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len); g.stroke();
 		}
 		for (let k = 0; k < 100; k++) {
 			const x = r() * W, y = r() * H, len = 8 + r() * 86, ang = -0.85 + r() * 0.55;
-			g.strokeStyle = r() > 0.25 ? 'rgba(225,245,255,0.14)' : 'rgba(3,12,26,0.16)';
+			g.strokeStyle = r() > 0.25 ? 'rgba(225,245,255,0.085)' : 'rgba(3,12,26,0.18)';
 			g.lineWidth = r() > 0.9 ? 1.5 : 0.65;
 			g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len); g.stroke();
 		}
@@ -69,11 +69,13 @@ const GlassFX = (() => {
 			for (let j = 0; j < 3; j++) { x += 12 + r() * 38; y += (r() - 0.5) * 18; g.lineTo(x, y); }
 			g.stroke();
 		}
+		// The room is dark above the ice: a cool, weak sky only, and a deep vignette, so the
+		// floor keeps the scheme's black instead of hazing over to grey.
 		const light = g.createRadialGradient(W * 0.22, H * 0.08, 0, W * 0.38, H * 0.32, W * 0.9);
-		light.addColorStop(0, 'rgba(255,255,255,0.14)'); light.addColorStop(1, 'rgba(255,255,255,0)');
+		light.addColorStop(0, 'rgba(205,228,255,0.055)'); light.addColorStop(1, 'rgba(205,228,255,0)');
 		g.fillStyle = light; g.fillRect(0, 0, W, H);
 		const vignette = g.createRadialGradient(W * 0.5, H * 0.45, W * 0.18, W * 0.5, H * 0.5, W * 0.76);
-		vignette.addColorStop(0, 'rgba(0,0,0,0)'); vignette.addColorStop(1, 'rgba(0,0,0,0.38)');
+		vignette.addColorStop(0, 'rgba(0,0,0,0)'); vignette.addColorStop(1, 'rgba(0,0,0,0.46)');
 		g.fillStyle = vignette; g.fillRect(0, 0, W, H);
 		return cv;
 	}
@@ -95,15 +97,15 @@ const GlassFX = (() => {
 		g.save(); g.beginPath(); g.arc(c, c, R, 0, TAU); g.clip();
 		// Milk thickens toward the rim, where the ice is colder and less skated.
 		const milk = g.createRadialGradient(c, c, R * 0.05, c, c, R);
-		milk.addColorStop(0, 'rgba(232,246,255,0.04)');
-		milk.addColorStop(0.60, 'rgba(214,236,255,0.09)');
-		milk.addColorStop(1, 'rgba(186,216,248,0.24)');
+		milk.addColorStop(0, 'rgba(232,246,255,0.018)');
+		milk.addColorStop(0.60, 'rgba(214,236,255,0.045)');
+		milk.addColorStop(1, 'rgba(186,216,248,0.15)');
 		g.fillStyle = milk; g.fillRect(0, 0, S, S);
 		for (let k = 0; k < 30; k++) { // frost patches, brighter than the haze around them
 			const a = r() * TAU, d = R * Math.sqrt(r()) * 0.94;
 			const x = c + Math.cos(a) * d, y = c + Math.sin(a) * d, rad = R * (0.05 + 0.17 * r());
 			const fr = g.createRadialGradient(x, y, 0, x, y, rad);
-			fr.addColorStop(0, 'rgba(255,255,255,' + (0.05 + 0.08 * r()).toFixed(3) + ')');
+			fr.addColorStop(0, 'rgba(255,255,255,' + (0.03 + 0.05 * r()).toFixed(3) + ')');
 			fr.addColorStop(1, 'rgba(255,255,255,0)');
 			g.fillStyle = fr; g.beginPath(); g.arc(x, y, rad, 0, TAU); g.fill();
 		}
@@ -121,20 +123,30 @@ const GlassFX = (() => {
 	}
 	// Board-wide veil over the zone hatch, the launch box and the disk alike: all of it
 	// is paint under ice, so none of it may stay vector-sharp while the ice is frosted.
-	function bakeMilkTex() {
+	// Frost scatters light away from the eye as much as into it: the broad clouds are a
+	// cold depth tint that *deepens* the board, and only the pit marks and the sparse
+	// frost blooms add light — the veil lowers the floor instead of lifting it.
+	function bakeVeilTex() {
 		const W = 432, H = 264, cv = makeCanvas(W, H), g = cv.getContext('2d');
 		const r = rng(0x7a17e5);
 		for (let k = 0; k < 34; k++) {
 			const x = r() * W, y = r() * H, rad = 30 + r() * 130;
 			const cloud = g.createRadialGradient(x, y, 0, x, y, rad);
-			cloud.addColorStop(0, 'rgba(226,244,255,' + (0.05 + 0.09 * r()).toFixed(3) + ')');
-			cloud.addColorStop(1, 'rgba(226,244,255,0)');
+			cloud.addColorStop(0, 'rgba(8,22,40,' + (0.06 + 0.10 * r()).toFixed(3) + ')');
+			cloud.addColorStop(1, 'rgba(8,22,40,0)');
 			g.fillStyle = cloud; g.beginPath(); g.arc(x, y, rad, 0, TAU); g.fill();
+		}
+		for (let k = 0; k < 11; k++) { // the few frost blooms that do catch the light
+			const x = r() * W, y = r() * H, rad = 40 + r() * 90;
+			const bloom = g.createRadialGradient(x, y, 0, x, y, rad);
+			bloom.addColorStop(0, 'rgba(226,244,255,' + (0.03 + 0.04 * r()).toFixed(3) + ')');
+			bloom.addColorStop(1, 'rgba(226,244,255,0)');
+			g.fillStyle = bloom; g.beginPath(); g.arc(x, y, rad, 0, TAU); g.fill();
 		}
 		for (let k = 0; k < 900; k++) { // frozen-in pit marks, a texel or two each
 			const x = r() * W, y = r() * H, s = r() > 0.9 ? 2 : 1;
-			g.fillStyle = r() > 0.4 ? 'rgba(240,250,255,' + (0.05 + 0.10 * r()).toFixed(3) + ')'
-				: 'rgba(10,28,48,' + (0.04 + 0.07 * r()).toFixed(3) + ')';
+			g.fillStyle = r() > 0.4 ? 'rgba(240,250,255,' + (0.04 + 0.08 * r()).toFixed(3) + ')'
+				: 'rgba(8,22,40,' + (0.05 + 0.08 * r()).toFixed(3) + ')';
 			g.fillRect(x, y, s, s);
 		}
 		return cv;
@@ -142,56 +154,133 @@ const GlassFX = (() => {
 	// Ceiling lamps mirrored in the ice. A reflection belongs to the surface, not to the
 	// disk, so these are baked in board space once and never turn with it. Positions are
 	// board metres; two groups shimmer on separate slow phases so the ice is not a decal.
+	// A lamp is a narrow tube, not a slab of glow: a dark seat where the housing blocks
+	// the sky, a thin segmented bar with a hot filament, and the polish's scratches cut
+	// straight through it. The seat multiplies, the tube adds — so a reflection deepens
+	// the ice around the light instead of fogging the whole board.
 	const LAMPS = [
-		{ group: 0, x: 0.64, y: 0.62, len: 0.58, w: 0.072, a: 1.00 },
-		{ group: 0, x: 2.10, y: 0.54, len: 0.42, w: 0.060, a: 0.72 },
-		{ group: 1, x: 1.38, y: 1.88, len: 0.50, w: 0.066, a: 0.62 },
-		{ group: 1, x: 2.86, y: 1.92, len: 0.40, w: 0.056, a: 0.50 },
-		{ group: 1, x: 0.30, y: 1.24, len: 0.34, w: 0.050, a: 0.42 },
+		{ group: 0, x: 0.62, y: 0.58, len: 0.50, w: 0.019, a: 0.90 },
+		{ group: 0, x: 2.14, y: 0.50, len: 0.36, w: 0.015, a: 0.64 },
+		{ group: 1, x: 1.40, y: 1.90, len: 0.44, w: 0.017, a: 0.56 },
+		{ group: 1, x: 2.84, y: 1.94, len: 0.32, w: 0.014, a: 0.48 },
+		{ group: 1, x: 0.24, y: 1.26, len: 0.28, w: 0.012, a: 0.40 },
 	];
-	function bakeLampTex(group, cfg) {
-		const W = 432, kx = W / cfg.boardW, H = Math.round(W * cfg.boardH / cfg.boardW);
-		const cv = makeCanvas(W, H), g = cv.getContext('2d');
-		const ky = H / cfg.boardH;
+	// 200 px/m across the board, so the bar's ribs survive the upscale at 1:1; the whole
+	// sprite is baked once, so the resolution is free at draw time.
+	const LAMP_PPM = 200;
+	const LAMP_INK = '255,242,214', LAMP_CORE = '255,252,236', LAMP_FRINGE = '150,198,238';
+	// Both ends of every stroke fade out, so no part of the fixture has a drawn-in cap.
+	function lampSpan(g, len, ink) {
+		const grad = g.createLinearGradient(-len / 2, 0, len / 2, 0);
+		grad.addColorStop(0, 'rgba(' + ink + ',0)');
+		grad.addColorStop(0.07, 'rgba(' + ink + ',0.55)');
+		grad.addColorStop(0.26, 'rgba(' + ink + ',1)');
+		grad.addColorStop(0.74, 'rgba(' + ink + ',1)');
+		grad.addColorStop(0.93, 'rgba(' + ink + ',0.55)');
+		grad.addColorStop(1, 'rgba(' + ink + ',0)');
+		return grad;
+	}
+	// The shade: what the ice does *not* mirror. Baked with black ink; drawn multiply.
+	function drawLampShade(g, len, w) {
+		g.save(); g.scale(1, 0.46);
+		const seat = g.createRadialGradient(0, 0, len * 0.05, 0, 0, len * 0.72);
+		seat.addColorStop(0, 'rgba(0,0,0,0.34)');
+		seat.addColorStop(0.45, 'rgba(0,0,0,0.15)');
+		seat.addColorStop(1, 'rgba(0,0,0,0)');
+		g.fillStyle = seat; g.beginPath(); g.arc(0, 0, len * 0.72, 0, TAU); g.fill();
+		g.restore();
+		// Two soft shelves either side of the tube: the fixture is a body with a diffuser,
+		// and that body is the dark line the eye reads the bright line against.
+		const ink = lampSpan(g, len, '0,0,0');
+		g.strokeStyle = ink; g.lineCap = 'round'; g.globalAlpha = 0.14;
+		g.lineWidth = w * 2.0;
+		for (let k = -1; k <= 1; k += 2) {
+			g.beginPath(); g.moveTo(-len * 0.44, k * w * 1.5); g.lineTo(len * 0.44, k * w * 1.5); g.stroke();
+		}
+		g.globalAlpha = 1;
+	}
+	// The light: a pool, a short smear down the line of sight, then the tube itself.
+	function drawLamp(g, len, w, a, seed) {
+		const r = rng(seed);
+		g.save(); g.scale(1, 0.30);
+		const pool = g.createRadialGradient(0, 0, 0, 0, 0, len * 0.34);
+		pool.addColorStop(0, 'rgba(' + LAMP_INK + ',' + (a * 0.04).toFixed(3) + ')');
+		pool.addColorStop(0.55, 'rgba(' + LAMP_INK + ',' + (a * 0.015).toFixed(3) + ')');
+		pool.addColorStop(1, 'rgba(' + LAMP_INK + ',0)');
+		g.fillStyle = pool; g.beginPath(); g.arc(0, 0, len * 0.34, 0, TAU); g.fill();
+		g.restore();
+		// Frost blurs the mirror along the line of sight — a little. A tall smear is fog;
+		// a short one is what makes the bar read as sitting *under* the surface.
+		g.save(); g.scale(1, 2.8);
+		const smear = g.createRadialGradient(0, 0, 0, 0, 0, len * 0.16);
+		smear.addColorStop(0, 'rgba(' + LAMP_INK + ',' + (a * 0.09).toFixed(3) + ')');
+		smear.addColorStop(0.55, 'rgba(' + LAMP_INK + ',' + (a * 0.03).toFixed(3) + ')');
+		smear.addColorStop(1, 'rgba(' + LAMP_INK + ',0)');
+		g.fillStyle = smear; g.beginPath(); g.arc(0, 0, len * 0.16, 0, TAU); g.fill();
+		g.restore();
+		const ink = lampSpan(g, len, LAMP_INK), core = lampSpan(g, len, LAMP_CORE);
+		const fringe = lampSpan(g, len, LAMP_FRINGE);
 		g.lineCap = 'round';
+		// The far face of the ice mirrors the tube a second time, dimmer and lower: two
+		// bars a few millimetres apart are the difference between a smear and a mirror.
+		g.strokeStyle = ink; g.globalAlpha = a * 0.16; g.lineWidth = w * 0.9;
+		g.beginPath(); g.moveTo(-len * 0.40, w * 2.6); g.lineTo(len * 0.40, w * 2.6); g.stroke();
+		// Bloom, body, filament: thin strokes keep the tube a line, not a slab.
+		g.strokeStyle = ink;
+		g.globalAlpha = a * 0.10; g.lineWidth = w * 3.4;
+		g.beginPath(); g.moveTo(-len * 0.45, 0); g.lineTo(len * 0.45, 0); g.stroke();
+		g.globalAlpha = a * 0.44; g.lineWidth = w * 1.5;
+		g.beginPath(); g.moveTo(-len * 0.48, 0); g.lineTo(len * 0.48, 0); g.stroke();
+		g.strokeStyle = core; g.globalAlpha = a * 0.95; g.lineWidth = Math.max(1.2, w * 0.46);
+		g.beginPath(); g.moveTo(-len * 0.50, 0); g.lineTo(len * 0.50, 0); g.stroke();
+		// The diffuser's lips: two fainter lines hugging the filament, so the tube reads as
+		// a body with edges instead of one painted stroke.
+		g.strokeStyle = ink; g.globalAlpha = a * 0.22; g.lineWidth = Math.max(0.9, w * 0.22);
+		for (let k = -1; k <= 1; k += 2) {
+			g.beginPath(); g.moveTo(-len * 0.46, k * w * 0.85); g.lineTo(len * 0.46, k * w * 0.85); g.stroke();
+		}
+		// A cool fringe below the warm filament: the ice scatters blue, and that one pixel
+		// of colour separation is what stops the bar reading as a white sticker.
+		g.strokeStyle = fringe; g.globalAlpha = a * 0.26; g.lineWidth = Math.max(1, w * 0.55);
+		g.beginPath(); g.moveTo(-len * 0.42, w * 0.95); g.lineTo(len * 0.42, w * 0.95); g.stroke();
+		// Cut glints along the tube: the surface is not flat, so the reflection returns in
+		// little pieces where it catches a facet.
+		g.fillStyle = 'rgb(' + LAMP_CORE + ')';
+		for (let k = 0; k < 7; k++) {
+			const gx = (r() - 0.5) * len * 0.88, gy = (r() - 0.5) * w * 0.9;
+			const gr = Math.max(0.5, w * (0.16 + 0.22 * r()));
+			g.globalAlpha = a * (0.35 + 0.45 * r());
+			g.beginPath(); g.arc(gx, gy, gr, 0, TAU); g.fill();
+		}
+		g.globalAlpha = 1;
+		// The polish scratches the mirror: ribs across the diffuser, then free striae down
+		// the smear. Punched out of the sprite, so the light is broken, not painted over.
+		g.globalCompositeOperation = 'destination-out';
+		const ribs = 2 + ((r() * 3) | 0);
+		for (let k = 1; k < ribs; k++) {
+			const rx = -len / 2 + len * (k + 0.35 * (r() - 0.5)) / ribs;
+			g.globalAlpha = 0.18 + 0.24 * r(); g.lineWidth = w * (0.25 + 0.35 * r());
+			g.beginPath(); g.moveTo(rx, -w * 1.4); g.lineTo(rx, w * 1.4); g.stroke();
+		}
+		for (let k = 0; k < 6; k++) {
+			const sx = (r() - 0.5) * len * 0.86, sy = (r() - 0.5) * len * 0.16;
+			const half = len * (0.10 + 0.10 * r()), drift = (r() - 0.5) * w * 3;
+			g.globalAlpha = 0.10 + 0.14 * r(); g.lineWidth = 0.9 + 1.6 * r();
+			g.beginPath(); g.moveTo(sx, sy - half); g.lineTo(sx + drift, sy + half); g.stroke();
+		}
+		g.globalCompositeOperation = 'source-over';
+		g.globalAlpha = 1;
+	}
+	function bakeLampTex(group, cfg, light) {
+		const W = Math.round(cfg.boardW * LAMP_PPM), H = Math.round(cfg.boardH * LAMP_PPM);
+		const cv = makeCanvas(W, H), g = cv.getContext('2d');
+		const kx = W / cfg.boardW, ky = H / cfg.boardH;
 		for (let i = 0; i < LAMPS.length; i++) {
 			const l = LAMPS[i];
 			if (l.group !== group) continue;
-			const x = l.x * kx, y = l.y * ky, len = l.len * kx, w = l.w * kx, a = l.a;
-			g.save(); g.translate(x, y);
-			// The halo is an upright ellipse: wide as the lamp, tall as the smear.
-			g.save(); g.scale(1, 4.2);
-			for (let k = 2; k >= 0; k--) {
-				const rad = len * (0.34 + 0.30 * k);
-				const halo = g.createRadialGradient(0, 0, 0, 0, 0, rad);
-				halo.addColorStop(0, 'rgba(255,246,228,' + (a * (k ? 0.05 : 0.13)).toFixed(3) + ')');
-				halo.addColorStop(0.5, 'rgba(255,242,218,' + (a * (k ? 0.02 : 0.05)).toFixed(3) + ')');
-				halo.addColorStop(1, 'rgba(255,242,218,0)');
-				g.fillStyle = halo; g.beginPath(); g.arc(0, 0, rad, 0, TAU); g.fill();
-			}
-			g.restore();
-			// Frost blurs the mirror along the line of sight: a soft vertical smear.
-			g.save(); g.scale(1, 5.5);
-			const smear = g.createRadialGradient(0, 0, 0, 0, 0, len * 0.42);
-			smear.addColorStop(0, 'rgba(255,248,232,' + (a * 0.15).toFixed(3) + ')');
-			smear.addColorStop(0.6, 'rgba(255,248,232,' + (a * 0.06).toFixed(3) + ')');
-			smear.addColorStop(1, 'rgba(255,248,232,0)');
-			g.fillStyle = smear; g.beginPath(); g.arc(0, 0, len * 0.42, 0, TAU); g.fill();
-			g.restore();
-			// The tube itself: one core pass and two bloom passes, each fading at the ends
-			// so the bar has no drawn-in caps.
-			const fade = g.createLinearGradient(-len / 2, 0, len / 2, 0);
-			fade.addColorStop(0, 'rgba(255,250,236,0)');
-			fade.addColorStop(0.10, 'rgba(255,250,236,1)');
-			fade.addColorStop(0.90, 'rgba(255,250,236,1)');
-			fade.addColorStop(1, 'rgba(255,250,236,0)');
-			g.strokeStyle = fade;
-			for (let k = 2; k >= 0; k--) {
-				g.globalAlpha = k ? a * (k === 2 ? 0.16 : 0.32) : a * 0.95;
-				g.lineWidth = k ? w * (2.2 - 0.85 * k) : w * 0.30;
-				g.beginPath(); g.moveTo(-len / 2, 0); g.lineTo(len / 2, 0); g.stroke();
-			}
-			g.globalAlpha = 1;
+			g.save(); g.translate(l.x * kx, l.y * ky);
+			if (light) drawLamp(g, l.len * kx, l.w * kx, l.a, 0x1a3 + 97 * i);
+			else drawLampShade(g, l.len * kx, l.w * kx);
 			g.restore();
 		}
 		return cv;
@@ -248,18 +337,18 @@ const GlassFX = (() => {
 		const r = rng(0xc0ffee);
 		g.save(); g.beginPath(); g.arc(c, c, R, 0, TAU); g.clip();
 		const sheen = g.createLinearGradient(0, 0, S, S);
-		sheen.addColorStop(0, 'rgba(255,255,255,0.14)');
+		sheen.addColorStop(0, 'rgba(255,255,255,0.10)');
 		sheen.addColorStop(0.38, 'rgba(255,255,255,0.02)');
 		sheen.addColorStop(0.72, 'rgba(120,180,255,0.035)');
 		sheen.addColorStop(1, 'rgba(0,8,24,0.10)');
 		g.fillStyle = sheen; g.fillRect(0, 0, S, S);
 		const glow = g.createRadialGradient(S * 0.27, S * 0.20, 0, S * 0.27, S * 0.20, S * 0.72);
-		glow.addColorStop(0, 'rgba(255,255,255,0.22)'); glow.addColorStop(1, 'rgba(255,255,255,0)');
+		glow.addColorStop(0, 'rgba(255,255,255,0.11)'); glow.addColorStop(1, 'rgba(255,255,255,0)');
 		g.fillStyle = glow; g.fillRect(0, 0, S, S);
 		const streak = g.createLinearGradient(0, S * 0.26, S, S * 0.74);
 		streak.addColorStop(0, 'rgba(255,255,255,0)');
-		streak.addColorStop(0.44, 'rgba(255,255,255,0.075)');
-		streak.addColorStop(0.56, 'rgba(255,255,255,0.075)');
+		streak.addColorStop(0.44, 'rgba(255,255,255,0.05)');
+		streak.addColorStop(0.56, 'rgba(255,255,255,0.05)');
 		streak.addColorStop(1, 'rgba(255,255,255,0)');
 		g.fillStyle = streak; g.fillRect(0, 0, S, S);
 		if (decorMode === 'hex') {
@@ -348,8 +437,10 @@ const GlassFX = (() => {
 		bakedCfg = cfg;
 		floorTex = bakeFloorTex(); diskTex = bakeDiskTex(); grainTex = bakeGrainTex();
 		glossTex = bakeGlossTex(); shadowTex = bakeShadowTex();
-		glazeTex = bakeGlazeTex(); milkTex = bakeMilkTex();
-		lampTex[0] = bakeLampTex(0, cfg); lampTex[1] = bakeLampTex(1, cfg);
+		glazeTex = bakeGlazeTex(); veilTex = bakeVeilTex();
+		for (let k = 0; k < 2; k++) {
+			lampTex[k] = bakeLampTex(k, cfg, true); lampShade[k] = bakeLampTex(k, cfg, false);
+		}
 		softTex = null; softSchema = '';
 	}
 	function floor(ctx, view, cfg) {
@@ -375,7 +466,7 @@ const GlassFX = (() => {
 			ctx.drawImage(softTex, -cfg.diskR, -cfg.diskR, 2 * cfg.diskR, 2 * cfg.diskR);
 			ctx.globalAlpha = 1;
 		}
-		ctx.globalAlpha = dark ? 0.54 : 0.58;
+		ctx.globalAlpha = dark ? 0.42 : 0.46;
 		ctx.drawImage(glazeTex, -cfg.diskR, -cfg.diskR, 2 * cfg.diskR, 2 * cfg.diskR);
 		ctx.globalAlpha = dark ? 0.72 : 0.90;
 		ctx.drawImage(diskTex, -cfg.diskR, -cfg.diskR, 2 * cfg.diskR, 2 * cfg.diskR);
@@ -387,20 +478,26 @@ const GlassFX = (() => {
 		ctx.restore();
 	}
 	// The ice surface, drawn once per frame over every marking and under every stone:
-	// the frozen veil, then the ceiling lamps mirrored in the ice.
+	// the frozen veil, then the ceiling lamps mirrored in the ice. The veil deepens what
+	// it covers instead of whitening it — paint under ice loses light, not gains it — and
+	// each lamp lands in two passes: a multiply of its dark seat, then an additive tube.
 	function surface(ctx, view, cfg) {
-		if (!milkTex) return;
+		if (!veilTex) return;
 		const dark = view.opts.theme === 'kerot', t = view.w ? view.w.t : 0;
 		ctx.save();
-		ctx.globalAlpha = dark ? 0.30 : 0.38;
-		ctx.drawImage(milkTex, 0, 0, cfg.boardW, cfg.boardH);
-		// Reflections are light added to the ice, not paint on it: additive blending keeps
-		// the bar warm instead of turning it grey over the teal of the zones.
-		ctx.globalCompositeOperation = 'lighter';
+		ctx.globalAlpha = dark ? 0.20 : 0.26;
+		ctx.drawImage(veilTex, 0, 0, cfg.boardW, cfg.boardH);
 		for (let k = 0; k < 2; k++) {
+			// The housing is matte: it does not breathe with the tube.
+			ctx.globalCompositeOperation = 'multiply';
+			ctx.globalAlpha = dark ? 0.26 : 0.30;
+			ctx.drawImage(lampShade[k], 0, 0, cfg.boardW, cfg.boardH);
+			// Reflections are light added to the ice, not paint on it: additive blending
+			// keeps the tube warm instead of turning it grey over the teal of the zones.
 			// Slow, out-of-step breathing: a dead-steady reflection reads as a sticker.
-			// With reduced motion the reflection simply stays at its mid brightness.
-			ctx.globalAlpha = (dark ? 0.44 : 0.54) * (REDUCED ? 0.95 : 0.90 + 0.10 * Math.sin(t * (0.37 + 0.11 * k) + 2.1 * k));
+			// With reduced motion the tube simply stays at its mid brightness.
+			ctx.globalCompositeOperation = 'lighter';
+			ctx.globalAlpha = (dark ? 0.32 : 0.36) * (REDUCED ? 0.95 : 0.90 + 0.10 * Math.sin(t * (0.37 + 0.11 * k) + 2.1 * k));
 			ctx.drawImage(lampTex[k], 0, 0, cfg.boardW, cfg.boardH);
 		}
 		ctx.restore();
@@ -661,6 +758,7 @@ const GlassFX = (() => {
 	}
 	return {
 		skin, set, attachAudio, frame, mute,
+		get lamps() { return LAMPS; }, // the tone check reads the table, nothing else does
 		get visual() { return visual; },
 		get sound() { return soundOn; },
 		get audio() { return audio; },
