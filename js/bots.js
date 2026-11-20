@@ -231,6 +231,14 @@ function chooseStroke(name, w, cfg, i, pred, rng, roster, rank, light) {
 	let best = -Infinity, bestVx = 0, bestVy = 0;
 	function consider(vx, vy, slot) {
 		const value = evaluateStroke(profile, w, cfg, i, pred, vx, vy, rng, urgency, future, ballValue, recPrice, lifePrice);
+		// A stroke the puck cannot feel is not a throw. The candidate grids bottom out
+		// at zero speed (a fraction-0 level), and a dead one sleeps on the launch spot,
+		// hands the turn over at once and is reclaimed from the launch lane by the
+		// return rule — the seat appeared to skip its move, or to send the puck back
+		// to the start without ever throwing it there. Evaluate anyway, so the noise
+		// draw keeps every later candidate's rng stream in step, but never rank one
+		// and never pick one.
+		if (vx * vx + vy * vy < cfg.vThrowMin * cfg.vThrowMin) return;
 		if (rank) rankAdd(rank, slot, vx, vy, value);
 		if (value <= best) return;
 		best = value; bestVx = vx; bestVy = vy;
@@ -281,6 +289,13 @@ function chooseStroke(name, w, cfg, i, pred, rng, roster, rank, light) {
 				consider(Math.cos(ang0 + BOT_REFINE_DA[a]) * speed, Math.sin(ang0 + BOT_REFINE_DA[a]) * speed, 5);
 			}
 		}
+	}
+	// Unreachable on the shipped grids — every group has a level above the floor — but
+	// a candidate set that was all below it must still produce a real stroke, never a
+	// dead one: drive the disk centre at a plain speed.
+	if (bestVx === 0 && bestVy === 0) {
+		const a = Math.atan2(cfg.diskY - w.y[i], cfg.diskX - w.x[i]);
+		bestVx = Math.cos(a) * (cfg.vThrowMin * 2); bestVy = Math.sin(a) * (cfg.vThrowMin * 2);
 	}
 	botOut.vx = bestVx; botOut.vy = bestVy;
 	if (rank) rankFinish(rank);

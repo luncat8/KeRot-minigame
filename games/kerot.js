@@ -29,6 +29,13 @@
 				omega: 0.7831, // sqrt(muS*g/(0.9*diskR)), re-solved by autoOmega()
 				omegaMax: 4.000,
 				vMin: 0.00, vMax: 3.00, // stroke speed range; drag maps 0..dragFull onto vMin..vMax
+				// The slowest stroke that still moves the puck. An aim can hold vMin (the grab
+				// ring's zero, and a bot's coarse grid bottoms out there too), but a throw that
+				// cannot cross the ice is no throw: it sleeps on the launch spot in a step, the
+				// turn hands over at once, and the return rule reclaims the puck from the launch
+				// lane without it ever moving — the seat appeared to skip its move. Aims below
+				// this throw at it; the bots never pick below it (js/bots.js consider).
+				vThrowMin: 0.30,
 				eWall: 0.35, wallTanKeep: 0.85,
 				ePuck: 0.65,
 				h: 1 / 480,
@@ -1445,6 +1452,14 @@
 				let best = -Infinity, bestVx = 0, bestVy = 0;
 				function consider(vx, vy, slot) {
 					const value = evaluateStroke(profile, w, cfg, i, pred, vx, vy, rng, urgency, future, ballValue, recPrice, lifePrice);
+					// A stroke the puck cannot feel is not a throw. The candidate grids bottom out
+					// at zero speed (a fraction-0 level), and a dead one sleeps on the launch spot,
+					// hands the turn over at once and is reclaimed from the launch lane by the
+					// return rule — the seat appeared to skip its move, or to send the puck back
+					// to the start without ever throwing it there. Evaluate anyway, so the noise
+					// draw keeps every later candidate's rng stream in step, but never rank one
+					// and never pick one.
+					if (vx * vx + vy * vy < cfg.vThrowMin * cfg.vThrowMin) return;
 					if (rank) rankAdd(rank, slot, vx, vy, value);
 					if (value <= best) return;
 					best = value; bestVx = vx; bestVy = vy;
@@ -1495,6 +1510,13 @@
 							consider(Math.cos(ang0 + BOT_REFINE_DA[a]) * speed, Math.sin(ang0 + BOT_REFINE_DA[a]) * speed, 5);
 						}
 					}
+				}
+				// Unreachable on the shipped grids — every group has a level above the floor — but
+				// a candidate set that was all below it must still produce a real stroke, never a
+				// dead one: drive the disk centre at a plain speed.
+				if (bestVx === 0 && bestVy === 0) {
+					const a = Math.atan2(cfg.diskY - w.y[i], cfg.diskX - w.x[i]);
+					bestVx = Math.cos(a) * (cfg.vThrowMin * 2); bestVy = Math.sin(a) * (cfg.vThrowMin * 2);
 				}
 				botOut.vx = bestVx; botOut.vy = bestVy;
 				if (rank) rankFinish(rank);
@@ -1915,7 +1937,9 @@
 					armTurn();
 				}
 				function rebase(len, sp, precise) { aim.anchorLen = len; aim.anchorSp = sp; aim.precise = precise; aim.anchorRaw = NaN; }
-				function rawSpeed(len) { return clamp(cfg.vMin + len / cfg.dragFull * (cfg.vMax - cfg.vMin), cfg.vMin, cfg.vMax); }
+				// vThrowMin is the floor of the mapping: the grab ring's zero would otherwise aim
+				// a stroke the puck cannot feel (and a tap would commit it — see commitThrow).
+				function rawSpeed(len) { return Math.max(cfg.vThrowMin, clamp(cfg.vMin + len / cfg.dragFull * (cfg.vMax - cfg.vMin), cfg.vMin, cfg.vMax)); }
 				// Drag 0..dragFull maps onto the stroke speed range cfg.vMin..cfg.vMax and the drag
 				// direction onto the aim; with shift held only a preciseGain (speed) / preciseAimGain
 				// (aim) share of further drag counts — precision mode, finer on speed than on aim.
@@ -1936,13 +1960,18 @@
 					const gain = precise ? cfg.preciseGain : 1;
 					const aimGain = precise ? cfg.preciseAimGain : 1;
 					const slope = (cfg.vMax - cfg.vMin) / cfg.dragFull * gain;
-					const sp = clamp(aim.anchorSp + (len - aim.anchorLen) * slope, cfg.vMin, cfg.vMax);
+					const sp = Math.max(cfg.vThrowMin, clamp(aim.anchorSp + (len - aim.anchorLen) * slope, cfg.vMin, cfg.vMax));
 					const ang = aim.anchorAng + angDelta(raw, aim.anchorRaw) * aimGain;
 					aim.len = len;
 					aim.raw = raw;
 					setAimVel(Math.cos(ang) * sp, Math.sin(ang) * sp);
 				}
 				function setAimVel(vx, vy) {
+					// Below the floor the aim would be a stroke the puck cannot feel; keep it
+					// legal here so the aim line, the ghost and the throw are the same stroke.
+					// (A zero vector has no direction to scale along; commitThrow refuses it.)
+					const s = Math.hypot(vx, vy);
+					if (s > 0 && s < cfg.vThrowMin) { vx *= cfg.vThrowMin / s; vy *= cfg.vThrowMin / s; }
 					aim.vx = vx; aim.vy = vy; aim.hasStroke = true;
 					invalidateGhost();
 				}
@@ -2020,7 +2049,14 @@
 				function commitThrow() {
 					syncPending();
 					if (state !== 'aim' || pending < 0 || !aim.hasStroke) return;
-					throwPuck(w, pending, aim.vx, aim.vy);
+					// The rule at the throat: a throw must move the puck. A sub-floor stroke is
+					// thrown at the floor (direction kept); a directionless one is no throw at
+					// all — the seat keeps aiming instead of spending a turn that goes nowhere.
+					let vx = aim.vx, vy = aim.vy;
+					const s = Math.hypot(vx, vy);
+					if (s > 0 && s < cfg.vThrowMin) { vx *= cfg.vThrowMin / s; vy *= cfg.vThrowMin / s; }
+					else if (s <= 0) return;
+					throwPuck(w, pending, vx, vy);
 					aim.hasStroke = false; aim.pending = -1; pending = -1;
 					state = 'resolve'; resolveT = 0;
 				}
@@ -2171,7 +2207,7 @@
 							// Releasing Shift restores normal gains, not the absolute pointer position.
 							relative = true;
 							angle += angDelta(bearing, lastAngle) * (e.shiftKey ? cfg.preciseAimGain : 1);
-							speed = clamp(speed + (len - lastLen) / cfg.dragFull * (cfg.vMax - cfg.vMin) * (e.shiftKey ? cfg.preciseGain : 1), cfg.vMin, cfg.vMax);
+							speed = clamp(speed + (len - lastLen) / cfg.dragFull * (cfg.vMax - cfg.vMin) * (e.shiftKey ? cfg.preciseGain : 1), cfg.vThrowMin, cfg.vMax);
 						}
 						lastLen = len; lastAngle = bearing;
 						setAimVel(Math.cos(angle) * speed, Math.sin(angle) * speed);
@@ -2276,7 +2312,7 @@
 					if (e.key === 'ArrowLeft') ang -= da;
 					if (e.key === 'ArrowRight') ang += da;
 					if (e.key === 'ArrowUp') sp = Math.min(cfg.vMax, sp * dk + ds);
-					if (e.key === 'ArrowDown') sp = Math.max(cfg.vMin, sp / dk - ds);
+					if (e.key === 'ArrowDown') sp = Math.max(cfg.vThrowMin, sp / dk - ds);
 					rebase(aim.len, sp, e.shiftKey); // arrows and drag share the same anchor
 					aim.anchorRaw = aim.raw; aim.anchorAng = ang;
 					setAimVel(Math.cos(ang) * sp, Math.sin(ang) * sp);
@@ -2615,8 +2651,10 @@
 						ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r, 0, 2 * Math.PI);
 						ctx.fillStyle = '#090812'; ctx.fill();
 						ctx.strokeStyle = '#9b59b6'; ctx.lineWidth = 0.018; ctx.stroke();
+						// The inner ring: a true violet, deliberately very faint — it marks the
+						// middle of the void without lifting it out of the ice.
 						ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r * 0.58, 0, 2 * Math.PI);
-						ctx.strokeStyle = 'rgba(214, 165, 255, 0.7)'; ctx.lineWidth = 0.012; ctx.stroke();
+						ctx.strokeStyle = 'rgba(155, 89, 182, 0.15)'; ctx.lineWidth = 0.012; ctx.stroke();
 						ctx.fillStyle = '#e5c3ff'; ctx.font = font.hole;
 						ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('VOID', hole.x, hole.y + (i === 0 ? 0.055 : -0.055));
 					}
@@ -3060,7 +3098,7 @@
 					if (key === 'ArrowLeft') angle -= aimGain * Math.PI / 180;
 					if (key === 'ArrowRight') angle += aimGain * Math.PI / 180;
 					if (key === 'ArrowUp') speed = Math.min(cfg.vMax, speed * (1 + speedGain * 0.02) + speedGain * 0.01);
-					if (key === 'ArrowDown') speed = Math.max(cfg.vMin, speed / (1 + speedGain * 0.02) - speedGain * 0.01);
+					if (key === 'ArrowDown') speed = Math.max(cfg.vThrowMin, speed / (1 + speedGain * 0.02) - speedGain * 0.01);
 					game.setAimVel(Math.cos(angle) * speed, Math.sin(angle) * speed);
 					updateControls();
 					draw();

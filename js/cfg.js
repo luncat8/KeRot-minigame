@@ -13,6 +13,13 @@ const CFG = {
 	omega: 0.7831, // sqrt(muS*g/(0.9*diskR)), re-solved by autoOmega()
 	omegaMax: 4.000,
 	vMin: 0.00, vMax: 3.00, // stroke speed range; drag maps 0..dragFull onto vMin..vMax
+	// The slowest stroke that still moves the puck. An aim can hold vMin (the grab
+	// ring's zero, and a bot's coarse grid bottoms out there too), but a throw that
+	// cannot cross the ice is no throw: it sleeps on the launch spot in a step, the
+	// turn hands over at once, and the return rule reclaims the puck from the launch
+	// lane without it ever moving — the seat appeared to skip its move. Aims below
+	// this throw at it; the bots never pick below it (js/bots.js consider).
+	vThrowMin: 0.30,
 	eWall: 0.35, wallTanKeep: 0.85,
 	ePuck: 0.65,
 	h: 1 / 480,

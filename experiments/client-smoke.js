@@ -291,6 +291,13 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	console.log('stroke mapping: half-drag ' + half.toFixed(3) + ', over-drag ' + over.toFixed(3) + ', full-drag ' + full.toFixed(3));
 	check(Math.abs(half - (CFG.vMin + CFG.vMax) / 2) < 1e-9, 'half drag = mid range');
 	check(over === CFG.vMax && full === CFG.vMax, 'over/at full drag clamp to vMax');
+	// A throw must move the puck (cfg.vThrowMin): the grab ring's zero and any other
+	// sub-floor aim is a stroke the puck cannot feel — it used to sleep on the launch
+	// spot and hand the turn over at once, which read as the seat skipping its move.
+	Game.setStroke(0.02, 0, false); // a hair of drag: the raw mapping would put this near zero
+	check(speed() >= CFG.vThrowMin - 1e-12, 'a hair of drag aims at least the minimum throw', speed().toFixed(3));
+	Game.setAimVel(-0.05, 0); // an exotic path handing over a sub-floor vector
+	check(speed() >= CFG.vThrowMin - 1e-12, 'setAimVel lifts a sub-floor aim to the floor', speed().toFixed(3));
 	// Shift precision: a preciseGain share of further drag on speed, a preciseAimGain
 	// share on aim, continuous across the press and release on both.
 	Game.setStroke(-0.45, 0, false);
@@ -392,6 +399,21 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		check(w.st[0] === ST_SLIDE, 'the throw reaches the armed puck');
 		stepWorld(w, CFG.h);
 		check(Math.hypot(w.x[0] - sx, w.y[0] - sy) > 1e-4, 'and the thrown puck moves');
+	}
+	// The rule at the throat: a committed throw must move the puck. A sub-floor stroke
+	// is thrown at the floor (direction kept); a directionless one is no throw at all.
+	{
+		Game.reset();
+		const w = Game.world;
+		Game.aim.vx = -0.05; Game.aim.vy = 0; Game.aim.hasStroke = true; // as an exotic path could hand it over
+		Game.commitThrow();
+		check(Game.state === 'resolve' && w.n === 1, 'a sub-floor stroke still throws');
+		check(Math.hypot(w.vx[0], w.vy[0]) >= CFG.vThrowMin - 1e-12, 'and at the minimum speed',
+			Math.hypot(w.vx[0], w.vy[0]).toFixed(3));
+		Game.reset();
+		Game.aim.vx = 0; Game.aim.vy = 0; Game.aim.hasStroke = true;
+		Game.commitThrow();
+		check(Game.state === 'aim' && Game.world.thrown === 0, 'a directionless stroke is not thrown');
 	}
 	// Seats are edited live: no reset, and the turn that is running is not lost.
 	Game.reset();

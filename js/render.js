@@ -256,8 +256,10 @@ function createRenderer() {
 			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r, 0, 2 * Math.PI);
 			ctx.fillStyle = '#090812'; ctx.fill();
 			ctx.strokeStyle = '#9b59b6'; ctx.lineWidth = 0.018; ctx.stroke();
+			// The inner ring: a true violet, deliberately very faint — it marks the
+			// middle of the void without lifting it out of the ice.
 			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r * 0.58, 0, 2 * Math.PI);
-			ctx.strokeStyle = 'rgba(214, 165, 255, 0.7)'; ctx.lineWidth = 0.012; ctx.stroke();
+			ctx.strokeStyle = 'rgba(155, 89, 182, 0.15)'; ctx.lineWidth = 0.012; ctx.stroke();
 			ctx.fillStyle = '#e5c3ff'; ctx.font = font.hole;
 			ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('VOID', hole.x, hole.y + (i === 0 ? 0.055 : -0.055));
 		}

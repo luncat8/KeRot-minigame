@@ -389,7 +389,7 @@ const UI = (() => {
 		else if (dh < 0.2 * CFG.diskR) warn = ' (meat grinder)';
 		setText('ballsLegend', 'players — ' + CFG.ballsPerPlayer + ' balls each, one push per turn');
 		setText('hold', 'd_hold/R = ' + pct + warn);
-		setText('stop', 'speed range ' + CFG.vMin.toFixed(2) + '–' + CFG.vMax.toFixed(2) + ' m/s; max-throw stops in ~' +
+		setText('stop', 'speed range ' + CFG.vThrowMin.toFixed(2) + '–' + CFG.vMax.toFixed(2) + ' m/s; max-throw stops in ~' +
 			stopDistance(CFG, CFG.vMax).toFixed(1) + ' m');
 	}
 	function ballDots(left) {

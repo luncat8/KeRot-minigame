@@ -131,7 +131,7 @@ function createWarp() {
 		const ang0 = Math.atan2(vy, vx), sp0 = Math.hypot(vx, vy), top = Math.min(cap, WARP_MAX_TRIES);
 		let n = 0;
 		for (let a = 0; a < WARP_LADDER.length && n < top; a++) {
-			const sp = clamp(sp0 * WARP_LADDER[a][1], cfg.vMin, cfg.vMax);
+			const sp = clamp(sp0 * WARP_LADDER[a][1], cfg.vThrowMin, cfg.vMax);
 			if (sp <= 0) continue;
 			const ang = ang0 + WARP_LADDER[a][0];
 			candVx[n] = Math.cos(ang) * sp; candVy[n] = Math.sin(ang) * sp; n++;

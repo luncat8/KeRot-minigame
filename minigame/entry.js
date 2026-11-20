@@ -189,7 +189,7 @@ function run(g) {
 		if (key === 'ArrowLeft') angle -= aimGain * Math.PI / 180;
 		if (key === 'ArrowRight') angle += aimGain * Math.PI / 180;
 		if (key === 'ArrowUp') speed = Math.min(cfg.vMax, speed * (1 + speedGain * 0.02) + speedGain * 0.01);
-		if (key === 'ArrowDown') speed = Math.max(cfg.vMin, speed / (1 + speedGain * 0.02) - speedGain * 0.01);
+		if (key === 'ArrowDown') speed = Math.max(cfg.vThrowMin, speed / (1 + speedGain * 0.02) - speedGain * 0.01);
 		game.setAimVel(Math.cos(angle) * speed, Math.sin(angle) * speed);
 		updateControls();
 		draw();

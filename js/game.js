@@ -130,7 +130,9 @@ function createGame(env) {
 		armTurn();
 	}
 	function rebase(len, sp, precise) { aim.anchorLen = len; aim.anchorSp = sp; aim.precise = precise; aim.anchorRaw = NaN; }
-	function rawSpeed(len) { return clamp(cfg.vMin + len / cfg.dragFull * (cfg.vMax - cfg.vMin), cfg.vMin, cfg.vMax); }
+	// vThrowMin is the floor of the mapping: the grab ring's zero would otherwise aim
+	// a stroke the puck cannot feel (and a tap would commit it — see commitThrow).
+	function rawSpeed(len) { return Math.max(cfg.vThrowMin, clamp(cfg.vMin + len / cfg.dragFull * (cfg.vMax - cfg.vMin), cfg.vMin, cfg.vMax)); }
 	// Drag 0..dragFull maps onto the stroke speed range cfg.vMin..cfg.vMax and the drag
 	// direction onto the aim; with shift held only a preciseGain (speed) / preciseAimGain
 	// (aim) share of further drag counts — precision mode, finer on speed than on aim.
@@ -151,13 +153,18 @@ function createGame(env) {
 		const gain = precise ? cfg.preciseGain : 1;
 		const aimGain = precise ? cfg.preciseAimGain : 1;
 		const slope = (cfg.vMax - cfg.vMin) / cfg.dragFull * gain;
-		const sp = clamp(aim.anchorSp + (len - aim.anchorLen) * slope, cfg.vMin, cfg.vMax);
+		const sp = Math.max(cfg.vThrowMin, clamp(aim.anchorSp + (len - aim.anchorLen) * slope, cfg.vMin, cfg.vMax));
 		const ang = aim.anchorAng + angDelta(raw, aim.anchorRaw) * aimGain;
 		aim.len = len;
 		aim.raw = raw;
 		setAimVel(Math.cos(ang) * sp, Math.sin(ang) * sp);
 	}
 	function setAimVel(vx, vy) {
+		// Below the floor the aim would be a stroke the puck cannot feel; keep it
+		// legal here so the aim line, the ghost and the throw are the same stroke.
+		// (A zero vector has no direction to scale along; commitThrow refuses it.)
+		const s = Math.hypot(vx, vy);
+		if (s > 0 && s < cfg.vThrowMin) { vx *= cfg.vThrowMin / s; vy *= cfg.vThrowMin / s; }
 		aim.vx = vx; aim.vy = vy; aim.hasStroke = true;
 		invalidateGhost();
 	}
@@ -235,7 +242,14 @@ function createGame(env) {
 	function commitThrow() {
 		syncPending();
 		if (state !== 'aim' || pending < 0 || !aim.hasStroke) return;
-		throwPuck(w, pending, aim.vx, aim.vy);
+		// The rule at the throat: a throw must move the puck. A sub-floor stroke is
+		// thrown at the floor (direction kept); a directionless one is no throw at
+		// all — the seat keeps aiming instead of spending a turn that goes nowhere.
+		let vx = aim.vx, vy = aim.vy;
+		const s = Math.hypot(vx, vy);
+		if (s > 0 && s < cfg.vThrowMin) { vx *= cfg.vThrowMin / s; vy *= cfg.vThrowMin / s; }
+		else if (s <= 0) return;
+		throwPuck(w, pending, vx, vy);
 		aim.hasStroke = false; aim.pending = -1; pending = -1;
 		state = 'resolve'; resolveT = 0;
 	}
@@ -386,7 +400,7 @@ function createGame(env) {
 				// Releasing Shift restores normal gains, not the absolute pointer position.
 				relative = true;
 				angle += angDelta(bearing, lastAngle) * (e.shiftKey ? cfg.preciseAimGain : 1);
-				speed = clamp(speed + (len - lastLen) / cfg.dragFull * (cfg.vMax - cfg.vMin) * (e.shiftKey ? cfg.preciseGain : 1), cfg.vMin, cfg.vMax);
+				speed = clamp(speed + (len - lastLen) / cfg.dragFull * (cfg.vMax - cfg.vMin) * (e.shiftKey ? cfg.preciseGain : 1), cfg.vThrowMin, cfg.vMax);
 			}
 			lastLen = len; lastAngle = bearing;
 			setAimVel(Math.cos(angle) * speed, Math.sin(angle) * speed);
@@ -491,7 +505,7 @@ function createGame(env) {
 		if (e.key === 'ArrowLeft') ang -= da;
 		if (e.key === 'ArrowRight') ang += da;
 		if (e.key === 'ArrowUp') sp = Math.min(cfg.vMax, sp * dk + ds);
-		if (e.key === 'ArrowDown') sp = Math.max(cfg.vMin, sp / dk - ds);
+		if (e.key === 'ArrowDown') sp = Math.max(cfg.vThrowMin, sp / dk - ds);
 		rebase(aim.len, sp, e.shiftKey); // arrows and drag share the same anchor
 		aim.anchorRaw = aim.raw; aim.anchorAng = ang;
 		setAimVel(Math.cos(ang) * sp, Math.sin(ang) * sp);
