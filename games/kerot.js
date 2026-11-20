@@ -2365,7 +2365,9 @@
 				let cv, ctx, sx = 100, sy = 100, dpr = 1;
 				// Optional presentation skin (js/fx.js). Null on the shipped page: the base frame
 				// pays one check per hook, and no texture or audio code is fetched. disk() runs in
-				// the disk's rotated local frame; the others draw in world coordinates.
+				// the disk's rotated local frame; the others draw in world coordinates. surface()
+				// is the top of the ice — over every marking already painted, under the voids,
+				// the aim ghost and the stones.
 				let skin = null;
 				let texDisk = null, texSchema = '', ppmDisk = 0, puckGrad = null, wallPath = null, gridPath = null;
 				let zoneFan = null, zoneAdv = null, hatchPath = null, sectorPath = null, bandPath = null;
@@ -2687,6 +2689,8 @@
 							ctx.beginPath(); ctx.arc(cfg.diskX, cfg.diskY, dh, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
 						}
 					}
+					// The ice surface: reflections and the frozen veil that sits over the markings.
+					if (skin && skin.surface) skin.surface(ctx, view, cfg);
 					drawBlackHoles();
 					// Launch zone
 					ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 0.01; ctx.setLineDash([0.04, 0.03]);

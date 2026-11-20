@@ -28,9 +28,15 @@ index.html?fx=glass&sfx=1
 bakes frost grain, a brushed rotating disk overlay, soft shadows and glassy puck rims
 once, then draws only cached sprites; it also synthesises WebAudio ice hiss, glass
 clinks, rail taps, throw swishes and black-hole swishes — no image or audio assets, no
-network requests, no new dependencies. `js/render.js` exposes five no-op hook points,
-and `js/main.js` passes one world observation per frame to the optional sound layer.
-With the option off, the base page downloads no add-on and pays only those hook checks.
+network requests, no new dependencies. The disk's markings are drawn as paint under
+ice: a scattered copy of the schema, a milky glaze with frost and trapped air over it,
+and the brushed surface polish above that. Ceiling lamps are mirrored in the ice in a
+few places as blurry bright bars, baked in board space so they never turn with the
+disk. Every seat colour rings at its own note — a pentatonic ladder with its own partial
+spread — and a contact between two colours rings between them.
+`js/render.js` exposes six no-op hook points, and `js/main.js` passes one world
+observation per frame to the optional sound layer. With the option off, the base page
+downloads no add-on and pays only those hook checks.
 The field paint, scoring, bot aims, seat rings and puck numbers remain the shipped ones:
 the glass layer is decorative and does not change gameplay.
 

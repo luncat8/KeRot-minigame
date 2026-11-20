@@ -11,6 +11,8 @@ const GlassFX = (() => {
 		? !!window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
 	let visual = false, soundOn = false, pageHidden = false, audio = null, needsReset = true;
 	let floorTex = null, diskTex = null, grainTex = null, glossTex = null, shadowTex = null, bakedCfg = null;
+	let glazeTex = null, milkTex = null, softTex = null, softSchema = '';
+	const lampTex = [null, null];
 	const seenUid = new Uint32Array(TABLE), alive = new Uint8Array(TABLE);
 	const pvx = new Float64Array(TABLE), pvy = new Float64Array(TABLE);
 	const pst = new Uint8Array(TABLE), lastHit = new Float64Array(TABLE);
@@ -78,6 +80,131 @@ const GlassFX = (() => {
 		grad.addColorStop(0.42, 'rgba(0,0,0,0.38)');
 		grad.addColorStop(1, 'rgba(0,0,0,0)');
 		g.fillStyle = grad; g.fillRect(0, 0, S, S);
+		return cv;
+	}
+	// The paint is not on the surface: it is frozen under a few centimetres of ice, so a
+	// marking reaches the eye scattered — low contrast, shifted blue, with frost and
+	// trapped air sitting above it. This sprite is that thickness, laid over the paint.
+	function bakeGlazeTex() {
+		const S = 512, c = S / 2, R = S * 0.5 - 1, cv = makeCanvas(S, S), g = cv.getContext('2d');
+		const r = rng(0x3ce1a7);
+		g.save(); g.beginPath(); g.arc(c, c, R, 0, TAU); g.clip();
+		// Milk thickens toward the rim, where the ice is colder and less skated.
+		const milk = g.createRadialGradient(c, c, R * 0.05, c, c, R);
+		milk.addColorStop(0, 'rgba(232,246,255,0.04)');
+		milk.addColorStop(0.60, 'rgba(214,236,255,0.09)');
+		milk.addColorStop(1, 'rgba(186,216,248,0.24)');
+		g.fillStyle = milk; g.fillRect(0, 0, S, S);
+		for (let k = 0; k < 30; k++) { // frost patches, brighter than the haze around them
+			const a = r() * TAU, d = R * Math.sqrt(r()) * 0.94;
+			const x = c + Math.cos(a) * d, y = c + Math.sin(a) * d, rad = R * (0.05 + 0.17 * r());
+			const fr = g.createRadialGradient(x, y, 0, x, y, rad);
+			fr.addColorStop(0, 'rgba(255,255,255,' + (0.05 + 0.08 * r()).toFixed(3) + ')');
+			fr.addColorStop(1, 'rgba(255,255,255,0)');
+			g.fillStyle = fr; g.beginPath(); g.arc(x, y, rad, 0, TAU); g.fill();
+		}
+		for (let k = 0; k < 150; k++) { // air trapped between the paint and the surface
+			const a = r() * TAU, d = R * Math.sqrt(r());
+			const x = c + Math.cos(a) * d, y = c + Math.sin(a) * d, rad = 0.9 + 3.2 * r();
+			g.strokeStyle = 'rgba(24,52,84,' + (0.09 + 0.13 * r()).toFixed(3) + ')';
+			g.lineWidth = 1; g.beginPath(); g.arc(x, y, rad, 0, TAU); g.stroke();
+			g.fillStyle = 'rgba(248,255,255,' + (0.10 + 0.16 * r()).toFixed(3) + ')';
+			g.beginPath(); g.arc(x - rad * 0.28, y - rad * 0.28, rad * 0.46, 0, TAU); g.fill();
+		}
+		g.restore();
+		cutCircle(g, S, R);
+		return cv;
+	}
+	// Board-wide veil over the zone hatch, the launch box and the disk alike: all of it
+	// is paint under ice, so none of it may stay vector-sharp while the ice is frosted.
+	function bakeMilkTex() {
+		const W = 432, H = 264, cv = makeCanvas(W, H), g = cv.getContext('2d');
+		const r = rng(0x7a17e5);
+		for (let k = 0; k < 34; k++) {
+			const x = r() * W, y = r() * H, rad = 30 + r() * 130;
+			const cloud = g.createRadialGradient(x, y, 0, x, y, rad);
+			cloud.addColorStop(0, 'rgba(226,244,255,' + (0.05 + 0.09 * r()).toFixed(3) + ')');
+			cloud.addColorStop(1, 'rgba(226,244,255,0)');
+			g.fillStyle = cloud; g.beginPath(); g.arc(x, y, rad, 0, TAU); g.fill();
+		}
+		for (let k = 0; k < 900; k++) { // frozen-in pit marks, a texel or two each
+			const x = r() * W, y = r() * H, s = r() > 0.9 ? 2 : 1;
+			g.fillStyle = r() > 0.4 ? 'rgba(240,250,255,' + (0.05 + 0.10 * r()).toFixed(3) + ')'
+				: 'rgba(10,28,48,' + (0.04 + 0.07 * r()).toFixed(3) + ')';
+			g.fillRect(x, y, s, s);
+		}
+		return cv;
+	}
+	// Ceiling lamps mirrored in the ice. A reflection belongs to the surface, not to the
+	// disk, so these are baked in board space once and never turn with it. Positions are
+	// board metres; two groups shimmer on separate slow phases so the ice is not a decal.
+	const LAMPS = [
+		{ group: 0, x: 0.64, y: 0.62, len: 0.58, w: 0.072, a: 1.00 },
+		{ group: 0, x: 2.10, y: 0.54, len: 0.42, w: 0.060, a: 0.72 },
+		{ group: 1, x: 1.38, y: 1.88, len: 0.50, w: 0.066, a: 0.62 },
+		{ group: 1, x: 2.86, y: 1.92, len: 0.40, w: 0.056, a: 0.50 },
+		{ group: 1, x: 0.30, y: 1.24, len: 0.34, w: 0.050, a: 0.42 },
+	];
+	function bakeLampTex(group, cfg) {
+		const W = 432, kx = W / cfg.boardW, H = Math.round(W * cfg.boardH / cfg.boardW);
+		const cv = makeCanvas(W, H), g = cv.getContext('2d');
+		const ky = H / cfg.boardH;
+		g.lineCap = 'round';
+		for (let i = 0; i < LAMPS.length; i++) {
+			const l = LAMPS[i];
+			if (l.group !== group) continue;
+			const x = l.x * kx, y = l.y * ky, len = l.len * kx, w = l.w * kx, a = l.a;
+			g.save(); g.translate(x, y);
+			// The halo is an upright ellipse: wide as the lamp, tall as the smear.
+			g.save(); g.scale(1, 4.2);
+			for (let k = 2; k >= 0; k--) {
+				const rad = len * (0.34 + 0.30 * k);
+				const halo = g.createRadialGradient(0, 0, 0, 0, 0, rad);
+				halo.addColorStop(0, 'rgba(255,246,228,' + (a * (k ? 0.05 : 0.13)).toFixed(3) + ')');
+				halo.addColorStop(0.5, 'rgba(255,242,218,' + (a * (k ? 0.02 : 0.05)).toFixed(3) + ')');
+				halo.addColorStop(1, 'rgba(255,242,218,0)');
+				g.fillStyle = halo; g.beginPath(); g.arc(0, 0, rad, 0, TAU); g.fill();
+			}
+			g.restore();
+			// Frost blurs the mirror along the line of sight: a soft vertical smear.
+			g.save(); g.scale(1, 5.5);
+			const smear = g.createRadialGradient(0, 0, 0, 0, 0, len * 0.42);
+			smear.addColorStop(0, 'rgba(255,248,232,' + (a * 0.15).toFixed(3) + ')');
+			smear.addColorStop(0.6, 'rgba(255,248,232,' + (a * 0.06).toFixed(3) + ')');
+			smear.addColorStop(1, 'rgba(255,248,232,0)');
+			g.fillStyle = smear; g.beginPath(); g.arc(0, 0, len * 0.42, 0, TAU); g.fill();
+			g.restore();
+			// The tube itself: one core pass and two bloom passes, each fading at the ends
+			// so the bar has no drawn-in caps.
+			const fade = g.createLinearGradient(-len / 2, 0, len / 2, 0);
+			fade.addColorStop(0, 'rgba(255,250,236,0)');
+			fade.addColorStop(0.10, 'rgba(255,250,236,1)');
+			fade.addColorStop(0.90, 'rgba(255,250,236,1)');
+			fade.addColorStop(1, 'rgba(255,250,236,0)');
+			g.strokeStyle = fade;
+			for (let k = 2; k >= 0; k--) {
+				g.globalAlpha = k ? a * (k === 2 ? 0.16 : 0.32) : a * 0.95;
+				g.lineWidth = k ? w * (2.2 - 0.85 * k) : w * 0.30;
+				g.beginPath(); g.moveTo(-len / 2, 0); g.lineTo(len / 2, 0); g.stroke();
+			}
+			g.globalAlpha = 1;
+			g.restore();
+		}
+		return cv;
+	}
+	// Scattered copy of the schema: laid over the sharp paint it softens every marking
+	// edge without moving it, because it is the same field, only older. 60 px per metre
+	// is a couple of centimetres of scatter — depth, not a soft-focus filter — and the
+	// two bilinear steps to 192 then to the disk turn its texels into a smooth ramp.
+	function bakeSoftField(cfg) {
+		if (typeof bakeFieldCanvas !== 'function') return null;
+		const box = { x: -cfg.diskR, y: -cfg.diskR, w: 2 * cfg.diskR, h: 2 * cfg.diskR };
+		const small = bakeFieldCanvas(box, 60, cfg), S = 192;
+		const cv = makeCanvas(S, S), g = cv.getContext('2d');
+		g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+		g.drawImage(small, 0, 0, S, S);
+		cutCircle(g, S, S * 0.5 - 1);
+		softSchema = cfg.diskSchema;
 		return cv;
 	}
 	// Transparent overlay for the rotating disk. Low alpha keeps the field's red
@@ -176,6 +303,9 @@ const GlassFX = (() => {
 		bakedCfg = cfg;
 		floorTex = bakeFloorTex(); diskTex = bakeDiskTex(); grainTex = bakeGrainTex();
 		glossTex = bakeGlossTex(); shadowTex = bakeShadowTex();
+		glazeTex = bakeGlazeTex(); milkTex = bakeMilkTex();
+		lampTex[0] = bakeLampTex(0, cfg); lampTex[1] = bakeLampTex(1, cfg);
+		softTex = null; softSchema = '';
 	}
 	function floor(ctx, view, cfg) {
 		if (!floorTex) return;
@@ -191,6 +321,17 @@ const GlassFX = (() => {
 		if (!diskTex) return;
 		const dark = view.opts.theme === 'kerot';
 		ctx.save();
+		// Depth first: the scattered copy of the paint, then the ice above it, then the
+		// brushed polish of the surface. Below three sprites nothing is drawn, so the
+		// softened paint never washes a shadow or a stone.
+		if (softSchema !== cfg.diskSchema) softTex = bakeSoftField(cfg);
+		if (softTex) {
+			ctx.globalAlpha = dark ? 0.82 : 0.76;
+			ctx.drawImage(softTex, -cfg.diskR, -cfg.diskR, 2 * cfg.diskR, 2 * cfg.diskR);
+			ctx.globalAlpha = 1;
+		}
+		ctx.globalAlpha = dark ? 0.54 : 0.58;
+		ctx.drawImage(glazeTex, -cfg.diskR, -cfg.diskR, 2 * cfg.diskR, 2 * cfg.diskR);
 		ctx.globalAlpha = dark ? 0.72 : 0.90;
 		ctx.drawImage(diskTex, -cfg.diskR, -cfg.diskR, 2 * cfg.diskR, 2 * cfg.diskR);
 		ctx.globalAlpha = dark ? 0.48 : 0.62;
@@ -198,6 +339,25 @@ const GlassFX = (() => {
 		ctx.beginPath(); ctx.arc(0, 0, cfg.diskR - 0.009, Math.PI * 1.06, Math.PI * 1.70); ctx.stroke();
 		ctx.strokeStyle = 'rgba(0,8,22,0.42)';
 		ctx.beginPath(); ctx.arc(0, 0, cfg.diskR - 0.009, Math.PI * 0.06, Math.PI * 0.70); ctx.stroke();
+		ctx.restore();
+	}
+	// The ice surface, drawn once per frame over every marking and under every stone:
+	// the frozen veil, then the ceiling lamps mirrored in the ice.
+	function surface(ctx, view, cfg) {
+		if (!milkTex) return;
+		const dark = view.opts.theme === 'kerot', t = view.w ? view.w.t : 0;
+		ctx.save();
+		ctx.globalAlpha = dark ? 0.30 : 0.38;
+		ctx.drawImage(milkTex, 0, 0, cfg.boardW, cfg.boardH);
+		// Reflections are light added to the ice, not paint on it: additive blending keeps
+		// the bar warm instead of turning it grey over the teal of the zones.
+		ctx.globalCompositeOperation = 'lighter';
+		for (let k = 0; k < 2; k++) {
+			// Slow, out-of-step breathing: a dead-steady reflection reads as a sticker.
+			// With reduced motion the reflection simply stays at its mid brightness.
+			ctx.globalAlpha = (dark ? 0.44 : 0.54) * (REDUCED ? 0.95 : 0.90 + 0.10 * Math.sin(t * (0.37 + 0.11 * k) + 2.1 * k));
+			ctx.drawImage(lampTex[k], 0, 0, cfg.boardW, cfg.boardH);
+		}
 		ctx.restore();
 	}
 	function shadow(ctx, view, cfg, i, isPending) {
@@ -235,7 +395,7 @@ const GlassFX = (() => {
 		}
 		ctx.restore();
 	}
-	const skin = { setup, floor, disk, shadow, puck };
+	const skin = { setup, floor, disk, surface, shadow, puck };
 
 	function noiseBuffer(ac) {
 		const len = Math.max(1, Math.floor(ac.sampleRate * 0.7));
@@ -268,15 +428,32 @@ const GlassFX = (() => {
 	}
 	function set(v, s) { visual = !!v; soundOn = !!s; applyMaster(); }
 	function mute(hidden) { pageHidden = !!hidden; applyMaster(); }
-	function glassPing(a, strength, bright) {
-		const now = a.ac.currentTime, base = (bright ? 760 : 520) + 220 * strength;
+	// One voice per seat colour, in SEAT_COLORS order (js/players.js): a pentatonic
+	// ladder gives every colour its own note, `spread` fans the three partials apart so
+	// the timbre differs too — red knocks low and warm, blue rings high and thin — and
+	// `decay` lets the lower notes ring longer, as a heavier body would.
+	const VOICES = [
+		{ pitch: 1.000, spread: 1.30, decay: 1.00 }, // red
+		{ pitch: 1.100, spread: 1.42, decay: 0.95 }, // amber
+		{ pitch: 1.200, spread: 1.54, decay: 0.89 }, // green
+		{ pitch: 1.335, spread: 1.68, decay: 0.83 }, // violet
+		{ pitch: 1.420, spread: 1.24, decay: 0.79 }, // orange
+		{ pitch: 1.600, spread: 1.76, decay: 0.73 }, // teal
+		{ pitch: 1.750, spread: 1.60, decay: 0.69 }, // pink
+		{ pitch: 1.900, spread: 1.16, decay: 0.65 }, // blue
+	];
+	// Same colour, different stone: ±1.2 % keeps the voice, drops the machine-gun unison.
+	function stoneDetune(uid) { return 1 + ((uid % 7) - 3) * 0.004; }
+	function glassPing(a, strength, bright, pitch, spread, decay) {
+		if (pitch === undefined) { pitch = 1; spread = 1.46; decay = 1; }
+		const now = a.ac.currentTime, base = ((bright ? 760 : 520) + 220 * strength) * pitch;
 		for (let k = 0; k < 3; k++) {
 			const osc = a.ac.createOscillator(), g = a.ac.createGain();
 			osc.type = k ? 'sine' : 'triangle';
-			osc.frequency.setValueAtTime(base * (1 + 1.46 * k), now);
+			osc.frequency.setValueAtTime(base * (1 + spread * k), now);
 			g.gain.setValueAtTime(0.0001, now);
 			g.gain.exponentialRampToValueAtTime(0.055 * strength / (k + 1), now + 0.006);
-			g.gain.exponentialRampToValueAtTime(0.0001, now + 0.16 + 0.09 * k);
+			g.gain.exponentialRampToValueAtTime(0.0001, now + (0.16 + 0.09 * k) * decay);
 			osc.connect(g); g.connect(a.master); osc.start(now); osc.stop(now + 0.4);
 		}
 	}
@@ -301,8 +478,17 @@ const GlassFX = (() => {
 		iceBurst(a, 0.5 * strength, true);
 	}
 	function throwSound(a) { iceBurst(a, 0.8, false); glassPing(a, 0.22, false); }
-	function wallSound(a, imp) { const s = limit(imp / 2.2, 0.2, 1); iceBurst(a, 0.55 * s, true); glassPing(a, 0.18 * s, false); }
-	function clinkSound(a, imp) { const s = limit(imp / 2.2, 0.2, 1); glassPing(a, s, true); iceBurst(a, 0.35 * s, false); }
+	// A rail tap is the stone's own voice, dulled by the board; a stone-on-stone contact
+	// rings at the mean of the two voices, so red against blue is a pitch neither makes
+	// alone. Both stay within three oscillators.
+	function wallSound(a, imp, pitch, spread, decay) {
+		const s = limit(imp / 2.2, 0.2, 1);
+		iceBurst(a, 0.55 * s, true); glassPing(a, 0.18 * s, false, pitch, spread, decay);
+	}
+	function clinkSound(a, imp, pitch, spread, decay) {
+		const s = limit(imp / 2.2, 0.2, 1);
+		glassPing(a, s, true, pitch, spread, decay); iceBurst(a, 0.35 * s, false);
+	}
 	function endSound(a) { glassPing(a, 0.35, true); iceBurst(a, 0.25, true); }
 	function sumLoss(w) {
 		let s = 0;
@@ -313,13 +499,14 @@ const GlassFX = (() => {
 		const c = w.cfg, r = w.r[i], e = 0.012;
 		return w.x[i] <= r + e || w.x[i] >= c.boardW - r - e || w.y[i] <= r + e || w.y[i] >= c.boardH - r - e;
 	}
-	function nearPuck(w, i) {
+	// The stone this one is touching, or −1. The pair's second voice comes from here.
+	function nearestTouch(w, i) {
 		for (let j = 0; j < w.n; j++) {
 			if (j === i) continue;
 			const dx = w.x[j] - w.x[i], dy = w.y[j] - w.y[i], sig = w.r[i] + w.r[j] + 0.025;
-			if (dx * dx + dy * dy <= sig * sig) return true;
+			if (dx * dx + dy * dy <= sig * sig) return j;
 		}
-		return false;
+		return -1;
 	}
 	function resetTracker(w, stateName, loss) {
 		seenUid.fill(0); pvx.fill(0); pvy.fill(0); pst.fill(0); lastHit.fill(-1e9);
@@ -347,12 +534,20 @@ const GlassFX = (() => {
 			if (!reset && seenUid[s] === uid) {
 				const dvx = w.vx[i] - pvx[s], dvy = w.vy[i] - pvy[s], imp = Math.hypot(dvx, dvy);
 				if (imp > 0.32 && pst[s] === SLIDE && w.st[i] === SLIDE && w.t - lastHit[s] > 0.055) {
-					const wall = nearWall(w, i), pair = wall ? false : nearPuck(w, i);
-					if (wall || pair) {
+					const wall = nearWall(w, i), touch = wall ? -1 : nearestTouch(w, i);
+					if (wall || touch >= 0) {
 						lastHit[s] = w.t;
 						if (canPlay && w.t - lastAnyHit > 0.045) {
 							lastAnyHit = w.t;
-							if (wall) wallSound(audio, imp); else clinkSound(audio, imp);
+							// The colour of the stone sets the note; a pair of colours meets
+							// in the middle of the interval.
+							const own = VOICES[w.own[i] & 7], pitch = own.pitch * stoneDetune(uid);
+							if (wall) wallSound(audio, imp, pitch, own.spread, own.decay);
+							else {
+								const other = VOICES[w.own[touch] & 7];
+								clinkSound(audio, imp, Math.sqrt(own.pitch * other.pitch) * stoneDetune(uid),
+									(own.spread + other.spread) * 0.5, Math.min(own.decay, other.decay));
+							}
 						}
 					}
 				}

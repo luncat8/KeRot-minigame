@@ -5,6 +5,11 @@ const fs = require('fs');
 const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 Object.assign(globalThis, require('../js/cfg.js'), require('../js/physics.js'), require('../js/presets.js'));
+// The scattered-paint bake reuses the shipped field painter; the smoke's stub canvas
+// supports exactly what bakeFieldCanvas needs.
+const fieldLib = require('../js/field.js');
+globalThis.bakeFieldCanvas = fieldLib.bakeFieldCanvas;
+const schema0 = CFG.diskSchema;
 let fail = 0;
 function check(ok, name, extra) { if (!ok) { console.log('FAIL ' + name + (extra ? ' — ' + extra : '')); fail = 1; } }
 
@@ -130,14 +135,32 @@ const view = { w: w, opts: { theme: 'classic' } };
 for (const theme of ['classic', 'kerot']) {
 	view.opts.theme = theme;
 	const ctx = makeCtx(); ops.length = 0;
-	GlassFX.skin.floor(ctx, view, CFG); GlassFX.skin.disk(ctx, view, CFG);
+	GlassFX.skin.floor(ctx, view, CFG);
+	const before = ops.filter(o => o === 'drawImage').length;
+	GlassFX.skin.disk(ctx, view, CFG);
+	// Scattered paint under the glaze, then the polished surface over both.
+	check(ops.filter(o => o === 'drawImage').length >= before + 3,
+		theme + ': the disk stacks scattered paint, glaze and polish', String(ops.length));
+	ops.length = 0;
+	GlassFX.skin.surface(ctx, view, CFG);
+	check(ops.filter(o => o === 'drawImage').length === 3,
+		theme + ': the ice-surface hook draws the veil and its two lamp groups', String(ops.length));
 	for (let i = 0; i < w.n; i++) {
 		GlassFX.skin.shadow(ctx, view, CFG, i, false);
 		GlassFX.skin.puck(ctx, view, CFG, i, i === a);
 	}
-	check(ops.filter(o => o === 'drawImage').length >= 3 + 3 * w.n,
-		theme + ': cached floor, disk, shadow and puck sprites are drawn', String(ops.length));
+	check(ops.filter(o => o === 'drawImage').length >= 3 + 2 * w.n,
+		theme + ': cached shadow and puck sprites are drawn', String(ops.length));
 }
+// The scattered paint is a bake per schema, never per frame.
+const fieldBakes = canvases.length;
+GlassFX.skin.disk(makeCtx(), view, CFG);
+check(canvases.length === fieldBakes, 'the scattered paint is baked once, not per frame');
+const otherSchema = CFG.diskSchema === 'rim6' ? 'classic' : 'rim6';
+CFG.diskSchema = otherSchema;
+GlassFX.skin.disk(makeCtx(), view, CFG);
+check(canvases.length > fieldBakes, 'a disk schema change rebakes the scattered paint');
+CFG.diskSchema = schema0;
 
 // World-state audio: reset frame, puck clink, black hole, throw and final chime.
 FX.set({ visual: true, sound: true });
@@ -177,5 +200,47 @@ document.visibilityState = 'visible'; fire(docListeners, 'visibilitychange');
 check(GlassFX.audio.master.gain.value > 0, 'returning to the page unmutes the add-on');
 fire(winListeners, 'pointerdown');
 check(audioContexts.length === 1 && !FX.failed, 'a user gesture reuses the one audio context');
-console.log(fail ? 'FAIL' : 'OK (lazy glass loader, baked canvas skins, procedural ice/glass audio)');
+// Every seat colour has its own note: the same wall tap rings at that seat's pitch, and
+// two colours meeting ring between them.
+function oscillatorFreqs(ac, from) {
+	const out = [];
+	for (let k = from; k < ac.nodes.length; k++) if (ac.nodes[k].kind === 'oscillator') out.push(ac.nodes[k].frequency.value);
+	return out;
+}
+const vw = createWorld(CFG);
+const vp = spawnPuck(vw, CFG.puckR + 0.004, 1.10, 0);
+function wallTap(owner, t, vx) {
+	vw.own[vp] = owner; vw.x[vp] = CFG.puckR + 0.004; vw.y[vp] = 1.10;
+	vw.st[vp] = ST_SLIDE; vw.vx[vp] = vx; vw.vy[vp] = 0; vw.t = t;
+	const from = ac.nodes.length;
+	FX.frame(1 / 60, vw, 'aim', false);
+	return oscillatorFreqs(ac, from);
+}
+FX.set({ visual: false, sound: true });
+wallTap(0, 0.2, 2.0); // tracker reset frame
+const tapRed = wallTap(0, 0.4, -2.0);
+wallTap(0, 0.6, 2.0);
+const tapViolet = wallTap(3, 0.8, -2.0);
+check(tapRed.length === 3 && tapViolet.length === 3, 'a wall tap rings with three partials');
+const ratio = tapViolet[0] / tapRed[0];
+check(Math.abs(ratio - 1.335) < 0.01, 'each seat colour has its own pitch on a rail tap', ratio.toFixed(3));
+const pw = createWorld(CFG);
+const p0 = spawnPuck(pw, 1.00, 1.10, 0), p1 = spawnPuck(pw, 1.21, 1.10, 0);
+function pairClash(t, v0, v1) {
+	pw.st[p0] = ST_SLIDE; pw.st[p1] = ST_SLIDE;
+	pw.vx[p0] = v0; pw.vy[p0] = 0; pw.vx[p1] = v1; pw.vy[p1] = 0; pw.t = t;
+	const from = ac.nodes.length;
+	FX.frame(1 / 60, pw, 'aim', false);
+	return oscillatorFreqs(ac, from);
+}
+pairClash(0.2, 1.0, -1.0); // tracker reset frame
+const sameColour = pairClash(0.4, -1.0, 1.0);
+pw.own[p1] = 7;
+pairClash(0.6, 1.0, -1.0);
+const mixedColour = pairClash(0.8, -1.0, 1.0);
+check(sameColour.length === 3 && mixedColour.length === 3, 'a two-stone contact rings with three partials');
+const pairRatio = mixedColour[0] / sameColour[0];
+check(Math.abs(pairRatio - Math.sqrt(1.9)) < 0.03,
+	'a contact between two colours rings between the two voices', pairRatio.toFixed(3));
+console.log(fail ? 'FAIL' : 'OK (lazy glass loader, baked canvas skins, under-ice paint, lamp reflections, per-colour voices)');
 process.exit(fail);

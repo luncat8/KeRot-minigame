@@ -291,3 +291,16 @@
 - Query-key assertions must match a whole parameter: `sfx=1` contains the substring
   `fx=`, so `!link.includes('fx=')` is wrong. Use `/(?:^|&)fx=/` (and the same shape
   for `sfx=`) when a smoke test checks that a shipped key was omitted.
+- Softened paint must not be blurred *into* the score read. Blur a coarse copy of the
+  same deterministic field (its own bake at ~48–72 px/m, upscaled with smoothing) and
+  composite it over the sharp paint: edges soften, no boundary moves, and the red
+  channel the rules read is untouched. A canvas `filter: blur()` on the score texture
+  would repaint per frame and would itself move the score map.
+- Reflections of the room belong in board space, not in the disk's rotated frame, and
+  they are light added to the surface — draw them with `lighter`. Normal alpha blending
+  turns a warm-white bar grey over a teal zone fill; additive keeps it reading as light.
+- Judge a wash numerically as well as by eye: mean RGB inside the disk radius of the
+  rendered PNG (a 10-line `getImageData` script over `render-frames.js --glass` output)
+  says whether frost cost the score map 3 or 30 levels of contrast. Comparing crops
+  from the plain render of the same schema separates the paint's own palette from what
+  the overlay added — the pale ring around a ring schema is in the field, not the skin.

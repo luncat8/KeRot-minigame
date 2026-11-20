@@ -225,19 +225,20 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(schemeBakes === 0, 'a colour scheme change rebakes nothing', String(schemeBakes));
 	CFG.diskSchema = schema0;
 	Render.drawWorld(view);
-	// The optional presentation has five hook points. A probe skin proves every one is
+	// The optional presentation has six hook points. A probe skin proves every one is
 	// reached and that detaching it restores the exact base draw path.
 	const hooks = [];
 	const probeSkin = {
 		setup() { hooks.push('setup'); }, floor() { hooks.push('floor'); }, disk() { hooks.push('disk'); },
-		shadow() { hooks.push('shadow'); }, puck() { hooks.push('puck'); },
+		surface() { hooks.push('surface'); }, shadow() { hooks.push('shadow'); }, puck() { hooks.push('puck'); },
 	};
 	Render.attach(probeSkin);
 	Render.drawWorld(view);
-	for (const hook of ['setup', 'floor', 'disk', 'shadow', 'puck'])
+	for (const hook of ['setup', 'floor', 'disk', 'surface', 'shadow', 'puck'])
 		check(hooks.includes(hook), 'the optional ' + hook + ' hook is reachable');
 	check(hooks.filter(h => h === 'shadow').length === w.n && hooks.filter(h => h === 'puck').length === w.n,
 		'shadow and puck hooks run once per puck', hooks.length);
+	check(hooks.filter(h => h === 'surface').length === 1, 'the ice-surface hook runs once per frame', hooks.length);
 	hooks.length = 0;
 	Render.attach(null);
 	Render.drawWorld(view);
