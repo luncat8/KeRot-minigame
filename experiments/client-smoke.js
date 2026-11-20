@@ -777,10 +777,25 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 			check(UI.opts().fx === 'plain' && !UI.opts().sfx && document.body.dataset.fx === 'plain', 'plain and silent restore the shipped presentation');
 			check(!/(?:^|&)fx=/.test(historyCalls[historyCalls.length - 1]) && !/(?:^|&)sfx=/.test(historyCalls[historyCalls.length - 1]),
 				'plain and silent leave no presentation keys in a custom link');
-			UI.applyPreset('crystal');
-			check(els.fx.value === 'glass' && els.chkSfx.checked && historyCalls[historyCalls.length - 1].includes('preset=crystal'),
-				'the crystal preset turns glass and sound on together');
-			UI.applyPreset('default');
+		UI.applyPreset('crystal');
+		check(els.fx.value === 'glass' && els.chkSfx.checked && historyCalls[historyCalls.length - 1].includes('preset=crystal'),
+			'the crystal preset turns glass and sound on together');
+		// The decor, listener and volume keys: a link drives the controls and the page
+		// options, and a manual move echoes into the address bar only while non-default.
+		UI.applySetup(parseQuery('?decor=hex&face=bottom&vol=0.8'));
+		check(els.decor.value === 'hex' && els.face.value === 'bottom' && els.vol.value === '0.8',
+			'decor, listener and volume URL keys pull the controls');
+		check(UI.opts().decor === 'hex' && UI.opts().face === 'bottom' && Math.abs(UI.opts().vol - 0.8) < 1e-9,
+			'the options carry the decor, the listener and the volume');
+		check(els.volVal.textContent === '80 %', 'the volume readout shows the percentage', els.volVal.textContent);
+		els.decor.value = 'radial'; els.decor.on.change();
+		check(!/(?:^|&)decor=/.test(historyCalls[historyCalls.length - 1]) && historyCalls[historyCalls.length - 1].includes('face=bottom'),
+			'the shipped decor leaves the link, the moved listener stays', historyCalls[historyCalls.length - 1]);
+		els.face.value = 'launch'; els.face.on.change();
+		els.vol.value = '1.3'; els.vol.on.input();
+		const tail = historyCalls[historyCalls.length - 1];
+		check(!/(?:^|&)face=/.test(tail) && !/(?:^|&)vol=/.test(tail), 'shipped listener and volume leave no keys in the link', tail);
+		UI.applyPreset('default');
 			console.log('presets/url smoke: ' + Object.keys(PRESETS).length + ' presets, parameters applied and clamped, sliders pulled, roster swapped, link echoed');
 		els.chkRing.checked = true; els.chkPreview.checked = true;
 	}

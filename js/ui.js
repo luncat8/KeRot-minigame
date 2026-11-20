@@ -4,14 +4,14 @@
 const UI = (() => {
 	const $ = id => document.getElementById(id);
 	const els = {};
-	const opts = { ring: true, preview: true, mode: CFG.recycleMode, theme: 'classic', fx: 'plain', sfx: false };
+	const opts = { ring: true, preview: true, mode: CFG.recycleMode, theme: 'classic', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3 };
 	// What a link with no parameters opens. Taken now, before boot parameters or a
 	// preset move CFG — a shared link lists only what differs from this.
 	const SHIPPED = {
 		omega: CFG.omega, muK: CFG.muK, muS: CFG.muS, puckM: CFG.puckM,
 		schema: CFG.diskSchema, recycle: CFG.recycleMode, vote: CFG.speedVote, voteMode: CFG.voteMode, balls: CFG.ballsPerPlayer,
 		botspeed: CFG.botSpeed, warp: !!CFG.warp, warpTries: CFG.warpTries, warpTurns: CFG.warpTurns, warpGoal: CFG.warpGoal,
-		theme: 'classic', fx: 'plain', sfx: false, seats: 'human,balanced,blackhole,retriever',
+		theme: 'classic', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3, seats: 'human,balanced,blackhole,retriever',
 	};
 	// The speed bar's select is the same setting as the rule radios in the drawer; it
 	// says who sets the speed, in the words a turn wants.
@@ -32,7 +32,7 @@ const UI = (() => {
 			els[id] = $(id);
 		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
 			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus', 'speedMode',
-			'fx', 'chkSfx', 'result', 'resultWinner', 'resultScores'])
+			'fx', 'chkSfx', 'decor', 'face', 'vol', 'volVal', 'result', 'resultWinner', 'resultScores'])
 			els[id] = $(id);
 		els.canvas = $('c');
 		// Every physics input invalidates the ghost: it is only valid for the settings
@@ -73,6 +73,9 @@ const UI = (() => {
 		els.theme.addEventListener('change', () => { opts.theme = els.theme.value; document.body.dataset.theme = opts.theme; markCustom(); });
 		els.fx.addEventListener('change', () => { syncFX(); markCustom(); });
 		els.chkSfx.addEventListener('change', () => { syncFX(); markCustom(); });
+		els.decor.addEventListener('change', () => { syncFX(); markCustom(); });
+		els.face.addEventListener('change', () => { syncFX(); markCustom(); });
+		els.vol.addEventListener('input', () => { syncFX(); markCustom(); });
 		// The preset select keeps a placeholder until a bundle is picked, and goes back
 		// to it (markCustom) as soon as any control moves away from the bundle.
 		const ph = document.createElement('option');
@@ -105,8 +108,12 @@ const UI = (() => {
 	function syncFX() {
 		opts.fx = FX_MODES.includes(els.fx.value) ? els.fx.value : 'plain';
 		opts.sfx = !!els.chkSfx.checked;
+		opts.decor = DECOR_MODES.includes(els.decor.value) ? els.decor.value : 'radial';
+		opts.face = FACE_MODES.includes(els.face.value) ? els.face.value : 'launch';
+		opts.vol = clamp(parseFloat(els.vol.value) || 0, 0, 2);
+		setText('volVal', Math.round(opts.vol * 100) + ' %');
 		document.body.dataset.fx = opts.fx;
-		if (typeof FX !== 'undefined') FX.set({ visual: opts.fx === 'glass', sound: opts.sfx });
+		if (typeof FX !== 'undefined') FX.set({ visual: opts.fx === 'glass', sound: opts.sfx, decor: opts.decor, face: opts.face, vol: opts.vol });
 	}
 	function radios(name) { return document.querySelectorAll('input[name=' + name + ']'); }
 	function setRule(rule, mode) {
@@ -145,6 +152,9 @@ const UI = (() => {
 		if (opts.theme !== SHIPPED.theme) parts.push('theme=' + opts.theme);
 		if (opts.fx !== SHIPPED.fx) parts.push('fx=' + opts.fx);
 		if (opts.sfx !== SHIPPED.sfx) parts.push('sfx=' + (opts.sfx ? 1 : 0));
+		if (opts.decor !== SHIPPED.decor) parts.push('decor=' + opts.decor);
+		if (opts.face !== SHIPPED.face) parts.push('face=' + opts.face);
+		if (Math.abs(opts.vol - SHIPPED.vol) > 1e-3) parts.push('vol=' + numParam(opts.vol));
 		if (CFG.ballsPerPlayer !== SHIPPED.balls) parts.push('balls=' + CFG.ballsPerPlayer);
 		const seats = Game.seatTypes.join(',');
 		if (seats !== SHIPPED.seats) parts.push('seats=' + seats);
@@ -172,6 +182,9 @@ const UI = (() => {
 		els.theme.value = opts.theme;
 		els.fx.value = opts.fx;
 		els.chkSfx.checked = opts.sfx;
+		els.decor.value = opts.decor;
+		els.face.value = opts.face;
+		els.vol.value = String(opts.vol);
 		if (els.view) els.view.value = View.isFit() ? 'fit' : 'side';
 		for (const r of radios('recycle')) r.checked = r.value === CFG.recycleMode;
 		opts.mode = CFG.recycleMode;
@@ -207,6 +220,9 @@ const UI = (() => {
 		if (setup.omega !== undefined || setup.autoOmega) Game.setOmega(CFG.omega); // a set speed, not a voted one
 		if (setup.fx && FX_MODES.includes(setup.fx)) opts.fx = setup.fx;
 		if (setup.sfx !== undefined) opts.sfx = !!setup.sfx;
+		if (setup.decor && DECOR_MODES.includes(setup.decor)) opts.decor = setup.decor;
+		if (setup.face && FACE_MODES.includes(setup.face)) opts.face = setup.face;
+		if (setup.vol !== undefined) opts.vol = clamp(setup.vol, 0, 2);
 		if (setup.theme && Render.themes[setup.theme]) { opts.theme = setup.theme; document.body.dataset.theme = opts.theme; }
 		if (setup.view) View.set(setup.view);
 		if (setup.ring !== undefined) els.chkRing.checked = setup.ring;

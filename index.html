@@ -288,6 +288,18 @@
 			<label><span><input type="checkbox" id="chkSfx"> ice / glass sound</span></label>
 			<div class="dim">plain ships no extra script; glass loads one add-on on first use.</div>
 		</div>
+		<div class="row"><label>disk decor <select id="decor">
+				<option value="radial">radial skate brush</option>
+				<option value="hex">worn hex cells</option>
+			</select></label>
+			<div class="dim">the glass disk's etched finish; a switch rebakes it in place.</div>
+		</div>
+		<div class="row"><label>listener <select id="face">
+				<option value="launch">on the disk, facing the launch</option>
+				<option value="up">on the disk, facing up</option>
+				<option value="bottom">below the disk, facing up</option>
+			</select></label></div>
+		<div class="row"><label>sound volume <span id="volVal"></span></label><input type="range" id="vol" min="0" max="2" step="0.05" value="1.3"></div>
 		<div class="readout">
 			<div id="hold"></div><div id="stop"></div><div id="simTime"></div>
 			<div id="puckCount"></div><div id="liveScore"></div><div id="state"></div>
@@ -384,10 +396,18 @@
 	<p><b>plain</b> is the shipped board. <b>glass ice</b> adds baked frost grain, soft
 	shadows under the disk and every puck, and glassy rims; the field paint sits under a
 	few centimetres of ice, so its edges are scattered, it loses contrast, and air,
-	frost and the blurred mirror of the ceiling lamps lie above it. <b>ice / glass
+	frost and the blurred mirror of the ceiling lamps lie above it. The disk's etched
+	finish is a setting of its own: <b>disk decor</b> switches the radial skate
+	scratches for <b>worn hex cells</b> — a honeycomb with soft edges, some of them
+	worn away entirely. <b>ice / glass
 	sound</b> adds a sliding ice hiss, bright clinks for puck contacts, duller taps for
 	rails and low swishes for black holes — all synthesised, with no audio files, and
-	every seat colour rings at its own note. The field paint stays the score map, and
+	every seat colour rings at its own note. The sound is stereo: the listener is a mic
+	head on the big disk's centre, and every contact, throw and capture pans to where it
+	happened. <b>listener</b> picks where it faces — toward the launch, straight up, or
+	from the bottom edge below the disk facing up — and <b>sound volume</b> scales it
+	all (100 % is the original level; 130 % as shipped). The field paint stays the score
+	map, and
 	every seat ring, number and gauge stays readable. The heavy layer is one optional
 	script loaded only when one of these is switched on, so a plain link downloads none
 	of it. Sound waits for a click or key because browsers block audio before a gesture.
@@ -413,6 +433,8 @@
 	<code>recycle</code> (none | zones | advance), <code>vote</code> (off | turn | round),
 	<code>votemode</code> (delta | exact), <code>theme</code> (classic | kerot),
 	<code>fx</code> (plain | glass), <code>sfx</code> (0|1),
+	<code>decor</code> (radial | hex), <code>face</code> (launch | up | bottom),
+	<code>vol</code> (0–2, 1.3 as shipped),
 	<code>botspeed</code> (auto | park | shake | tempo | still), <code>warp</code> (0|1),
 	<code>warptries</code>, <code>warpturns</code> (0 = to the end of the game), <code>warpgoal</code>,
 	<code>seats</code> (a comma list of seat types), <code>balls</code>,

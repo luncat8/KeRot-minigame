@@ -1,9 +1,10 @@
 // Renders real frames of the board to PNG through @napi-rs/canvas (experiments/tools,
 // `npm install` there once), so a visual change can be looked at — and diffed — without
 // a browser. Same stub technique as client-smoke.js, but with a real 2D context.
-//   node experiments/render-frames.js [outDir] [--glass]
+//   node experiments/render-frames.js [outDir] [--glass] [--decor=radial|hex]
 // Writes one PNG per (ui theme × disk schema) of a fixed mid-game board; --glass
-// attaches the optional presentation skin and gives the files a -glass suffix.
+// attaches the optional presentation skin and gives the files a -glass suffix,
+// --decor picks the glass disk's etched finish.
 const fs = require('fs');
 const path = require('path');
 const { createCanvas, Path2D } = require('./tools/node_modules/@napi-rs/canvas');
@@ -13,6 +14,7 @@ Object.assign(globalThis, require('../js/cfg.js'), require('../js/field.js'), re
 
 const args = process.argv.slice(2);
 const glass = args.includes('--glass');
+const decorArg = (args.find(a => a.startsWith('--decor=')) || '').slice(8);
 const outDir = args.find(a => !a.startsWith('--')) || path.join(__dirname, 'logs', 'frames');
 fs.mkdirSync(outDir, { recursive: true });
 globalThis.Path2D = Path2D;
@@ -40,7 +42,7 @@ if (glass) {
 		.replace(/\bconst GlassFX =/, 'globalThis.GlassFX =')
 		.replace(/^if \(typeof module !== 'undefined'\).*$/gm, '');
 	eval(src);
-	GlassFX.set(true, false);
+	GlassFX.set({ visual: true, sound: false, decor: decorArg === 'hex' ? 'hex' : 'radial' });
 	Render.attach(GlassFX.skin);
 }
 
@@ -77,7 +79,7 @@ for (const theme of themes) {
 		const view = board();
 		view.opts.theme = theme;
 		Render.drawWorld(view);
-		const file = path.join(outDir, theme + '-' + schema + (glass ? '-glass' : '') + '.png');
+		const file = path.join(outDir, theme + '-' + schema + (glass ? '-glass' : '') + (glass && decorArg === 'hex' ? '-hex' : '') + '.png');
 		fs.writeFileSync(file, cv.toBuffer('image/png'));
 		console.log('wrote ' + path.relative(process.cwd(), file) + ' (' + cv.width + 'x' + cv.height + ')');
 	}

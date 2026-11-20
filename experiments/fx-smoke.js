@@ -48,6 +48,7 @@ class AudioNodeStub {
 	constructor(ac, kind) {
 		this.ac = ac; this.kind = kind; this.gain = new AudioParamStub(ac, 'gain');
 		this.frequency = new AudioParamStub(ac, 'frequency'); this.Q = new AudioParamStub(ac, 'Q');
+		this.pan = new AudioParamStub(ac, 'pan');
 	}
 	connect(dest) { return dest; }
 	start(t) { this.ac.starts++; this.startedAt = t; }
@@ -57,7 +58,7 @@ const audioContexts = [];
 class AudioContextStub {
 	constructor() {
 		this.currentTime = 0; this.sampleRate = 48000; this.state = 'suspended'; this.destination = {};
-		this.nodes = []; this.starts = 0; this.stops = 0; this.oscillators = 0; this.bufferSources = 0; this.buffers = 0;
+		this.nodes = []; this.starts = 0; this.stops = 0; this.oscillators = 0; this.bufferSources = 0; this.buffers = 0; this.panners = 0;
 		audioContexts.push(this);
 	}
 	node(kind) { const n = new AudioNodeStub(this, kind); this.nodes.push(n); return n; }
@@ -65,6 +66,7 @@ class AudioContextStub {
 	createOscillator() { this.oscillators++; return this.node('oscillator'); }
 	createBufferSource() { this.bufferSources++; return this.node('bufferSource'); }
 	createBiquadFilter() { return this.node('filter'); }
+	createStereoPanner() { this.panners++; return this.node('panner'); }
 	createBuffer(ch, len) { this.buffers++; return { getChannelData: () => new Float32Array(len) }; }
 	resume() { this.state = 'running'; return Promise.resolve(); }
 }
@@ -104,6 +106,11 @@ check(/<script src="js\/fx\.js"><\/script>/.test(html) && !/<script[^>]+js\/fx-g
 check(!/GlassFX|fx-glass\.js/.test(bundle), 'the committed story bundle carries no glass add-on');
 check(parseQuery('?fx=glass&sfx=1').fx === 'glass' && parseQuery('?fx=glass&sfx=1').sfx === true,
 	'the glass URL keys parse into a setup');
+const decoQ = parseQuery('?decor=hex&face=bottom&vol=0.8');
+check(decoQ.decor === 'hex' && decoQ.face === 'bottom' && Math.abs(decoQ.vol - 0.8) < 1e-9,
+	'the decor, listener and volume URL keys parse');
+check(parseQuery('?vol=9').vol === 2 && !parseQuery('?vol=abc'),
+	'the volume key clamps to the slider range and drops a non-number');
 
 FX.set({ visual: false, sound: false });
 check(injected.length === 0 && !FX.loaded, 'plain and silent fetch no optional script');
@@ -125,6 +132,14 @@ FX.set({ visual: false, sound: true });
 check(attached === null && GlassFX.sound && GlassFX.audio.master.gain.value > 0,
 	'sound-only mode detaches the skin but keeps audio on');
 check(injected.length === 1, 'switching modes never injects the add-on twice');
+check(GlassFX.audio.pan && GlassFX.audio.pan.kind === 'panner',
+	'the ice hiss reaches the ears through a stereo panner');
+FX.set({ visual: false, sound: true, vol: 0.5 });
+check(Math.abs(GlassFX.audio.master.gain.value - 0.32 * 0.5) < 1e-9,
+	'the volume setting scales the master gain', String(GlassFX.audio.master.gain.value));
+FX.set({ visual: false, sound: true, vol: 1.3 });
+check(Math.abs(GlassFX.audio.master.gain.value - 0.32 * 1.3) < 1e-9,
+	'the shipped volume is 1.3x the original level', String(GlassFX.audio.master.gain.value));
 
 // Skins draw only cached sprites: no gradient or buffer allocation in the hook path.
 const w = createWorld(CFG);
@@ -161,6 +176,36 @@ CFG.diskSchema = otherSchema;
 GlassFX.skin.disk(makeCtx(), view, CFG);
 check(canvases.length > fieldBakes, 'a disk schema change rebakes the scattered paint');
 CFG.diskSchema = schema0;
+
+// The disk decor is a baked choice, not a per-frame one: a switch rebakes exactly the
+// disk sprite (the hex finish plus its soft 192² cell layer), re-applying is a no-op.
+ops.length = 0;
+const decorBase = canvases.length;
+FX.set({ visual: true, sound: false, decor: 'hex' });
+check(GlassFX.decor === 'hex' && canvases.length === decorBase + 2,
+	'hex decor rebakes the disk sprite and its soft cell layer', String(canvases.length - decorBase));
+const hexStrokes = ops.filter(o => o === 'stroke').length;
+check(ops.filter(o => o === 'drawImage').length === 1, 'the hex cells reach the disk as one upscaled soft layer');
+FX.set({ visual: true, sound: false, decor: 'hex' });
+check(canvases.length === decorBase + 2, 're-applying the same decor does not rebake');
+ops.length = 0;
+FX.set({ visual: true, sound: false, decor: 'radial' });
+check(GlassFX.decor === 'radial' && canvases.length === decorBase + 3, 'switching back rebakes the disk sprite alone');
+check(ops.filter(o => o === 'drawImage').length === 0, 'the radial brush needs no sub-layer');
+// The hex etching wears about a third of the cell edges away: the kept strokes must
+// land near two thirds of the same lattice stroked without wear (deterministic seed).
+const hexEdges = hexStrokes - 5; // minus the concentric rings and the rim arc of the disk bake
+let fullEdges = 0;
+{
+	const cR = 192 / 2 - 1, cell = cR / 5.2, dx = 1.5 * cell, dy = Math.sqrt(3) * cell;
+	for (let col = -4; col <= 4; col++) for (let row = -4; row <= 4; row++) {
+		const ex = col * dx, ey = row * dy + (col & 1 ? dy / 2 : 0);
+		if (ex * ex + ey * ey > (cR + cell) * (cR + cell)) continue;
+		fullEdges += 6;
+	}
+}
+check(hexEdges > fullEdges * 0.5 && hexEdges < fullEdges * 0.85,
+	'the hex cells keep most edges and wear some away', hexEdges + ' of ' + fullEdges);
 
 // World-state audio: reset frame, puck clink, black hole, throw and final chime.
 FX.set({ visual: true, sound: true });
@@ -207,23 +252,46 @@ function oscillatorFreqs(ac, from) {
 	for (let k = from; k < ac.nodes.length; k++) if (ac.nodes[k].kind === 'oscillator') out.push(ac.nodes[k].frequency.value);
 	return out;
 }
+function panValues(ac, from) {
+	const out = [];
+	for (let k = from; k < ac.nodes.length; k++) if (ac.nodes[k].kind === 'panner') out.push(ac.nodes[k].pan.value);
+	return out;
+}
+let lastTapPans = [];
 const vw = createWorld(CFG);
 const vp = spawnPuck(vw, CFG.puckR + 0.004, 1.10, 0);
-function wallTap(owner, t, vx) {
-	vw.own[vp] = owner; vw.x[vp] = CFG.puckR + 0.004; vw.y[vp] = 1.10;
+function wallTap(owner, t, vx, x, y) {
+	vw.own[vp] = owner; vw.x[vp] = x === undefined ? CFG.puckR + 0.004 : x; vw.y[vp] = y === undefined ? 1.10 : y;
 	vw.st[vp] = ST_SLIDE; vw.vx[vp] = vx; vw.vy[vp] = 0; vw.t = t;
 	const from = ac.nodes.length;
 	FX.frame(1 / 60, vw, 'aim', false);
+	lastTapPans = panValues(ac, from);
 	return oscillatorFreqs(ac, from);
 }
-FX.set({ visual: false, sound: true });
+FX.set({ visual: false, sound: true, face: 'up' });
 wallTap(0, 0.2, 2.0); // tracker reset frame
 const tapRed = wallTap(0, 0.4, -2.0);
+check(lastTapPans.length === 2 && lastTapPans.every(p => p < -0.9),
+	'facing up, a tap on the left rail rings in the left ear', lastTapPans.join(','));
 wallTap(0, 0.6, 2.0);
 const tapViolet = wallTap(3, 0.8, -2.0);
 check(tapRed.length === 3 && tapViolet.length === 3, 'a wall tap rings with three partials');
 const ratio = tapViolet[0] / tapRed[0];
 check(Math.abs(ratio - 1.335) < 0.01, 'each seat colour has its own pitch on a rail tap', ratio.toFixed(3));
+// The other two facings: with the head turned to the launch, the top rail is on the
+// left; from the bottom edge below the disk, the top rail is dead ahead.
+wallTap(0, 1.0, 2.0, CFG.boardW - CFG.puckR - 0.004);
+check(lastTapPans.length === 2 && lastTapPans.every(p => p > 0.9),
+	'facing up, a tap on the right rail rings in the right ear', lastTapPans.join(','));
+FX.set({ visual: false, sound: true, face: 'launch' });
+wallTap(0, 1.2, -2.0, CFG.diskX, CFG.puckR + 0.004);
+check(lastTapPans.length === 2 && lastTapPans.every(p => p < -0.9),
+	'facing the launch, a tap on the top rail rings in the left ear', lastTapPans.join(','));
+FX.set({ visual: false, sound: true, face: 'bottom' });
+wallTap(0, 1.4, 2.0, CFG.diskX, CFG.puckR + 0.004);
+check(lastTapPans.length === 2 && lastTapPans.every(p => Math.abs(p) < 0.05),
+	'from the bottom edge, a tap on the top rail is dead ahead', lastTapPans.join(','));
+FX.set({ visual: false, sound: true, face: 'launch' });
 const pw = createWorld(CFG);
 const p0 = spawnPuck(pw, 1.00, 1.10, 0), p1 = spawnPuck(pw, 1.21, 1.10, 0);
 function pairClash(t, v0, v1) {
@@ -242,5 +310,5 @@ check(sameColour.length === 3 && mixedColour.length === 3, 'a two-stone contact 
 const pairRatio = mixedColour[0] / sameColour[0];
 check(Math.abs(pairRatio - Math.sqrt(1.9)) < 0.03,
 	'a contact between two colours rings between the two voices', pairRatio.toFixed(3));
-console.log(fail ? 'FAIL' : 'OK (lazy glass loader, baked canvas skins, under-ice paint, lamp reflections, per-colour voices)');
+console.log(fail ? 'FAIL' : 'OK (lazy glass loader, baked canvas skins, under-ice paint, lamp reflections, per-colour voices, disk decors, stereo listener, volume)');
 process.exit(fail);

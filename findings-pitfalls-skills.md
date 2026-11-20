@@ -304,3 +304,16 @@
   says whether frost cost the score map 3 or 30 levels of contrast. Comparing crops
   from the plain render of the same schema separates the paint's own palette from what
   the overlay added — the pale ring around a ring schema is in the field, not the skin.
+- A worn grid (honeycomb etching, cracked tiles) needs no edge dedup: let every cell
+  decide its own six edges with a per-edge skip. A shared edge then lands bright
+  (kept from both cells), faint (one cell) or missing (neither) — three wear levels
+  for the price of one rng call, and no Set of quantized vertex keys.
+- Shortening decor lines at the same alpha starves them: total ink falls with the
+  mean length, so raise count and alpha together (190 full-span lines ≈ 300 short
+  scratches at ~1.2× alpha). Judge from a 2× crop of a bare patch, not the full frame.
+- Stereo panning a board: pan = the source direction's component on the right-ear
+  axis (the facing rotated 90° clockwise in y-down screen coords: (x,y)→(−y,x)).
+  One StereoPannerNode per event, shared by the event's partials, is enough — a
+  PannerNode with distance models buys nothing for a strictly 2-D stereo question.
+  The continuous hiss takes one panner on its chain, driven by the speed-weighted
+  mean pan of the sliding pucks.

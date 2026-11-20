@@ -25,10 +25,15 @@ index.html?fx=glass&sfx=1
 ```
 
 `js/fx.js` is a small controller that injects `js/fx-glass.js` on first use. That file
-bakes frost grain, a brushed rotating disk overlay, soft shadows and glassy puck rims
+bakes frost grain, a rotating disk overlay, soft shadows and glassy puck rims
 once, then draws only cached sprites; it also synthesises WebAudio ice hiss, glass
 clinks, rail taps, throw swishes and black-hole swishes — no image or audio assets, no
-network requests, no new dependencies. The disk's markings are drawn as paint under
+network requests, no new dependencies. The disk's etched finish is a setting: the
+radial skate brush (scratches of random length and position) or worn hex cells with
+soft, partly missing edges (`decor=hex`). The sound is stereo around a mic head on the
+disk's centre — contacts, throws and voids pan to where they happened — with a
+listener facing setting (`face=launch|up|bottom`) and a volume slider (`vol`, 100 % is
+the original level, 130 % as shipped). The disk's markings are drawn as paint under
 ice: a scattered copy of the schema, a milky glaze with frost and trapped air over it,
 and the brushed surface polish above that. Ceiling lamps are mirrored in the ice in a
 few places as blurry bright bars, baked in board space so they never turn with the

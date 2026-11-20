@@ -17,6 +17,7 @@ if (typeof module !== 'undefined') Object.assign(globalThis,
 const PRESETS = {
 	default: { label: 'classic default', muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'advance',
 		vote: 'round', voteMode: 'delta', theme: 'classic', fx: 'plain', sfx: false, balls: 4,
+		decor: 'radial', face: 'launch', vol: 1.3,
 		botspeed: 'auto', warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, seats: ['human', 'balanced', 'blackhole', 'retriever'] },
 	slick: { label: 'slick ice · long slides', muK: 0.012, muS: 0.030, puckM: 4, autoOmega: true },
 	grippy: { label: 'grippy ice · short stops', muK: 0.080, muS: 0.120, puckM: 4, autoOmega: true },
@@ -36,11 +37,13 @@ const PRESETS = {
 };
 // The slider ranges of index.html; URL values are clamped to them.
 const NUM_RANGES = { omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.5], puckM: [CFG.massMin, CFG.massMax], balls: [1, 8],
-	warpTries: [1, 16], warpTurns: [0, 6], warpGoal: [0, 3] };
+	warpTries: [1, 16], warpTurns: [0, 6], warpGoal: [0, 3], vol: [0, 2] };
 const RECYCLES = ['none', 'zones', 'advance'];
 const SPEED_RULES = ['off', 'turn', 'round'], VOTE_MODES = ['delta', 'exact']; // CFG.speedVote, CFG.voteMode
 const VIEWS = ['fit', 'side']; // the layout keys of index.html; fit is the shipped one
 const FX_MODES = ['plain', 'glass']; // presentation; not CFG, js/ui.js loads the add-on
+const DECOR_MODES = ['radial', 'hex']; // the glass disk's etched finish
+const FACE_MODES = ['launch', 'up', 'bottom']; // where the sound listener sits and faces
 
 // The CFG-level share of a setup: numbers, disk schema, return rule, speed rule, balls. Called
 // by the boot path before the first deal and by the panel preset. Theme, seats and
@@ -113,6 +116,11 @@ function parseQuery(search) {
 	else if (FX_MODES.includes(fx) || fx === 'off' || fx === '0' || fx === 'false') { out.fx = 'plain'; found = true; }
 	const sfx = q.sfx && q.sfx.toLowerCase();
 	if (['1', 'true', 'on', '0', 'false', 'off'].includes(sfx)) { out.sfx = sfx === '1' || sfx === 'true' || sfx === 'on'; found = true; }
+	const decor = q.decor && q.decor.toLowerCase();
+	if (DECOR_MODES.includes(decor)) { out.decor = decor; found = true; }
+	const face = q.face && q.face.toLowerCase();
+	if (FACE_MODES.includes(face)) { out.face = face; found = true; }
+	found = numKey(q, out, 'vol', 'vol') || found;
 	const view = q.view && q.view.toLowerCase();
 	if (VIEWS.includes(view)) { out.view = view; found = true; }
 	const botspeed = q.botspeed && q.botspeed.toLowerCase();
@@ -134,4 +142,4 @@ function parseQuery(search) {
 // and the same page state comes back when it is opened.
 function presetQuery(name) { return 'preset=' + name; }
 
-if (typeof module !== 'undefined') module.exports = { PRESETS, SPEED_RULES, VOTE_MODES, VIEWS, FX_MODES, parseQuery, applyCfg, presetQuery };
+if (typeof module !== 'undefined') module.exports = { PRESETS, SPEED_RULES, VOTE_MODES, VIEWS, FX_MODES, DECOR_MODES, FACE_MODES, parseQuery, applyCfg, presetQuery };

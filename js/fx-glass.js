@@ -5,16 +5,20 @@
 // glass partials answer puck contacts, and low noise answers walls, holes and throws.
 const GlassFX = (() => {
 	const TAU = 2 * Math.PI, GOLDEN = 2.399963;
-	const TABLE = 128, MASK = TABLE - 1, VOL = 0.32;
+	const TABLE = 128, MASK = TABLE - 1, VOL = 0.32; // VOL is the volume slider's 100 % mark; shipped default is 1.3×
 	const SLIDE = typeof ST_SLIDE !== 'undefined' ? ST_SLIDE : 0;
 	const REDUCED = typeof window !== 'undefined' && window.matchMedia
 		? !!window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
 	let visual = false, soundOn = false, pageHidden = false, audio = null, needsReset = true;
 	let floorTex = null, diskTex = null, grainTex = null, glossTex = null, shadowTex = null, bakedCfg = null;
 	let glazeTex = null, milkTex = null, softTex = null, softSchema = '';
+	// Page-controlled options (pushed by FX.set): the disk's etched finish, the
+	// listener's placement and facing, and the volume in units of VOL.
+	let decorMode = 'radial', faceMode = 'launch', volLevel = 1.3, bakedDecor = '';
 	const lampTex = [null, null];
 	const seenUid = new Uint32Array(TABLE), alive = new Uint8Array(TABLE);
 	const pvx = new Float64Array(TABLE), pvy = new Float64Array(TABLE);
+	const ppx = new Float64Array(TABLE), ppy = new Float64Array(TABLE); // last known spot, for the pan of a puck that just left
 	const pst = new Uint8Array(TABLE), lastHit = new Float64Array(TABLE);
 	let lastUid = 0, lastT = 0, lastThrown = 0, lastLoss = 0, lastState = '';
 	let lastAnyHit = -1e9, lastVoid = -1e9, lastThrow = -1e9, lastRecycle = -1e9, lastEnd = -1e9;
@@ -207,8 +211,38 @@ const GlassFX = (() => {
 		softSchema = cfg.diskSchema;
 		return cv;
 	}
+	// Hex decor: a honeycomb etched into the polish. Baked at 192 and drawn upscaled
+	// into the 512 disk sprite, so no edge stays vector-sharp — the same softness
+	// trick as the scattered paint. Each cell decides its six edges on its own and
+	// wears about a third of them away, so a shared edge lands bright (kept from both
+	// sides), faint (one side) or missing entirely — a worn etching, not a grid.
+	function bakeHexTex() {
+		const S = 192, c = S / 2, R = S * 0.5 - 1, cv = makeCanvas(S, S), g = cv.getContext('2d');
+		const r = rng(0xce11de);
+		const cell = R / 5.2, dx = 1.5 * cell, dy = Math.sqrt(3) * cell;
+		g.lineCap = 'round';
+		for (let col = -4; col <= 4; col++) {
+			for (let row = -4; row <= 4; row++) {
+				const x = c + col * dx, y = c + row * dy + (col & 1 ? dy / 2 : 0);
+				const ex = x - c, ey = y - c;
+				if (ex * ex + ey * ey > (R + cell) * (R + cell)) continue; // wholly outside the disk
+				for (let e = 0; e < 6; e++) {
+					if (r() < 0.32) continue; // this cell's side of the edge has worn away
+					const a0 = e * Math.PI / 3, a1 = a0 + Math.PI / 3;
+					g.strokeStyle = r() > 0.2 ? 'rgba(235,250,255,' + (0.040 + 0.05 * r()).toFixed(3) + ')' : 'rgba(8,24,48,0.06)';
+					g.lineWidth = 0.9 + 0.7 * r();
+					g.beginPath();
+					g.moveTo(x + cell * Math.cos(a0), y + cell * Math.sin(a0));
+					g.lineTo(x + cell * Math.cos(a1), y + cell * Math.sin(a1));
+					g.stroke();
+				}
+			}
+		}
+		return cv;
+	}
 	// Transparent overlay for the rotating disk. Low alpha keeps the field's red
 	// channel — the score map — legible; nothing here feeds scoring or bot aims.
+	// The etched finish is the page's decor choice, baked once per switch.
 	function bakeDiskTex() {
 		const S = 512, c = S / 2, R = S * 0.5 - 2, cv = makeCanvas(S, S), g = cv.getContext('2d');
 		const r = rng(0xc0ffee);
@@ -228,12 +262,22 @@ const GlassFX = (() => {
 		streak.addColorStop(0.56, 'rgba(255,255,255,0.075)');
 		streak.addColorStop(1, 'rgba(255,255,255,0)');
 		g.fillStyle = streak; g.fillRect(0, 0, S, S);
-		g.lineWidth = 0.8;
-		for (let k = 0; k < 190; k++) {
-			const a = k * TAU / 190, r0 = R * (0.10 + 0.12 * r()), r1 = R * (0.78 + 0.20 * r());
-			g.strokeStyle = k % 3 ? 'rgba(235,250,255,0.045)' : 'rgba(8,24,48,0.05)';
-			g.beginPath(); g.moveTo(c + Math.cos(a) * r0, c + Math.sin(a) * r0);
-			g.lineTo(c + Math.cos(a) * r1, c + Math.sin(a) * r1); g.stroke();
+		if (decorMode === 'hex') {
+			g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+			g.drawImage(bakeHexTex(), 0, 0, S, S);
+		} else {
+			// Skating scratches at free radii: a random angle, start and length each,
+			// so most touch neither the centre nor the rim — worn ice, not a starburst.
+			// Shorter lines than the old full-span brush, so more of them, a touch
+			// stronger and with a per-scratch jitter, keep the plate read as brushed.
+			g.lineWidth = 0.8;
+			for (let k = 0; k < 300; k++) {
+				const a = r() * TAU, r0 = R * (0.04 + 0.66 * r());
+				const r1 = Math.min(R * 0.985, r0 + R * (0.05 + 0.38 * r()));
+				g.strokeStyle = k % 3 ? 'rgba(235,250,255,' + (0.045 + 0.025 * r()).toFixed(3) + ')' : 'rgba(8,24,48,0.06)';
+				g.beginPath(); g.moveTo(c + Math.cos(a) * r0, c + Math.sin(a) * r0);
+				g.lineTo(c + Math.cos(a) * r1, c + Math.sin(a) * r1); g.stroke();
+			}
 		}
 		g.strokeStyle = 'rgba(235,250,255,0.085)'; g.lineWidth = 1.2;
 		for (let k = 1; k <= 4; k++) { g.beginPath(); g.arc(c, c, R * (0.20 + 0.18 * k), 0, TAU); g.stroke(); }
@@ -252,6 +296,7 @@ const GlassFX = (() => {
 		g.beginPath(); g.arc(c, c, R * 0.93, 0, TAU); g.stroke();
 		g.restore();
 		cutCircle(g, S, R);
+		bakedDecor = decorMode;
 		return cv;
 	}
 	function bakeGrainTex() {
@@ -405,19 +450,19 @@ const GlassFX = (() => {
 		return buf;
 	}
 	function createAudio(ac) {
-		const master = ac.createGain(), slide = ac.createGain();
+		const master = ac.createGain(), slide = ac.createGain(), pan = ac.createStereoPanner();
 		const band = ac.createBiquadFilter(), loop = ac.createBufferSource(), buf = noiseBuffer(ac);
 		master.gain.value = 0; master.connect(ac.destination);
-		slide.gain.value = 0;
+		slide.gain.value = 0; pan.pan.value = 0;
 		band.type = 'bandpass'; band.frequency.value = 2200; band.Q.value = 0.8;
 		loop.buffer = buf; loop.loop = true;
-		loop.connect(band); band.connect(slide); slide.connect(master); loop.start();
-		return { ac: ac, master: master, slide: slide, band: band, loop: loop, buf: buf };
+		loop.connect(band); band.connect(slide); slide.connect(pan); pan.connect(master); loop.start();
+		return { ac: ac, master: master, slide: slide, band: band, pan: pan, loop: loop, buf: buf };
 	}
 	function applyMaster() {
 		if (!audio) return;
 		const now = audio.ac.currentTime, on = soundOn && !pageHidden;
-		audio.master.gain.setTargetAtTime(on ? VOL : 0, now, 0.05);
+		audio.master.gain.setTargetAtTime(on ? VOL * volLevel : 0, now, 0.05);
 		if (!on) audio.slide.gain.setTargetAtTime(0, now, 0.04);
 	}
 	function attachAudio(ac) {
@@ -426,8 +471,38 @@ const GlassFX = (() => {
 		needsReset = true;
 		applyMaster();
 	}
-	function set(v, s) { visual = !!v; soundOn = !!s; applyMaster(); }
+	function set(state) {
+		visual = !!state.visual; soundOn = !!state.sound;
+		if (typeof state.decor === 'string') decorMode = state.decor;
+		if (typeof state.face === 'string') faceMode = state.face;
+		if (typeof state.vol === 'number' && isFinite(state.vol)) volLevel = limit(state.vol, 0, 2);
+		if (diskTex && decorMode !== bakedDecor) diskTex = bakeDiskTex(); // a decor switch rebakes only the disk sprite
+		applyMaster();
+	}
 	function mute(hidden) { pageHidden = !!hidden; applyMaster(); }
+	// The listener is a mic head on the ice: on the big disk's centre facing the
+	// launch lane (the initial puck position) or straight up, or at the bottom edge
+	// below the centre facing up. panFor is the source direction's component on the
+	// right-ear axis — the facing rotated 90° clockwise in screen coords.
+	function panFor(x, y, cfg) {
+		let mx = cfg.diskX, my = cfg.diskY, fx = 0, fy = -1;
+		if (faceMode === 'bottom') my = cfg.boardH;
+		else if (faceMode === 'launch') {
+			fx = cfg.launchX - cfg.diskX; fy = cfg.launchY - cfg.diskY;
+			const l = Math.sqrt(fx * fx + fy * fy) || 1; fx /= l; fy /= l;
+		}
+		const dx = x - mx, dy = y - my, d = Math.sqrt(dx * dx + dy * dy);
+		if (d < 1e-9) return 0;
+		return limit((dy * fx - dx * fy) / d, -1, 1);
+	}
+	// Every positional event reaches the master through its own stereo panner, so a
+	// contact off to one side rings in that ear. The event's partials share the node.
+	function out(a, pan) {
+		const p = a.ac.createStereoPanner();
+		p.pan.value = pan;
+		p.connect(a.master);
+		return p;
+	}
 	// One voice per seat colour, in SEAT_COLORS order (js/players.js): a pentatonic
 	// ladder gives every colour its own note, `spread` fans the three partials apart so
 	// the timbre differs too — red knocks low and warm, blue rings high and thin — and
@@ -444,9 +519,10 @@ const GlassFX = (() => {
 	];
 	// Same colour, different stone: ±1.2 % keeps the voice, drops the machine-gun unison.
 	function stoneDetune(uid) { return 1 + ((uid % 7) - 3) * 0.004; }
-	function glassPing(a, strength, bright, pitch, spread, decay) {
+	function glassPing(a, strength, bright, pitch, spread, decay, pan) {
 		if (pitch === undefined) { pitch = 1; spread = 1.46; decay = 1; }
 		const now = a.ac.currentTime, base = ((bright ? 760 : 520) + 220 * strength) * pitch;
+		const dst = out(a, pan || 0);
 		for (let k = 0; k < 3; k++) {
 			const osc = a.ac.createOscillator(), g = a.ac.createGain();
 			osc.type = k ? 'sine' : 'triangle';
@@ -454,10 +530,10 @@ const GlassFX = (() => {
 			g.gain.setValueAtTime(0.0001, now);
 			g.gain.exponentialRampToValueAtTime(0.055 * strength / (k + 1), now + 0.006);
 			g.gain.exponentialRampToValueAtTime(0.0001, now + (0.16 + 0.09 * k) * decay);
-			osc.connect(g); g.connect(a.master); osc.start(now); osc.stop(now + 0.4);
+			osc.connect(g); g.connect(dst); osc.start(now); osc.stop(now + 0.4);
 		}
 	}
-	function iceBurst(a, strength, low) {
+	function iceBurst(a, strength, low, pan) {
 		const now = a.ac.currentTime;
 		const src = a.ac.createBufferSource(), f = a.ac.createBiquadFilter(), g = a.ac.createGain();
 		src.buffer = a.buf; src.loop = false;
@@ -465,31 +541,31 @@ const GlassFX = (() => {
 		g.gain.setValueAtTime(0.0001, now);
 		g.gain.exponentialRampToValueAtTime(0.07 * strength, now + 0.008);
 		g.gain.exponentialRampToValueAtTime(0.0001, now + 0.12 + 0.06 * strength);
-		src.connect(f); f.connect(g); g.connect(a.master); src.start(now); src.stop(now + 0.22);
+		src.connect(f); f.connect(g); g.connect(out(a, pan || 0)); src.start(now); src.stop(now + 0.22);
 	}
-	function voidSound(a, strength) {
+	function voidSound(a, strength, pan) {
 		const now = a.ac.currentTime, osc = a.ac.createOscillator(), g = a.ac.createGain();
 		osc.type = 'sine'; osc.frequency.setValueAtTime(210, now);
 		osc.frequency.exponentialRampToValueAtTime(58, now + 0.42);
 		g.gain.setValueAtTime(0.0001, now);
 		g.gain.exponentialRampToValueAtTime(0.11 * strength, now + 0.02);
 		g.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
-		osc.connect(g); g.connect(a.master); osc.start(now); osc.stop(now + 0.5);
-		iceBurst(a, 0.5 * strength, true);
+		osc.connect(g); g.connect(out(a, pan || 0)); osc.start(now); osc.stop(now + 0.5);
+		iceBurst(a, 0.5 * strength, true, pan);
 	}
-	function throwSound(a) { iceBurst(a, 0.8, false); glassPing(a, 0.22, false); }
+	function throwSound(a, pan) { iceBurst(a, 0.8, false, pan); glassPing(a, 0.22, false, 1, 1.46, 1, pan); }
 	// A rail tap is the stone's own voice, dulled by the board; a stone-on-stone contact
 	// rings at the mean of the two voices, so red against blue is a pitch neither makes
 	// alone. Both stay within three oscillators.
-	function wallSound(a, imp, pitch, spread, decay) {
+	function wallSound(a, imp, pitch, spread, decay, pan) {
 		const s = limit(imp / 2.2, 0.2, 1);
-		iceBurst(a, 0.55 * s, true); glassPing(a, 0.18 * s, false, pitch, spread, decay);
+		iceBurst(a, 0.55 * s, true, pan); glassPing(a, 0.18 * s, false, pitch, spread, decay, pan);
 	}
-	function clinkSound(a, imp, pitch, spread, decay) {
+	function clinkSound(a, imp, pitch, spread, decay, pan) {
 		const s = limit(imp / 2.2, 0.2, 1);
-		glassPing(a, s, true, pitch, spread, decay); iceBurst(a, 0.35 * s, false);
+		glassPing(a, s, true, pitch, spread, decay, pan); iceBurst(a, 0.35 * s, false, pan);
 	}
-	function endSound(a) { glassPing(a, 0.35, true); iceBurst(a, 0.25, true); }
+	function endSound(a) { glassPing(a, 0.35, true); iceBurst(a, 0.25, true); } // the closing chime stays centred
 	function sumLoss(w) {
 		let s = 0;
 		for (let k = 0; k < w.ownerLosses.length; k++) s += w.ownerLosses[k];
@@ -510,6 +586,7 @@ const GlassFX = (() => {
 	}
 	function resetTracker(w, stateName, loss) {
 		seenUid.fill(0); pvx.fill(0); pvy.fill(0); pst.fill(0); lastHit.fill(-1e9);
+		ppx.fill(0); ppy.fill(0);
 		lastUid = w.nextUid; lastT = w.t; lastThrown = w.thrown; lastLoss = loss; lastState = stateName;
 		lastAnyHit = lastVoid = lastThrow = lastRecycle = lastEnd = -1e9;
 		needsReset = false;
@@ -526,11 +603,14 @@ const GlassFX = (() => {
 		if (reset) resetTracker(w, stateName, loss);
 		const canPlay = soundOn && !frozen && !reset && audio;
 		alive.fill(0);
-		let slideSum = 0;
+		let slideSum = 0, slidePan = 0;
 		for (let i = 0; i < w.n; i++) {
 			const uid = w.uid[i], s = uid & MASK;
 			alive[s] = 1;
-			if (w.st[i] === SLIDE) slideSum += Math.hypot(w.vx[i], w.vy[i]);
+			if (w.st[i] === SLIDE) {
+				const sp = Math.hypot(w.vx[i], w.vy[i]);
+				slideSum += sp; slidePan += sp * panFor(w.x[i], w.y[i], w.cfg);
+			}
 			if (!reset && seenUid[s] === uid) {
 				const dvx = w.vx[i] - pvx[s], dvy = w.vy[i] - pvy[s], imp = Math.hypot(dvx, dvy);
 				if (imp > 0.32 && pst[s] === SLIDE && w.st[i] === SLIDE && w.t - lastHit[s] > 0.055) {
@@ -540,29 +620,41 @@ const GlassFX = (() => {
 						if (canPlay && w.t - lastAnyHit > 0.045) {
 							lastAnyHit = w.t;
 							// The colour of the stone sets the note; a pair of colours meets
-							// in the middle of the interval.
+							// in the middle of the interval. The place sets the ear.
 							const own = VOICES[w.own[i] & 7], pitch = own.pitch * stoneDetune(uid);
-							if (wall) wallSound(audio, imp, pitch, own.spread, own.decay);
+							const pan = wall ? panFor(w.x[i], w.y[i], w.cfg)
+								: panFor((w.x[i] + w.x[touch]) * 0.5, (w.y[i] + w.y[touch]) * 0.5, w.cfg);
+							if (wall) wallSound(audio, imp, pitch, own.spread, own.decay, pan);
 							else {
 								const other = VOICES[w.own[touch] & 7];
 								clinkSound(audio, imp, Math.sqrt(own.pitch * other.pitch) * stoneDetune(uid),
-									(own.spread + other.spread) * 0.5, Math.min(own.decay, other.decay));
+									(own.spread + other.spread) * 0.5, Math.min(own.decay, other.decay), pan);
 							}
 						}
 					}
 				}
 			}
 			seenUid[s] = uid; pvx[s] = w.vx[i]; pvy[s] = w.vy[i]; pst[s] = w.st[i];
+			ppx[s] = w.x[i]; ppy[s] = w.y[i];
 		}
-		let gone = 0;
-		for (let s = 0; s < TABLE; s++) if (seenUid[s] && !alive[s]) { seenUid[s] = 0; gone++; }
+		let gone = 0, goneX = 0, goneY = 0;
+		for (let s = 0; s < TABLE; s++) if (seenUid[s] && !alive[s]) {
+			seenUid[s] = 0;
+			if (!gone) { goneX = ppx[s]; goneY = ppy[s]; } // the first leaver pans the farewell
+			gone++;
+		}
+		const gonePan = gone ? panFor(goneX, goneY, w.cfg) : 0;
 		const now = audio.ac.currentTime, target = canPlay ? limit(slideSum * 0.018, 0, 0.14) : 0;
 		audio.slide.gain.setTargetAtTime(target, now, 0.08);
+		audio.pan.pan.setTargetAtTime(slideSum > 0.05 ? slidePan / slideSum : 0, now, 0.10);
 		audio.band.frequency.setTargetAtTime(1600 + Math.min(2600, slideSum * 420), now, 0.12);
 		if (canPlay) {
-			if (w.thrown > lastThrown && w.t - lastThrow > 0.05) { lastThrow = w.t; throwSound(audio); }
-			if (loss > lastLoss && w.t - lastVoid > 0.12) { lastVoid = w.t; voidSound(audio, limit((loss - lastLoss) * 0.6, 0.35, 1)); }
-			else if (gone && w.t - lastRecycle > 0.12) { lastRecycle = w.t; iceBurst(audio, 0.22, true); }
+			if (w.thrown > lastThrown && w.t - lastThrow > 0.05) {
+				lastThrow = w.t;
+				throwSound(audio, panFor(w.cfg.launchX, w.cfg.launchY, w.cfg)); // throws leave from the launch box
+			}
+			if (loss > lastLoss && w.t - lastVoid > 0.12) { lastVoid = w.t; voidSound(audio, limit((loss - lastLoss) * 0.6, 0.35, 1), gonePan); }
+			else if (gone && w.t - lastRecycle > 0.12) { lastRecycle = w.t; iceBurst(audio, 0.22, true, gonePan); }
 			if (lastState !== 'scored' && stateName === 'scored' && w.t - lastEnd > 0.5) { lastEnd = w.t; endSound(audio); }
 		}
 		lastUid = w.nextUid; lastT = w.t; lastThrown = w.thrown; lastLoss = loss; lastState = stateName;
@@ -572,6 +664,9 @@ const GlassFX = (() => {
 		get visual() { return visual; },
 		get sound() { return soundOn; },
 		get audio() { return audio; },
+		get decor() { return decorMode; },
+		get face() { return faceMode; },
+		get vol() { return volLevel; },
 	};
 })();
 globalThis.GlassFX = GlassFX;

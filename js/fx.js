@@ -4,7 +4,9 @@
 // of it. A WebAudio context is made on a user gesture, never at boot.
 const FX = (() => {
 	const SRC = 'js/fx-glass.js';
-	const state = { visual: false, sound: false };
+	// decor/face/vol are presentation options: the disk's finish, the listener's
+	// placement and facing, and the volume in units of the add-on's base level.
+	const state = { visual: false, sound: false, decor: 'radial', face: 'launch', vol: 1.3 };
 	let tried = false, ready = false, failed = false, ac = null;
 	function needed() { return state.visual || state.sound; }
 	function addon() { return typeof GlassFX !== 'undefined' ? GlassFX : null; }
@@ -22,7 +24,7 @@ const FX = (() => {
 		const a = addon();
 		if (!a) return;
 		if (ac && a.attachAudio) a.attachAudio(ac);
-		if (a.set) a.set(state.visual, state.sound);
+		if (a.set) a.set(state);
 		if (typeof Render !== 'undefined' && Render.attach) Render.attach(state.visual ? a.skin : null);
 	}
 	function unlock() {
@@ -41,6 +43,9 @@ const FX = (() => {
 		const wasSound = state.sound;
 		state.visual = !!next.visual;
 		state.sound = !!next.sound;
+		if (typeof next.decor === 'string') state.decor = next.decor;
+		if (typeof next.face === 'string') state.face = next.face;
+		if (typeof next.vol === 'number' && isFinite(next.vol)) state.vol = Math.min(2, Math.max(0, next.vol));
 		if (needed()) load();
 		if (state.sound && !wasSound) unlock();
 		apply();
