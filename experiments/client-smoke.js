@@ -238,7 +238,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		check(hooks.includes(hook), 'the optional ' + hook + ' hook is reachable');
 	check(hooks.filter(h => h === 'shadow').length === w.n && hooks.filter(h => h === 'puck').length === w.n,
 		'shadow and puck hooks run once per puck', hooks.length);
-	check(hooks.filter(h => h === 'surface').length === 1, 'the ice-surface hook runs once per frame', hooks.length);
+	check(hooks.filter(h => h === 'surface').length === (view.opts.mode === 'none' ? 1 : 2), 'the ice surface covers the voids and active return markings separately', hooks.length);
 	hooks.length = 0;
 	Render.attach(null);
 	Render.drawWorld(view);

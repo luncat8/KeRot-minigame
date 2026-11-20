@@ -7,7 +7,7 @@ function createRenderer() {
 	// Optional presentation skin (js/fx.js). Null on the shipped page: the base frame
 	// pays one check per hook, and no texture or audio code is fetched. disk() runs in
 	// the disk's rotated local frame; the others draw in world coordinates. surface()
-	// is the top of the ice — over every marking already painted, under the voids,
+	// is the top of the ice — over every marking already painted, including the voids,
 	// the aim ghost and the stones.
 	let skin = null;
 	let texDisk = null, texSchema = '', ppmDisk = 0, puckGrad = null, wallPath = null, gridPath = null;
@@ -238,10 +238,10 @@ function createRenderer() {
 			// upright in both halves: the wedge's live part is its left edge, the only
 			// stretch of it the disk guard does not cover, and the lane is the strip
 			drawZoneLabel(0.10, cfg.diskY, -Math.PI / 2);
-			drawZoneLabel(v.lx + v.lw / 2, cfg.diskY, -Math.PI / 2);
+			drawZoneLabel(v.lx + v.lw / 2, cfg.diskY * 0.75, -Math.PI / 2);
 		} else {
-			drawZoneLabel(2.55, 0.75, labelRot); // inside the fan, along its edges
-			drawZoneLabel(2.55, cfg.boardH - 0.75, -labelRot);
+			drawZoneLabel(2.55, 0.75 * 0.75, labelRot); // inside the fan, along its edges
+			drawZoneLabel(2.55, (cfg.boardH - 0.75) * 0.75, -labelRot);
 		}
 		ctx.restore();
 	}
@@ -259,7 +259,7 @@ function createRenderer() {
 			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r * 0.58, 0, 2 * Math.PI);
 			ctx.strokeStyle = 'rgba(214, 165, 255, 0.7)'; ctx.lineWidth = 0.012; ctx.stroke();
 			ctx.fillStyle = '#e5c3ff'; ctx.font = font.hole;
-			ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('VOID', hole.x, hole.y + (i === 0 ? 0.10 : -0.10));
+			ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('VOID', hole.x, hole.y + (i === 0 ? 0.055 : -0.055));
 		}
 		ctx.restore();
 	}
@@ -330,9 +330,18 @@ function createRenderer() {
 				ctx.beginPath(); ctx.arc(cfg.diskX, cfg.diskY, dh, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
 			}
 		}
-		// The ice surface: reflections and the frozen veil that sits over the markings.
-		if (skin && skin.surface) skin.surface(ctx, view, cfg);
 		drawBlackHoles();
+		// The ice surface: reflections and the frozen veil that sits over the markings.
+		if (skin && skin.surface) {
+			ctx.save();
+			const zone = opts.mode === 'advance' ? zoneAdv : zoneFan;
+			if (opts.mode !== 'none') ctx.clip(zone.path, 'evenodd');
+			if (opts.mode !== 'none') skin.surface(ctx, view, cfg);
+			ctx.restore();
+			ctx.save(); ctx.beginPath();
+			for (const h of cfg.holes) { ctx.moveTo(h.x + h.r + cfg.puckR, h.y); ctx.arc(h.x, h.y, h.r + cfg.puckR, 0, TAU); }
+			ctx.clip(); skin.surface(ctx, view, cfg); ctx.restore();
+		}
 		// Launch zone
 		ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 0.01; ctx.setLineDash([0.04, 0.03]);
 		ctx.strokeRect(cfg.launchMinX, cfg.launchMinY, cfg.launchMaxX - cfg.launchMinX, cfg.launchMaxY - cfg.launchMinY);

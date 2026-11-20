@@ -14,6 +14,7 @@ const GlassFX = (() => {
 	let glazeTex = null, veilTex = null, softTex = null, softSchema = '';
 	// Page-controlled options (pushed by FX.set): the disk's etched finish, the
 	// listener's placement and facing, and the volume in units of VOL.
+	let lampsOn = false;
 	let decorMode = 'radial', faceMode = 'launch', volLevel = 1.3, bakedDecor = '';
 	const lampTex = [null, null], lampShade = [null, null];
 	const seenUid = new Uint32Array(TABLE), alive = new Uint8Array(TABLE);
@@ -47,18 +48,18 @@ const GlassFX = (() => {
 			const o = p * 4, light = r(), a = r();
 			if (light > 0.5) { data[o] = 225; data[o + 1] = 240; data[o + 2] = 255; }
 			else { data[o] = 8; data[o + 1] = 20; data[o + 2] = 36; }
-			data[o + 3] = a > 0.975 ? 12 : a > 0.72 ? 5 : 2;
+			data[o + 3] = a > 0.975 ? 34 : a > 0.72 ? 13 : 5;
 		}
 		g.putImageData(img, 0, 0);
 		g.lineCap = 'round';
 		for (let k = 0; k < 8; k++) { // broad, soft frost swaths under the fine grain
 			const x = r() * W, y = r() * H, len = 120 + r() * 260, ang = -0.85 + r() * 0.5;
-			g.strokeStyle = 'rgba(196,222,248,0.016)'; g.lineWidth = 10 + r() * 24;
+			g.strokeStyle = 'rgba(220,240,255,0.028)'; g.lineWidth = 10 + r() * 24;
 			g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len); g.stroke();
 		}
 		for (let k = 0; k < 100; k++) {
 			const x = r() * W, y = r() * H, len = 8 + r() * 86, ang = -0.85 + r() * 0.55;
-			g.strokeStyle = r() > 0.25 ? 'rgba(225,245,255,0.085)' : 'rgba(3,12,26,0.18)';
+			g.strokeStyle = r() > 0.25 ? 'rgba(225,245,255,0.14)' : 'rgba(3,12,26,0.16)';
 			g.lineWidth = r() > 0.9 ? 1.5 : 0.65;
 			g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len); g.stroke();
 		}
@@ -69,13 +70,11 @@ const GlassFX = (() => {
 			for (let j = 0; j < 3; j++) { x += 12 + r() * 38; y += (r() - 0.5) * 18; g.lineTo(x, y); }
 			g.stroke();
 		}
-		// The room is dark above the ice: a cool, weak sky only, and a deep vignette, so the
-		// floor keeps the scheme's black instead of hazing over to grey.
 		const light = g.createRadialGradient(W * 0.22, H * 0.08, 0, W * 0.38, H * 0.32, W * 0.9);
-		light.addColorStop(0, 'rgba(205,228,255,0.055)'); light.addColorStop(1, 'rgba(205,228,255,0)');
+		light.addColorStop(0, 'rgba(255,255,255,0.14)'); light.addColorStop(1, 'rgba(255,255,255,0)');
 		g.fillStyle = light; g.fillRect(0, 0, W, H);
 		const vignette = g.createRadialGradient(W * 0.5, H * 0.45, W * 0.18, W * 0.5, H * 0.5, W * 0.76);
-		vignette.addColorStop(0, 'rgba(0,0,0,0)'); vignette.addColorStop(1, 'rgba(0,0,0,0.46)');
+		vignette.addColorStop(0, 'rgba(0,0,0,0)'); vignette.addColorStop(1, 'rgba(0,0,0,0.38)');
 		g.fillStyle = vignette; g.fillRect(0, 0, W, H);
 		return cv;
 	}
@@ -485,9 +484,11 @@ const GlassFX = (() => {
 		if (!veilTex) return;
 		const dark = view.opts.theme === 'kerot', t = view.w ? view.w.t : 0;
 		ctx.save();
-		ctx.globalAlpha = dark ? 0.20 : 0.26;
+		ctx.globalAlpha = dark ? 0.65 : 0.72;
 		ctx.drawImage(veilTex, 0, 0, cfg.boardW, cfg.boardH);
-		for (let k = 0; k < 2; k++) {
+		ctx.globalAlpha = dark ? 0.28 : 0.34;
+		ctx.drawImage(floorTex, 0, 0, cfg.boardW, cfg.boardH);
+		for (let k = 0; lampsOn && k < 2; k++) {
 			// The housing is matte: it does not breathe with the tube.
 			ctx.globalCompositeOperation = 'multiply';
 			ctx.globalAlpha = dark ? 0.26 : 0.30;
@@ -570,6 +571,7 @@ const GlassFX = (() => {
 	}
 	function set(state) {
 		visual = !!state.visual; soundOn = !!state.sound;
+		if (typeof state.lamps === 'boolean') lampsOn = state.lamps;
 		if (typeof state.decor === 'string') decorMode = state.decor;
 		if (typeof state.face === 'string') faceMode = state.face;
 		if (typeof state.vol === 'number' && isFinite(state.vol)) volLevel = limit(state.vol, 0, 2);
@@ -594,10 +596,18 @@ const GlassFX = (() => {
 	}
 	// Every positional event reaches the master through its own stereo panner, so a
 	// contact off to one side rings in that ear. The event's partials share the node.
-	function out(a, pan) {
+	// Soft near field, then a strong level falloff: 0 m = 1, 1 m = .31, 2 m = .10.
+	function gainFor(x, y, cfg) {
+		const dy = y - (faceMode === 'bottom' ? cfg.boardH : cfg.diskY);
+		const dx = x - cfg.diskX;
+		return 1 / (1 + 2.2 * (dx * dx + dy * dy));
+	}
+	function out(a, pan, level = 1) {
 		const p = a.ac.createStereoPanner();
 		p.pan.value = pan;
-		p.connect(a.master);
+		const g = a.ac.createGain();
+		g.gain.value = level;
+		p.connect(g); g.connect(a.master);
 		return p;
 	}
 	// One voice per seat colour, in SEAT_COLORS order (js/players.js): a pentatonic
@@ -616,10 +626,10 @@ const GlassFX = (() => {
 	];
 	// Same colour, different stone: ±1.2 % keeps the voice, drops the machine-gun unison.
 	function stoneDetune(uid) { return 1 + ((uid % 7) - 3) * 0.004; }
-	function glassPing(a, strength, bright, pitch, spread, decay, pan) {
+	function glassPing(a, strength, bright, pitch, spread, decay, pan, level = 1) {
 		if (pitch === undefined) { pitch = 1; spread = 1.46; decay = 1; }
 		const now = a.ac.currentTime, base = ((bright ? 760 : 520) + 220 * strength) * pitch;
-		const dst = out(a, pan || 0);
+		const dst = out(a, pan || 0, level);
 		for (let k = 0; k < 3; k++) {
 			const osc = a.ac.createOscillator(), g = a.ac.createGain();
 			osc.type = k ? 'sine' : 'triangle';
@@ -630,7 +640,7 @@ const GlassFX = (() => {
 			osc.connect(g); g.connect(dst); osc.start(now); osc.stop(now + 0.4);
 		}
 	}
-	function iceBurst(a, strength, low, pan) {
+	function iceBurst(a, strength, low, pan, level = 1) {
 		const now = a.ac.currentTime;
 		const src = a.ac.createBufferSource(), f = a.ac.createBiquadFilter(), g = a.ac.createGain();
 		src.buffer = a.buf; src.loop = false;
@@ -638,29 +648,29 @@ const GlassFX = (() => {
 		g.gain.setValueAtTime(0.0001, now);
 		g.gain.exponentialRampToValueAtTime(0.07 * strength, now + 0.008);
 		g.gain.exponentialRampToValueAtTime(0.0001, now + 0.12 + 0.06 * strength);
-		src.connect(f); f.connect(g); g.connect(out(a, pan || 0)); src.start(now); src.stop(now + 0.22);
+		src.connect(f); f.connect(g); g.connect(out(a, pan || 0, level)); src.start(now); src.stop(now + 0.22);
 	}
-	function voidSound(a, strength, pan) {
+	function voidSound(a, strength, pan, level = 1) {
 		const now = a.ac.currentTime, osc = a.ac.createOscillator(), g = a.ac.createGain();
 		osc.type = 'sine'; osc.frequency.setValueAtTime(210, now);
 		osc.frequency.exponentialRampToValueAtTime(58, now + 0.42);
 		g.gain.setValueAtTime(0.0001, now);
 		g.gain.exponentialRampToValueAtTime(0.11 * strength, now + 0.02);
 		g.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
-		osc.connect(g); g.connect(out(a, pan || 0)); osc.start(now); osc.stop(now + 0.5);
-		iceBurst(a, 0.5 * strength, true, pan);
+		osc.connect(g); g.connect(out(a, pan || 0, level)); osc.start(now); osc.stop(now + 0.5);
+		iceBurst(a, 0.5 * strength, true, pan, level);
 	}
-	function throwSound(a, pan) { iceBurst(a, 0.8, false, pan); glassPing(a, 0.22, false, 1, 1.46, 1, pan); }
+	function throwSound(a, pan, level = 1) { iceBurst(a, 0.8, false, pan, level); glassPing(a, 0.22, false, 1, 1.46, 1, pan, level); }
 	// A rail tap is the stone's own voice, dulled by the board; a stone-on-stone contact
 	// rings at the mean of the two voices, so red against blue is a pitch neither makes
 	// alone. Both stay within three oscillators.
-	function wallSound(a, imp, pitch, spread, decay, pan) {
+	function wallSound(a, imp, pitch, spread, decay, pan, level = 1) {
 		const s = limit(imp / 2.2, 0.2, 1);
-		iceBurst(a, 0.55 * s, true, pan); glassPing(a, 0.18 * s, false, pitch, spread, decay, pan);
+		iceBurst(a, 0.55 * s, true, pan, level); glassPing(a, 0.18 * s, false, pitch, spread, decay, pan, level);
 	}
-	function clinkSound(a, imp, pitch, spread, decay, pan) {
+	function clinkSound(a, imp, pitch, spread, decay, pan, level = 1) {
 		const s = limit(imp / 2.2, 0.2, 1);
-		glassPing(a, s, true, pitch, spread, decay, pan); iceBurst(a, 0.35 * s, false, pan);
+		glassPing(a, s, true, pitch, spread, decay, pan, level); iceBurst(a, 0.35 * s, false, pan, level);
 	}
 	function endSound(a) { glassPing(a, 0.35, true); iceBurst(a, 0.25, true); } // the closing chime stays centred
 	function sumLoss(w) {
@@ -705,7 +715,7 @@ const GlassFX = (() => {
 			const uid = w.uid[i], s = uid & MASK;
 			alive[s] = 1;
 			if (w.st[i] === SLIDE) {
-				const sp = Math.hypot(w.vx[i], w.vy[i]);
+				const sp = Math.hypot(w.vx[i], w.vy[i]) * gainFor(w.x[i], w.y[i], w.cfg);
 				slideSum += sp; slidePan += sp * panFor(w.x[i], w.y[i], w.cfg);
 			}
 			if (!reset && seenUid[s] === uid) {
@@ -721,11 +731,13 @@ const GlassFX = (() => {
 							const own = VOICES[w.own[i] & 7], pitch = own.pitch * stoneDetune(uid);
 							const pan = wall ? panFor(w.x[i], w.y[i], w.cfg)
 								: panFor((w.x[i] + w.x[touch]) * 0.5, (w.y[i] + w.y[touch]) * 0.5, w.cfg);
-							if (wall) wallSound(audio, imp, pitch, own.spread, own.decay, pan);
+							const level = wall ? gainFor(w.x[i], w.y[i], w.cfg)
+								: gainFor((w.x[i] + w.x[touch]) * 0.5, (w.y[i] + w.y[touch]) * 0.5, w.cfg);
+							if (wall) wallSound(audio, imp, pitch, own.spread, own.decay, pan, level);
 							else {
 								const other = VOICES[w.own[touch] & 7];
 								clinkSound(audio, imp, Math.sqrt(own.pitch * other.pitch) * stoneDetune(uid),
-									(own.spread + other.spread) * 0.5, Math.min(own.decay, other.decay), pan);
+									(own.spread + other.spread) * 0.5, Math.min(own.decay, other.decay), pan, level);
 							}
 						}
 					}
@@ -748,16 +760,16 @@ const GlassFX = (() => {
 		if (canPlay) {
 			if (w.thrown > lastThrown && w.t - lastThrow > 0.05) {
 				lastThrow = w.t;
-				throwSound(audio, panFor(w.cfg.launchX, w.cfg.launchY, w.cfg)); // throws leave from the launch box
+				throwSound(audio, panFor(w.cfg.launchX, w.cfg.launchY, w.cfg), gainFor(w.cfg.launchX, w.cfg.launchY, w.cfg)); // throws leave from the launch box
 			}
-			if (loss > lastLoss && w.t - lastVoid > 0.12) { lastVoid = w.t; voidSound(audio, limit((loss - lastLoss) * 0.6, 0.35, 1), gonePan); }
-			else if (gone && w.t - lastRecycle > 0.12) { lastRecycle = w.t; iceBurst(audio, 0.22, true, gonePan); }
+			if (loss > lastLoss && w.t - lastVoid > 0.12) { lastVoid = w.t; voidSound(audio, limit((loss - lastLoss) * 0.6, 0.35, 1), gonePan, gone ? gainFor(goneX, goneY, w.cfg) : 1); }
+			else if (gone && w.t - lastRecycle > 0.12) { lastRecycle = w.t; iceBurst(audio, 0.22, true, gonePan, gone ? gainFor(goneX, goneY, w.cfg) : 1); }
 			if (lastState !== 'scored' && stateName === 'scored' && w.t - lastEnd > 0.5) { lastEnd = w.t; endSound(audio); }
 		}
 		lastUid = w.nextUid; lastT = w.t; lastThrown = w.thrown; lastLoss = loss; lastState = stateName;
 	}
 	return {
-		skin, set, attachAudio, frame, mute,
+		skin, set, attachAudio, frame, mute, gainFor,
 		get lamps() { return LAMPS; }, // the tone check reads the table, nothing else does
 		get visual() { return visual; },
 		get sound() { return soundOn; },

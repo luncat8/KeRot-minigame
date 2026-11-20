@@ -163,8 +163,8 @@ for (const theme of ['classic', 'kerot']) {
 	ops.length = 0;
 	GlassFX.skin.surface(ctx, view, CFG);
 	const layers = ops.join(',');
-	check(layers === 'drawImage,shade,glow,shade,glow',
-		theme + ': the veil, each lamp seat multiplied, each tube added', layers);
+	check(layers === 'drawImage,drawImage',
+		theme + ': the frozen veil is drawn without lamps by default', layers);
 	const surfaceOps = ops.length;
 	for (let i = 0; i < w.n; i++) {
 		GlassFX.skin.shadow(ctx, view, CFG, i, false);
@@ -173,6 +173,19 @@ for (const theme of ['classic', 'kerot']) {
 	check(ops.filter(o => o === 'drawImage').length >= 2 * w.n,
 		theme + ': cached shadow and puck sprites are drawn', String(ops.length - surfaceOps));
 }
+for (const face of ['up', 'launch', 'bottom']) {
+	FX.set({ visual: true, sound: true, face });
+	const my = face === 'bottom' ? CFG.boardH : CFG.diskY;
+	const near = GlassFX.gainFor(CFG.diskX, my, CFG);
+	const far = GlassFX.gainFor(CFG.diskX + 2, my, CFG);
+	check(near === 1 && far < 0.11, face + ': a source two metres away is at least 19 dB quieter');
+}
+FX.set({ visual: true, sound: true, face: 'launch' });
+GlassFX.set({ visual: true, sound: true, lamps: true });
+ops.length = 0;
+GlassFX.skin.surface(makeCtx(), view, CFG);
+check(ops.join(',') === 'drawImage,drawImage,shade,glow,shade,glow', 'lamps remain an explicit opt-in');
+GlassFX.set({ visual: true, sound: true, lamps: false });
 // A mirrored lamp is a tube, not a slab: a couple of centimetres wide and many times
 // longer, so it can read as a fixture while it stays faint enough to sit under the paint.
 const lamps = GlassFX.lamps;
@@ -281,7 +294,11 @@ function wallTap(owner, t, vx, x, y) {
 }
 FX.set({ visual: false, sound: true, face: 'up' });
 wallTap(0, 0.2, 2.0); // tracker reset frame
+const tapFrom = ac.nodes.length;
 const tapRed = wallTap(0, 0.4, -2.0);
+const tapLevel = GlassFX.gainFor(vw.x[vp], vw.y[vp], CFG);
+check(ac.nodes.slice(tapFrom).filter(n => n.kind === 'gain' && Math.abs(n.gain.value - tapLevel) < 1e-9).length === 2,
+	'both rail-tap components are attenuated by the source distance');
 check(lastTapPans.length === 2 && lastTapPans.every(p => p < -0.9),
 	'facing up, a tap on the left rail rings in the left ear', lastTapPans.join(','));
 wallTap(0, 0.6, 2.0);
