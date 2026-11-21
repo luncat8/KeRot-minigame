@@ -55,9 +55,9 @@
 				// zoneStyle: 'hatch' | 'wavy' — the straight wedge; 'rounded' — an outline that
 				// hugs the disk and the holes, no straight edge; 'arcs' — one curve around the disk,
 				// the holes inside the zone; '3-rounded' — the wedge cut by bigger circles around
-				// the disk and the holes; '6-hemi' — one circular outline around the disk, the
-				// holes inside. holeStyle: 'classic' | 'rim' | 'well' — the round void, drawn
-				// three ways; 'triangle' — a triangular void.
+				// the disk and the holes, outlined by those three circles alone; '6-hemi' — one
+				// circular outline around the disk, the holes inside. holeStyle: 'classic' | 'rim'
+				// | 'well' — the round void, drawn three ways; 'triangle' — a triangular void.
 				zoneStyle: 'hatch', holeStyle: 'classic',
 				diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
 				// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel
@@ -1081,8 +1081,8 @@
 			// board): then the 'rounded' outline bridges that gap instead of threading through it.
 			const ZONE_SOFT_K = 0.3;
 			// The cut pair keeps a visible strip of ice between the disk/hole rim and the zone
-			// outline: one inset-line step, so a puck can sit in the gap without being recycled.
-			const ZONE_CUT_GAP = 0.08;
+			// outline, so a puck can sit in the gap without being recycled.
+			const ZONE_CUT_GAP = 0.06;
 			function smin(a, b, k) {
 				const h = Math.max(k - Math.abs(a - b), 0) / k;
 				return Math.min(a, b) - h * h * k / 4;
@@ -1103,11 +1103,17 @@
 			// wall side of the line hole → disk centre. That line is buried where the hole and the
 			// guard blend, so it only closes the zone and never shows. On the fan side there are
 			// no holes: the fan's own sides, with the corners at the guard rounded.
-			// '3-rounded': the wedge (or fan) cut by three bigger circles — the disk and each
-			// hole grown by puckR + gap — so the outline is their arcs and the wedge's straight
-			// sides, with a strip of ice between rim and outline. '6-hemi': the half-board
-			// through the disk centre cut by one bigger circle around the disk, so the outline
-			// is a circular arc and the holes lie inside, as in 'arcs' but cut sharp.
+			// '3-rounded': the wedge cut by three bigger circles — the disk and each hole
+			// grown by puckR + gap — so the outline is their arcs, with a strip of ice
+			// between rim and outline. The wedge sides run hole → disk centre, not corner →
+			// disk centre: each side segment lies inside the union of the disk and hole
+			// circles (they overlap along it), so no straight edge ever reaches the outline
+			// and the zone is outlined by the three circles alone. The hole cuts are
+			// circles around the hole centres whatever the void's own shape, so a triangle
+			// void still gets a circular cut (the circle covers its reach). On the fan side
+			// the holes are far away, so the fan's own sides stay. '6-hemi': the half-board
+			// through the disk centre cut by one bigger circle around the disk, so the
+			// outline is a circular arc and the holes lie inside, as in 'arcs' but cut sharp.
 			function zoneField(cfg, mode, x, y) {
 				const left = mode === 'advance';
 				const gx = x - cfg.diskX, gy = y - cfg.diskY;
@@ -1116,14 +1122,19 @@
 					d -= ZONE_CUT_GAP;
 					if (cfg.zoneStyle === '6-hemi') d = Math.min(d, left ? cfg.diskX - x : x - cfg.diskX);
 					else if (left) {
-						d = Math.min(d, sideGap(0, 0, cfg.diskX, cfg.diskY, 0, cfg.diskY, x, y));
-						d = Math.min(d, sideGap(0, cfg.boardH, cfg.diskX, cfg.diskY, 0, cfg.diskY, x, y));
-						for (let k = 0; k < cfg.holes.length; k++) d = Math.min(d, holeGap(cfg, cfg.holes[k], x, y) - cfg.puckR - ZONE_CUT_GAP);
+						for (let k = 0; k < cfg.holes.length; k++) {
+							const hole = cfg.holes[k], hx = x - hole.x, hy = y - hole.y;
+							d = Math.min(d, Math.sqrt(hx * hx + hy * hy) - hole.r - cfg.puckR - ZONE_CUT_GAP);
+							d = Math.min(d, sideGap(hole.x, hole.y, cfg.diskX, cfg.diskY, 0, cfg.diskY, x, y));
+						}
 					} else {
 						const z = cfg.returnZone;
 						d = Math.min(d, sideGap(z.ax, z.ay, z.bx, z.by, z.cx, z.cy, x, y));
 						d = Math.min(d, sideGap(z.ax, z.ay, z.cx, z.cy, z.bx, z.by, x, y));
-						for (let k = 0; k < cfg.holes.length; k++) d = Math.min(d, holeGap(cfg, cfg.holes[k], x, y) - cfg.puckR - ZONE_CUT_GAP);
+						for (let k = 0; k < cfg.holes.length; k++) {
+							const hole = cfg.holes[k], hx = x - hole.x, hy = y - hole.y;
+							d = Math.min(d, Math.sqrt(hx * hx + hy * hy) - hole.r - cfg.puckR - ZONE_CUT_GAP);
+						}
 					}
 				} else if (cfg.zoneStyle === 'arcs') d = smin(d, left ? cfg.diskX - x : x - cfg.diskX, ZONE_SOFT_K);
 				else if (left) {

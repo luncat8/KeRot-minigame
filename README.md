@@ -19,7 +19,8 @@ holes; what is drawn is exactly what the rule tests. **Return zone shape**: the 
 hatched wedge (shipped), the same wedge with wavy lines, *rounded* (an outline that hugs
 the disk and the holes, filled with inset copies of itself), *one arc* around the
 disk with the holes inside the zone, *3-rounded* (the wedge cut by bigger circles
-around the disk and the holes, with a strip of ice between rim and outline), or
+around the disk and the holes, outlined by those three circles alone, with a
+strip of ice between rim and outline), or
 *6-hemi* (one circular outline around the disk, the holes inside). **Black holes**:
 round with a dashed reach (shipped), rim only, a stepped well, or a triangle standing
 on its wall with sides parallel to the wedge and the semicircle's area. A checkbox

@@ -4,8 +4,10 @@
 //    boundary; the outline comes out as closed loops, the inset lines as polylines;
 //  - 'rounded' keeps clear of the guard and of every hole's reach and bridges the
 //    hole ↔ guard gap; 'arcs' puts the holes inside the zone; the lane stays in;
-//  - '3-rounded' keeps the gap clear of the disk and the holes and stays inside the
-//    wedge; '6-hemi' keeps the gap clear of the disk and puts the holes inside;
+//  - '3-rounded' keeps the gap clear of the disk and the holes, its wedge sides
+//    run hole → disk centre and are covered by the circles, so the outline is
+//    the three circles alone; '6-hemi' keeps the gap clear of the disk and puts
+//    the holes inside;
 //  - the triangle void: semicircle area, sides parallel to the wedge side, and the
 //    swept entry time agrees with brute-force stepping on random rays;
 //  - the circle void's entry time is unchanged;
@@ -118,8 +120,9 @@ for (const h of CFG.holes) {
 	}
 }
 check(outside === 0, 'arcs: the holes lie inside the return zone', String(outside));
-// '3-rounded': nothing inside the bigger circles (disk + gap, each hole + gap), the
-// wedge sides hold, the lane is in, and the strip between rim and outline is safe ice.
+// '3-rounded': nothing inside the bigger circles (disk + gap, each hole + gap,
+// as circles whatever the void's shape), the wedge sides hold, the lane is in,
+// and the strip between rim and outline is safe ice.
 CFG.zoneStyle = '3-rounded';
 leaks = 0;
 for (let k = 0; k < 40000; k++) {
@@ -127,12 +130,38 @@ for (let k = 0; k < 40000; k++) {
 	if (!inReturnZone(CFG, 'advance', x, y)) continue;
 	const dx = x - CFG.diskX, dy = y - CFG.diskY;
 	if (dx * dx + dy * dy < (CFG.diskR + CFG.puckR + ZONE_CUT_GAP) * (CFG.diskR + CFG.puckR + ZONE_CUT_GAP)) leaks++;
-	for (const h of CFG.holes) if (holeGap(CFG, h, x, y) < CFG.puckR + ZONE_CUT_GAP - 1e-9) leaks++;
+	for (const h of CFG.holes) {
+		const hx = x - h.x, hy = y - h.y;
+		if (hx * hx + hy * hy < (h.r + CFG.puckR + ZONE_CUT_GAP) * (h.r + CFG.puckR + ZONE_CUT_GAP)) leaks++;
+	}
 }
 check(leaks === 0, '3-rounded: no zone point inside the bigger circles', String(leaks));
 check(inReturnZone(CFG, 'advance', 0.05, CFG.diskY) && inReturnZone(CFG, 'advance', CFG.launchX, 0.3), '3-rounded: wedge axis and lane are in');
 check(!inReturnZone(CFG, 'advance', CFG.diskX - CFG.diskR - CFG.puckR - ZONE_CUT_GAP / 2, CFG.diskY), '3-rounded: the gap strip stays out');
-check(!inReturnZone(CFG, 'advance', 0.3, 0.05), '3-rounded: outside the wedge stays out');
+check(!inReturnZone(CFG, 'advance', 1.0, CFG.boardH - 0.1), '3-rounded: outside the wedge stays out');
+// The wedge sides are hole → disk centre lines, covered by the overlapping
+// circles: no point of either segment is in the zone, so no straight edge
+// reaches the outline. The old corner → centre side is gone: a point on it,
+// outside both circles, is now zone interior.
+let exposed = 0;
+for (const h of CFG.holes) {
+	for (let u = 0; u <= 1; u += 0.005) {
+		const x = h.x + (CFG.diskX - h.x) * u, y = h.y + (CFG.diskY - h.y) * u;
+		if (zoneField(CFG, 'advance', x, y) > 0) exposed++;
+	}
+}
+check(exposed === 0, '3-rounded: the hole → centre sides are covered by the circles', exposed + ' exposed points');
+check(inReturnZone(CFG, 'advance', CFG.diskX - 1.1 / Math.SQRT2, CFG.diskY - 1.1 / Math.SQRT2), '3-rounded: the old corner side is zone interior, not an edge');
+// With triangle voids the cut is still the circle: it covers the void's reach.
+CFG.holeStyle = 'triangle';
+leaks = 0;
+for (let k = 0; k < 40000; k++) {
+	const x = rnd() * CFG.boardW, y = rnd() * CFG.boardH;
+	if (!inReturnZone(CFG, 'advance', x, y)) continue;
+	for (const h of CFG.holes) if (holeGap(CFG, h, x, y) <= CFG.puckR) leaks++;
+}
+check(leaks === 0, '3-rounded/triangle: no zone point inside a void\'s reach', String(leaks));
+CFG.holeStyle = 'classic';
 check(inReturnZone(CFG, 'zones', CFG.boardW, CFG.diskY) && !inReturnZone(CFG, 'zones', CFG.diskX + CFG.diskR + CFG.puckR + ZONE_CUT_GAP / 2, CFG.diskY), '3-rounded: fan side keeps the gap too');
 // '6-hemi': the gap clear of the disk, the holes inside, the half-board holds.
 CFG.zoneStyle = '6-hemi';

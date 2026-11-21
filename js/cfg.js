@@ -39,9 +39,9 @@ const CFG = {
 	// zoneStyle: 'hatch' | 'wavy' — the straight wedge; 'rounded' — an outline that
 	// hugs the disk and the holes, no straight edge; 'arcs' — one curve around the disk,
 	// the holes inside the zone; '3-rounded' — the wedge cut by bigger circles around
-	// the disk and the holes; '6-hemi' — one circular outline around the disk, the
-	// holes inside. holeStyle: 'classic' | 'rim' | 'well' — the round void, drawn
-	// three ways; 'triangle' — a triangular void.
+	// the disk and the holes, outlined by those three circles alone; '6-hemi' — one
+	// circular outline around the disk, the holes inside. holeStyle: 'classic' | 'rim'
+	// | 'well' — the round void, drawn three ways; 'triangle' — a triangular void.
 	zoneStyle: 'hatch', holeStyle: 'classic',
 	diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
 	// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel
