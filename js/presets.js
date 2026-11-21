@@ -10,13 +10,13 @@ if (typeof module !== 'undefined') Object.assign(globalThis,
 	require('./cfg.js'), require('./field.js'), require('./players.js'), require('./vote.js'));
 
 // The bundles. Keys match the setup object parseQuery returns (omega, muK, muS,
-// puckM, schema, recycle, vote, voteMode, theme, seats, balls, autoOmega); a bundle sets only what
+// puckM, schema, recycle, zones, holes, vote, voteMode, theme, cards, seats, balls, autoOmega); a bundle sets only what
 // it lists and leaves the rest alone, except `default`, which is complete on
 // purpose — the way back from anywhere. `autoOmega` re-solves the 90 % rule after
 // the bundle's μ and mass are in, so every mass preset keeps its own eject ring.
 const PRESETS = {
 	default: { label: 'classic default', muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'advance',
-		vote: 'round', voteMode: 'delta', theme: 'classic', fx: 'plain', sfx: false, balls: 4,
+		zones: 'hatch', holes: 'classic', vote: 'round', voteMode: 'delta', theme: 'classic', cards: 'square', fx: 'plain', sfx: false, balls: 4,
 		decor: 'radial', face: 'launch', vol: 1.3,
 		botspeed: 'auto', warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, seats: ['human', 'balanced', 'blackhole', 'retriever'] },
 	slick: { label: 'slick ice · long slides', muK: 0.012, muS: 0.030, puckM: 4, autoOmega: true },
@@ -39,6 +39,8 @@ const PRESETS = {
 const NUM_RANGES = { omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.5], puckM: [CFG.massMin, CFG.massMax], balls: [1, 8],
 	warpTries: [1, 16], warpTurns: [0, 6], warpGoal: [0, 3], vol: [0, 2] };
 const RECYCLES = ['none', 'zones', 'advance'];
+const ZONE_STYLES = ['hatch', 'wavy', 'rounded', 'arcs'], HOLE_STYLES = ['classic', 'rim', 'well', 'triangle']; // CFG.zoneStyle, CFG.holeStyle
+const CARD_STYLES = ['square', 'round']; // the score cards' corners; page state, not CFG
 const SPEED_RULES = ['off', 'turn', 'round'], VOTE_MODES = ['delta', 'exact']; // CFG.speedVote, CFG.voteMode
 const VIEWS = ['fit', 'side']; // the layout keys of index.html; fit is the shipped one
 const FX_MODES = ['plain', 'glass']; // presentation; not CFG, js/ui.js loads the add-on
@@ -62,6 +64,8 @@ function applyCfg(setup) {
 	if (setup.balls !== undefined) CFG.ballsPerPlayer = Math.round(clamp(setup.balls, NUM_RANGES.balls[0], NUM_RANGES.balls[1]));
 	if (setup.schema && DISK_SCHEMAS[setup.schema]) CFG.diskSchema = setup.schema;
 	if (RECYCLES.includes(setup.recycle)) CFG.recycleMode = setup.recycle;
+	if (ZONE_STYLES.includes(setup.zones)) CFG.zoneStyle = setup.zones;
+	if (HOLE_STYLES.includes(setup.holes)) CFG.holeStyle = setup.holes;
 	if (SPEED_RULES.includes(setup.vote)) CFG.speedVote = setup.vote;
 	if (VOTE_MODES.includes(setup.voteMode)) CFG.voteMode = setup.voteMode;
 	if (SPEED_STRATS[setup.botspeed]) CFG.botSpeed = setup.botspeed;
@@ -107,6 +111,10 @@ function parseQuery(search) {
 	if (DISK_SCHEMAS[schema]) { out.schema = schema; found = true; }
 	const recycle = q.recycle && q.recycle.toLowerCase();
 	if (RECYCLES.includes(recycle)) { out.recycle = recycle; found = true; }
+	for (const [key, list] of [['zones', ZONE_STYLES], ['holes', HOLE_STYLES], ['cards', CARD_STYLES]]) {
+		const v = q[key] && q[key].toLowerCase();
+		if (list.includes(v)) { out[key] = v; found = true; }
+	}
 	const vote = q.vote && q.vote.toLowerCase(), voteMode = q.votemode && q.votemode.toLowerCase();
 	if (SPEED_RULES.includes(vote)) { out.vote = vote; found = true; }
 	if (VOTE_MODES.includes(voteMode)) { out.voteMode = voteMode; found = true; }
@@ -142,4 +150,4 @@ function parseQuery(search) {
 // and the same page state comes back when it is opened.
 function presetQuery(name) { return 'preset=' + name; }
 
-if (typeof module !== 'undefined') module.exports = { PRESETS, SPEED_RULES, VOTE_MODES, VIEWS, FX_MODES, DECOR_MODES, FACE_MODES, parseQuery, applyCfg, presetQuery };
+if (typeof module !== 'undefined') module.exports = { PRESETS, ZONE_STYLES, HOLE_STYLES, CARD_STYLES, SPEED_RULES, VOTE_MODES, VIEWS, FX_MODES, DECOR_MODES, FACE_MODES, parseQuery, applyCfg, presetQuery };

@@ -50,6 +50,13 @@
 				maxThrows: 96, // hard game cap: a board that keeps handing pucks back still ends
 				scoreDisplayMax: 999, // scores are shown as 0..scoreDisplayMax per game
 				recycleMode: 'advance', // 'none' | 'zones' | 'advance' (radio group)
+				// The shapes of the return zone and the black holes (radio groups). They are rules,
+				// not skins: the drawn outline is the region the rule tests (js/rules.js, js/physics.js).
+				// zoneStyle: 'hatch' | 'wavy' — the straight wedge; 'rounded' — an outline that
+				// hugs the disk and the holes, no straight edge; 'arcs' — one curve around the disk,
+				// the holes inside the zone. holeStyle: 'classic' | 'rim' | 'well' — the round void,
+				// drawn three ways; 'triangle' — a triangular void.
+				zoneStyle: 'hatch', holeStyle: 'classic',
 				diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
 				// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel
 				// slider alone; 'turn' — the seats vote before every turn; 'round' — before every
@@ -253,17 +260,71 @@
 				if (tau < 0 || tau > rem || (_evFound && tau >= _evTau)) return;
 				_evTau = tau; _evI = i; _evJ = hole; _evAxis = -1; _evKind = 3; _evFound = true;
 			}
-			function holeEntryTime(w, i, hole, rem) {
-				const dx = w.x[i] - hole.x, dy = w.y[i] - hole.y;
-				const r = hole.r + w.r[i], c = dx * dx + dy * dy - r * r;
-				if (c <= 0) return 0;
-				const vx = w.vx[i], vy = w.vy[i], vv = vx * vx + vy * vy;
-				if (vv <= 0) return -1;
-				const dot = dx * vx + dy * vy;
-				if (dot >= 0) return -1;
+			// Hole shapes (CFG.holeStyle). Every style but 'triangle' is the round void of radius
+			// r. The triangle stands on its wall, apex inward, its sides parallel to the wedge
+			// sides that run from the board corners to the disk centre, so it chimes with the
+			// return zone next to it; it keeps the semicircle's area, so it eats as much ice.
+			const _tri = new Float64Array(6);
+			function holeTriangle(cfg, hole, out) {
+				const tan = cfg.diskY / cfg.diskX, h = hole.r * Math.sqrt(Math.PI * tan / 2), b = h / tan;
+				const inward = hole.y < cfg.diskY ? 1 : -1;
+				out[0] = hole.x - b; out[1] = hole.y; out[2] = hole.x + b; out[3] = hole.y;
+				out[4] = hole.x; out[5] = hole.y + inward * h;
+				return out;
+			}
+			// Signed distance from (x, y) to a triangle's outline, negative inside.
+			function triGap(t, x, y) {
+				let best = Infinity, inside = true;
+				const orient = (t[2] - t[0]) * (t[5] - t[1]) - (t[3] - t[1]) * (t[4] - t[0]);
+				for (let k = 0; k < 3; k++) {
+					const ax = t[2 * k], ay = t[2 * k + 1], bx = t[(2 * k + 2) % 6], by = t[(2 * k + 3) % 6];
+					const ex = bx - ax, ey = by - ay, px = x - ax, py = y - ay;
+					const u = clamp((px * ex + py * ey) / (ex * ex + ey * ey), 0, 1);
+					const dx = px - u * ex, dy = py - u * ey, d = dx * dx + dy * dy;
+					if (d < best) best = d;
+					if ((ex * py - ey * px) * orient < 0) inside = false;
+				}
+				return inside ? -Math.sqrt(best) : Math.sqrt(best);
+			}
+			// Clearance between a point and a hole's void: a puck of radius r is swallowed at
+			// holeGap <= r.
+			function holeGap(cfg, hole, x, y) {
+				if (cfg.holeStyle === 'triangle') return triGap(holeTriangle(cfg, hole, _tri), x, y);
+				const dx = x - hole.x, dy = y - hole.y;
+				return Math.sqrt(dx * dx + dy * dy) - hole.r;
+			}
+			// Ray against a circle of radius r around (cx, cy): the entry time, or Infinity.
+			function circleEntry(dx, dy, vx, vy, r) {
+				const vv = vx * vx + vy * vy, c = dx * dx + dy * dy - r * r, dot = dx * vx + dy * vy;
+				if (vv <= 0 || dot >= 0) return Infinity;
 				const disc = dot * dot - vv * c;
-				if (disc < 0) return -1;
-				const tau = (-dot - Math.sqrt(disc)) / vv;
+				return disc < 0 ? Infinity : (-dot - Math.sqrt(disc)) / vv;
+			}
+			// The triangle grown by the puck radius is convex, so its first contact is either an
+			// edge's flat face, pushed out by r, or a corner's circle of radius r.
+			function triEntryTime(t, x, y, vx, vy, r) {
+				let best = Infinity;
+				const orient = (t[2] - t[0]) * (t[5] - t[1]) - (t[3] - t[1]) * (t[4] - t[0]) > 0 ? 1 : -1;
+				for (let k = 0; k < 3; k++) {
+					const ax = t[2 * k], ay = t[2 * k + 1], bx = t[(2 * k + 2) % 6], by = t[(2 * k + 3) % 6];
+					const ex = bx - ax, ey = by - ay, len = Math.hypot(ex, ey);
+					const nx = orient * ey / len, ny = -orient * ex / len; // outward normal
+					const d0 = (x - ax) * nx + (y - ay) * ny - r, dv = vx * nx + vy * ny;
+					if (d0 > 0 && dv < 0) {
+						const tau = -d0 / dv, u = ((x + vx * tau - ax) * ex + (y + vy * tau - ay) * ey) / (len * len);
+						if (u >= 0 && u <= 1 && tau < best) best = tau;
+					}
+					const tau = circleEntry(x - ax, y - ay, vx, vy, r);
+					if (tau < best) best = tau;
+				}
+				return best;
+			}
+			function holeEntryTime(w, i, hole, rem) {
+				const cfg = w.cfg;
+				if (holeGap(cfg, hole, w.x[i], w.y[i]) <= w.r[i]) return 0;
+				const tau = cfg.holeStyle === 'triangle'
+					? triEntryTime(holeTriangle(cfg, hole, _tri), w.x[i], w.y[i], w.vx[i], w.vy[i], w.r[i])
+					: circleEntry(w.x[i] - hole.x, w.y[i] - hole.y, w.vx[i], w.vy[i], hole.r + w.r[i]);
 				return tau <= rem ? tau : -1;
 			}
 			
@@ -696,9 +757,7 @@
 				for (let i = w.n - 1; i >= 0; i--) {
 					let captured = false;
 					for (let k = 0; k < w.cfg.holes.length; k++) {
-						const hole = w.cfg.holes[k], dx = w.x[i] - hole.x, dy = w.y[i] - hole.y;
-						const r = hole.r + w.r[i];
-						if (dx * dx + dy * dy <= r * r) { captured = true; break; }
+						if (holeGap(w.cfg, w.cfg.holes[k], w.x[i], w.y[i]) <= w.r[i]) { captured = true; break; }
 					}
 					if (!captured) continue;
 					const owner = w.own[i];
@@ -713,7 +772,7 @@
 				beginSpinRamp(w, 0, w.cfg.settleTime);
 				w.settling = true;
 			}
-			if (typeof module !== 'undefined') module.exports = { createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, beginSpinRamp, stopSpinRamp, spinNow, diskOverlap, surfVelAt, holdable, wakeOnDisk, swapRemovePuck, absorbBlackHoles, FR_RINGS, FR_RAYS, FR_N, FR_RAD, FR_COS, FR_SIN };
+			if (typeof module !== 'undefined') module.exports = { holeTriangle, holeGap, holeEntryTime, createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, beginSpinRamp, stopSpinRamp, spinNow, diskOverlap, surfVelAt, holdable, wakeOnDisk, swapRemovePuck, absorbBlackHoles, FR_RINGS, FR_RAYS, FR_N, FR_RAD, FR_COS, FR_SIN };
 			}
 		},
 		"js/score.js": function(module, exports, require, globalThis) {
@@ -1009,6 +1068,52 @@
 				const e3 = (z.ax - z.cx) * (y - z.cy) - (z.ay - z.cy) * (x - z.cx);
 				return e1 >= 0 && e2 >= 0 && e3 >= 0;
 			}
+			// The soft zone shapes ('rounded', 'arcs') are the region zoneField > 0 of a clearance
+			// field — the distance to what the zone keeps clear of, blended by a smooth minimum so
+			// every corner comes out rounded. The renderer traces this same function, so the drawn
+			// outline and the rule agree to its tracing grid, and its inset lines are level sets of
+			// it: copies of the outline.
+			// The fillet scale must exceed twice the narrowest hole ↔ guard gap (8 cm on the shipped
+			// board): then the 'rounded' outline bridges that gap instead of threading through it.
+			const ZONE_SOFT_K = 0.3;
+			function smin(a, b, k) {
+				const h = Math.max(k - Math.abs(a - b), 0) / k;
+				return Math.min(a, b) - h * h * k / 4;
+			}
+			function isSoftZone(cfg) { return cfg.zoneStyle === 'rounded' || cfg.zoneStyle === 'arcs'; }
+			// Signed distance to the line through a and b, positive on the side of the point p.
+			function sideGap(ax, ay, bx, by, px, py, x, y) {
+				const ex = bx - ax, ey = by - ay, d = (ex * (y - ay) - ey * (x - ax)) / Math.sqrt(ex * ex + ey * ey);
+				return ex * (py - ay) - ey * (px - ax) < 0 ? -d : d;
+			}
+			// 'arcs': one curve from wall to wall around the disk — the guard blended into the
+			// vertical through the disk centre — so the holes lie inside the zone. They need no
+			// exemption: a puck that touches a void is swallowed in the step it gets there
+			// (absorbBlackHoles), long before a handoff could recycle it.
+			// 'rounded' on the wedge side: clear of the guard and of each hole's reach, and on the
+			// wall side of the line hole → disk centre. That line is buried where the hole and the
+			// guard blend, so it only closes the zone and never shows. On the fan side there are
+			// no holes: the fan's own sides, with the corners at the guard rounded.
+			function zoneField(cfg, mode, x, y) {
+				const left = mode === 'advance';
+				const gx = x - cfg.diskX, gy = y - cfg.diskY;
+				let d = Math.sqrt(gx * gx + gy * gy) - cfg.diskR - cfg.puckR;
+				if (cfg.zoneStyle === 'arcs') d = smin(d, left ? cfg.diskX - x : x - cfg.diskX, ZONE_SOFT_K);
+				else if (left) {
+					for (let k = 0; k < cfg.holes.length; k++) {
+						const hole = cfg.holes[k];
+						d = smin(d, holeGap(cfg, hole, x, y) - cfg.puckR, ZONE_SOFT_K);
+						d = smin(d, sideGap(hole.x, hole.y, cfg.diskX, cfg.diskY, 0, cfg.diskY, x, y), ZONE_SOFT_K);
+					}
+				} else {
+					const z = cfg.returnZone;
+					d = smin(d, sideGap(z.ax, z.ay, z.bx, z.by, z.cx, z.cy, x, y), ZONE_SOFT_K);
+					d = smin(d, sideGap(z.ax, z.ay, z.cx, z.cy, z.bx, z.by, x, y), ZONE_SOFT_K);
+				}
+				if (!left) return d;
+				const v = cfg.advanceZone; // the launch lane joins whatever the shape
+				return Math.max(d, Math.min(x - v.lx, v.lx + v.lw - x));
+			}
 			// 'zones' is the eject fan: inside the triangle apex→far corners. 'advance' is the
 			// wedge behind the disk plus the launch lane: a puck has to get past the disk and
 			// out of its own box. Both tables put a vertex on the disk centre and their sides run
@@ -1016,6 +1121,7 @@
 			// the guard — no second test needed, and no extra exemption the picture does not show.
 			function inReturnZone(cfg, mode, x, y) {
 				if (mode === 'none') return false;
+				if (isSoftZone(cfg)) return zoneField(cfg, mode, x, y) > 0;
 				if (mode === 'zones') return inTri(cfg.returnZone, x, y) && !inGuard(cfg, x, y);
 				if (mode === 'advance') {
 					const v = cfg.advanceZone;
@@ -1068,7 +1174,7 @@
 			// Remove one puck by index — the puck waiting on the launch spot, for instance.
 			function removePuckAt(w, at) { moveLast(w, at); }
 			
-			if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, inReturnZone, puckWouldRecycle, moveLast, takePucks, recyclePucks, dropOwned, reindexOwners, removePuckAt };
+			if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, isSoftZone, zoneField, inReturnZone, puckWouldRecycle, moveLast, takePucks, recyclePucks, dropOwned, reindexOwners, removePuckAt };
 			}
 		},
 		"js/predict.js": function(module, exports, require, globalThis) {
@@ -1315,7 +1421,7 @@
 					let holeDistance = Infinity, holeIndex = 0;
 					for (let k = 0; k < cfg.holes.length; k++) {
 						const hole = cfg.holes[k];
-						const d = Math.hypot(w.x[j] - hole.x, w.y[j] - hole.y) - (hole.r + cfg.puckR);
+						const d = holeGap(cfg, hole, w.x[j], w.y[j]) - cfg.puckR;
 						if (d < holeDistance) { holeDistance = d; holeIndex = k; }
 					}
 					if (holeDistance >= best) continue;
@@ -2395,7 +2501,7 @@
 			with (globalThis) {
 			// Canvas renderer. Each board gets its own surfaces, textures and coordinate transform;
 			// the default page uses one instance and an embedded minigame creates one per session.
-			if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'), require('./field.js'), require('./physics.js'), require('./score.js'), require('./players.js'));
+			if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'), require('./field.js'), require('./physics.js'), require('./score.js'), require('./players.js'), require('./rules.js'));
 			function createRenderer() {
 				let cfg = CFG;
 				let cv, ctx, sx = 100, sy = 100, dpr = 1;
@@ -2406,7 +2512,9 @@
 				// the aim ghost and the stones.
 				let skin = null;
 				let texDisk = null, texSchema = '', ppmDisk = 0, puckGrad = null, wallPath = null, gridPath = null;
-				let zoneFan = null, zoneAdv = null, hatchPath = null, sectorPath = null, bandPath = null;
+				let zoneFan = null, zoneAdv = null, sectorPath = null, bandPath = null, holeClip = null;
+				let builtZone = '', builtHole = ''; // the shape styles the zone and hole paths were baked for
+				const holeTri = new Float64Array(6);
 				const Z_FILL = 'rgba(32,178,170,0.16)', Z_LINE = 'rgba(46,204,196,0.55)', Z_HATCH = 'rgba(46,204,196,0.16)';
 				const SECTOR_SHADE = 'rgba(45,52,54,0.42)'; // 3 of the 6 face sectors
 				let labelRot = 0;
@@ -2480,15 +2588,17 @@
 				}
 				function buildZonePaths() {
 					const z = cfg.returnZone, v = cfg.advanceZone;
+					builtZone = cfg.zoneStyle; builtHole = cfg.holeStyle;
 					// Both return rules: a fill with the on-disk guard (diskR + puckR) punched
 					// out of it, so the exemption is drawn instead of implied, plus the outline
-					// to stroke. The 'advance' rule adds the launch lane to its wedge.
-					zoneFan = bakeZone(z, null);
-					zoneAdv = bakeZone(v, [v.lx, 0, v.lw, cfg.boardH]);
-					hatchPath = new Path2D();
-					for (let s = -cfg.boardH; s < cfg.boardW; s += 0.14) { // 45° stripes across the board
-						hatchPath.moveTo(s, 0); hatchPath.lineTo(s + cfg.boardH, cfg.boardH);
+					// to stroke and the lines that fill it. The 'advance' rule adds the launch lane.
+					if (isSoftZone(cfg)) { zoneFan = softZone('zones'); zoneAdv = softZone('advance'); }
+					else {
+						const hatch = cfg.zoneStyle === 'wavy' ? wavyHatch() : straightHatch();
+						zoneFan = bakeZone(z, null, hatch);
+						zoneAdv = bakeZone(v, [v.lx, 0, v.lw, cfg.boardH], hatch);
 					}
+					buildHoleClip();
 					// Puck face: 6 sectors, 3 shaded, unit radius (scaled per puck at draw time).
 					sectorPath = new Path2D();
 					for (let k = 0; k < 3; k++) {
@@ -2521,7 +2631,7 @@
 				// outside the triangle is covered once, so it drew as a strange teal halo hugging
 				// the disk. The outline strokes the wedge's true boundary: its two sides, cut where
 				// they enter the guard, then the arc that closes the fill on the interior side.
-				function bakeZone(t, rect) {
+				function bakeZone(t, rect, hatch) {
 					const Rg = cfg.diskR + cfg.puckR;
 					// The apex is the table vertex that sits on the disk centre; the other two give
 					// the wedge's two edge directions.
@@ -2559,7 +2669,142 @@
 					hole.closePath();
 					const path = new Path2D();
 					path.addPath(fill); path.addPath(hole);
-					return { path: path, line: line };
+					return { path: path, line: line, hatch: hatch };
+				}
+				const HATCH_STEP = 0.14;
+				function straightHatch() {
+					const p = new Path2D();
+					for (let s = -cfg.boardH; s < cfg.boardW; s += HATCH_STEP) { // 45° stripes across the board
+						p.moveTo(s, 0); p.lineTo(s + cfg.boardH, cfg.boardH);
+					}
+					return p;
+				}
+				// The same stripes, each wavering on two incommensurate sines; the golden-angle phase
+				// step keeps neighbours from ever running in step.
+				function wavyHatch() {
+					const p = new Path2D(), len = cfg.boardH * Math.SQRT2, du = 0.02;
+					for (let s = -cfg.boardH, n = 0; s < cfg.boardW; s += HATCH_STEP, n++) {
+						const phase = n * GOLDEN;
+						for (let u = 0; u <= len + du / 2; u += du) {
+							const off = 0.024 * Math.sin(u * 10.5 + phase) + 0.007 * Math.sin(u * 27 + 2 * phase);
+							const x = s + (u + off) / Math.SQRT2, y = (u - off) / Math.SQRT2;
+							if (u === 0) p.moveTo(x, y); else p.lineTo(x, y);
+						}
+					}
+					return p;
+				}
+				// A soft zone (js/rules.js zoneField) is traced from the rule's own field on a grid
+				// that overhangs the board. The outline is the field's zero level closed off just
+				// outside the walls, so it fills as loops and its wall pieces fall outside the board
+				// clip; the lines are the field's higher levels — inset copies of the outline — or,
+				// for 'arcs', circles around the disk centre.
+				// The outline is traced on a 1 cm grid: it is the rule's edge. The inset lines are
+				// decoration and solid, so a 2.5 cm grid draws them as smoothly at a sixth of the cost
+				// — this bake reruns whenever the board's geometry changes.
+				const SOFT_GRID = 0.01, SOFT_LINE_GRID = 0.025, SOFT_PAD = 0.03, SOFT_LINE_GAP = 0.08;
+				function softZone(mode) {
+					const path = new Path2D(), hatch = new Path2D();
+					sampleField(mode, SOFT_GRID, true, path);
+					if (cfg.zoneStyle !== 'arcs') { sampleField(mode, SOFT_LINE_GRID, false, hatch); return { path: path, line: path, hatch: hatch }; }
+					const far = Math.hypot(Math.max(cfg.diskX, cfg.boardW - cfg.diskX), Math.max(cfg.diskY, cfg.boardH - cfg.diskY));
+					for (let r = cfg.diskR + cfg.puckR + SOFT_LINE_GAP; r < far; r += SOFT_LINE_GAP) {
+						hatch.moveTo(cfg.diskX + r, cfg.diskY); hatch.arc(cfg.diskX, cfg.diskY, r, 0, TAU);
+					}
+					return { path: path, line: path, hatch: hatch };
+				}
+				// outline: the zero level, closed just outside the walls; otherwise the inset levels.
+				function sampleField(mode, step, outline, out) {
+					const nx = Math.ceil((cfg.boardW + 2 * SOFT_PAD) / step) + 1, ny = Math.ceil((cfg.boardH + 2 * SOFT_PAD) / step) + 1;
+					const vals = new Float32Array(nx * ny);
+					let top = 0;
+					for (let j = 0; j < ny; j++) {
+						for (let i = 0; i < nx; i++) {
+							const x = i * step - SOFT_PAD, y = j * step - SOFT_PAD, f = zoneField(cfg, mode, x, y);
+							vals[j * nx + i] = outline ? Math.min(f, Math.min(x, cfg.boardW - x, y, cfg.boardH - y) + SOFT_PAD / 2) : f;
+							if (f > top && x > 0 && y > 0 && x < cfg.boardW && y < cfg.boardH) top = f;
+						}
+					}
+					const trace = contourTracer(nx, ny, -SOFT_PAD, -SOFT_PAD, step);
+					if (outline) { trace(out, vals, 0); return; }
+					for (let level = SOFT_LINE_GAP; level < top; level += SOFT_LINE_GAP) trace(out, vals, level);
+				}
+				// Marching squares with the segments chained into polylines, so a dash pattern runs
+				// on along a contour instead of restarting in every grid cell. A segment joins two
+				// cell edges; every crossed edge belongs to at most two segments, so two link slots
+				// per edge hold the whole graph. Saddles are split by the cell's centre value.
+				// Edge order per case: top, right, bottom, left (0..3).
+				const MS_CASES = [[], [3, 0], [0, 1], [3, 1], [1, 2], null, [0, 2], [3, 2], [2, 3], [0, 2], null, [1, 2], [3, 1], [0, 1], [3, 0], []];
+				const MS_SADDLE_IN = [[0, 1, 2, 3], [3, 0, 1, 2]], MS_SADDLE_OUT = [[3, 0, 1, 2], [0, 1, 2, 3]]; // cases 5, 10
+				function contourTracer(nx, ny, x0, y0, step) {
+					const nh = (nx - 1) * ny, ne = nh + nx * (ny - 1);
+					const l1 = new Int32Array(ne), l2 = new Int32Array(ne), seen = new Uint8Array(ne), cell = new Int32Array(4);
+					let vals = null, level = 0;
+					function link(a, b) {
+						if (l1[a] < 0) l1[a] = b; else l2[a] = b;
+						if (l1[b] < 0) l1[b] = a; else l2[b] = a;
+					}
+					function at(e, path, first) {
+						let i, j, ia, ib;
+						if (e < nh) { j = Math.floor(e / (nx - 1)); i = e - j * (nx - 1); ia = j * nx + i; ib = ia + 1; }
+						else { const f = e - nh; j = Math.floor(f / nx); i = f - j * nx; ia = j * nx + i; ib = ia + nx; }
+						const t = (level - vals[ia]) / (vals[ib] - vals[ia]);
+						const x = x0 + (i + (e < nh ? t : 0)) * step, y = y0 + (j + (e < nh ? 0 : t)) * step;
+						if (first) path.moveTo(x, y); else path.lineTo(x, y);
+					}
+					function walk(path, start, loop) {
+						let prev = -1, cur = start;
+						at(cur, path, true);
+						for (;;) {
+							seen[cur] = 1;
+							const next = l1[cur] !== prev ? l1[cur] : l2[cur];
+							if (next < 0 || (seen[next] && next !== start)) break;
+							at(next, path, false);
+							if (next === start) break;
+							prev = cur; cur = next;
+						}
+						if (loop) path.closePath();
+					}
+					return function trace(path, values, lv) {
+						vals = values; level = lv;
+						l1.fill(-1); l2.fill(-1); seen.fill(0);
+						for (let j = 0; j < ny - 1; j++) {
+							for (let i = 0; i < nx - 1; i++) {
+								const a = vals[j * nx + i], b = vals[j * nx + i + 1], c = vals[(j + 1) * nx + i + 1], d = vals[(j + 1) * nx + i];
+								const code = (a > lv ? 1 : 0) | (b > lv ? 2 : 0) | (c > lv ? 4 : 0) | (d > lv ? 8 : 0);
+								if (code === 0 || code === 15) continue;
+								cell[0] = j * (nx - 1) + i; cell[1] = nh + j * nx + i + 1; cell[2] = (j + 1) * (nx - 1) + i; cell[3] = nh + j * nx + i;
+								let seg = MS_CASES[code];
+								if (!seg) seg = ((a + b + c + d) / 4 > lv ? MS_SADDLE_IN : MS_SADDLE_OUT)[code === 5 ? 0 : 1];
+								for (let k = 0; k < seg.length; k += 2) link(cell[seg[k]], cell[seg[k + 1]]);
+							}
+						}
+						for (let e = 0; e < ne; e++) if (!seen[e] && l1[e] >= 0 && l2[e] < 0) walk(path, e, false); // open ends first
+						for (let e = 0; e < ne; e++) if (!seen[e] && l1[e] >= 0) walk(path, e, true);
+					};
+				}
+				// Where the voids swallow a puck: each hole's shape grown by the puck radius. The
+				// glass skin's surface pass is clipped to it.
+				function buildHoleClip() {
+					holeClip = new Path2D();
+					for (let k = 0; k < cfg.holes.length; k++) {
+						const h = cfg.holes[k];
+						if (cfg.holeStyle === 'triangle') growTriangle(holeClip, holeTriangle(cfg, h, holeTri), cfg.puckR);
+						else { holeClip.moveTo(h.x + h.r + cfg.puckR, h.y); holeClip.arc(h.x, h.y, h.r + cfg.puckR, 0, TAU); }
+					}
+				}
+				// Triangle t grown by r: each edge pushed out along its normal, the corners rounded.
+				function growTriangle(path, t, r) {
+					const cw = (t[2] - t[0]) * (t[5] - t[1]) - (t[3] - t[1]) * (t[4] - t[0]) > 0; // increasing canvas angle
+					for (let k = 0; k < 3; k++) {
+						const ax = t[2 * k], ay = t[2 * k + 1], bx = t[(2 * k + 2) % 6], by = t[(2 * k + 3) % 6];
+						const cx = t[(2 * k + 4) % 6], cy = t[(2 * k + 5) % 6];
+						const a0 = Math.atan2(cw ? -(bx - ax) : bx - ax, cw ? by - ay : -(by - ay)); // outward normal of a→b
+						const a1 = Math.atan2(cw ? -(cx - bx) : cx - bx, cw ? cy - by : -(cy - by)); // and of b→c
+						if (k === 0) path.moveTo(ax + r * Math.cos(a0), ay + r * Math.sin(a0));
+						path.lineTo(bx + r * Math.cos(a0), by + r * Math.sin(a0));
+						path.arc(bx, by, r, a0, a1, !cw);
+					}
+					path.closePath();
 				}
 				function resize(geometryChanged = false) {
 					const box = cv.parentElement;
@@ -2624,7 +2869,7 @@
 					ctx.fillStyle = Z_FILL;
 					ctx.fill(z.path, 'evenodd');
 					ctx.save(); ctx.clip(z.path, 'evenodd');
-					ctx.strokeStyle = Z_HATCH; ctx.lineWidth = 0.012; ctx.stroke(hatchPath);
+					ctx.strokeStyle = Z_HATCH; ctx.lineWidth = 0.012; ctx.stroke(z.hatch);
 					ctx.restore();
 					ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = Z_LINE;
 					ctx.stroke(z.line); ctx.setLineDash([]);
@@ -2640,25 +2885,54 @@
 					}
 					ctx.restore();
 				}
+				const HOLE_DARK = '#090812', HOLE_RIM = '#9b59b6', HOLE_REACH = 'rgba(186, 104, 200, 0.65)';
 				function drawBlackHoles() {
 					ctx.save();
 					ctx.beginPath(); ctx.rect(0, 0, cfg.boardW, cfg.boardH); ctx.clip();
 					for (let i = 0; i < cfg.holes.length; i++) {
 						const hole = cfg.holes[i];
-						ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r + cfg.puckR, 0, 2 * Math.PI);
-						ctx.strokeStyle = 'rgba(186, 104, 200, 0.65)'; ctx.lineWidth = 0.012; ctx.setLineDash([0.035, 0.025]); ctx.stroke();
-						ctx.setLineDash([]);
-						ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r, 0, 2 * Math.PI);
-						ctx.fillStyle = '#090812'; ctx.fill();
-						ctx.strokeStyle = '#9b59b6'; ctx.lineWidth = 0.018; ctx.stroke();
-						// The inner ring: a true violet, deliberately very faint — it marks the
-						// middle of the void without lifting it out of the ice.
-						ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r * 0.58, 0, 2 * Math.PI);
-						ctx.strokeStyle = 'rgba(155, 89, 182, 0.15)'; ctx.lineWidth = 0.012; ctx.stroke();
+						if (cfg.holeStyle === 'triangle') drawTriangleHole(hole);
+						else drawRoundHole(hole, cfg.holeStyle);
 						ctx.fillStyle = '#e5c3ff'; ctx.font = font.hole;
-						ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('VOID', hole.x, hole.y + (i === 0 ? 0.055 : -0.055));
+						ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('VOID', hole.x, hole.y + (hole.y < cfg.diskY ? 0.055 : -0.055));
 					}
 					ctx.restore();
+				}
+				// 'classic' and 'well' draw the reach — r + puckR, where a puck is swallowed — as a
+				// dashed ring; 'rim' leaves it implied. 'well' steps the void down into a core.
+				function drawRoundHole(hole, style) {
+					if (style !== 'rim') {
+						ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r + cfg.puckR, 0, TAU);
+						ctx.strokeStyle = HOLE_REACH; ctx.lineWidth = 0.012; ctx.setLineDash([0.035, 0.025]); ctx.stroke();
+						ctx.setLineDash([]);
+					}
+					ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r, 0, TAU);
+					ctx.fillStyle = HOLE_DARK; ctx.fill();
+					ctx.strokeStyle = HOLE_RIM; ctx.lineWidth = 0.018; ctx.stroke();
+					if (style === 'rim') return;
+					ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r * 0.58, 0, TAU);
+					if (style === 'classic') { // a true violet, deliberately very faint: the middle of the void, not lifted out of the ice
+						ctx.strokeStyle = 'rgba(155, 89, 182, 0.15)'; ctx.lineWidth = 0.012; ctx.stroke();
+						return;
+					}
+					ctx.fillStyle = '#16131f'; ctx.fill();
+					ctx.strokeStyle = 'rgba(155, 89, 182, 0.42)'; ctx.lineWidth = 0.010; ctx.stroke();
+					ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r * 0.30, 0, TAU);
+					ctx.fillStyle = '#030206'; ctx.fill();
+				}
+				// The triangle and a smaller copy of it on the same wall point, so the inner one
+				// nests toward the wall like the rings of the round void.
+				function drawTriangleHole(hole) {
+					const t = holeTriangle(cfg, hole, holeTri);
+					ctx.lineJoin = 'miter';
+					ctx.beginPath(); ctx.moveTo(t[0], t[1]); ctx.lineTo(t[2], t[3]); ctx.lineTo(t[4], t[5]); ctx.closePath();
+					ctx.fillStyle = HOLE_DARK; ctx.fill();
+					ctx.strokeStyle = HOLE_RIM; ctx.lineWidth = 0.018; ctx.stroke();
+					const k = 0.6;
+					ctx.beginPath();
+					ctx.moveTo(hole.x + k * (t[0] - hole.x), hole.y); ctx.lineTo(hole.x + k * (t[2] - hole.x), hole.y);
+					ctx.lineTo(hole.x, hole.y + k * (t[5] - hole.y)); ctx.closePath();
+					ctx.strokeStyle = 'rgba(155, 89, 182, 0.45)'; ctx.lineWidth = 0.012; ctx.stroke();
 				}
 				function drawZoneLabel(x, y, rot) {
 					ctx.save();
@@ -2699,6 +2973,7 @@
 					const w = view.w, aim = view.aim, opts = view.opts, pred = view.pred;
 					if (opts.theme !== themeName) applyTheme(opts.theme);
 					if (cfg.diskSchema !== texSchema) bakeDisk();
+					if (cfg.zoneStyle !== builtZone || cfg.holeStyle !== builtHole) buildZonePaths();
 					ctx.setTransform(1, 0, 0, 1, 0, 0);
 					ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, cv.width, cv.height);
 					ctx.setTransform(sx, 0, 0, sy, 0, 0);
@@ -2735,9 +3010,7 @@
 						if (opts.mode !== 'none') ctx.clip(zone.path, 'evenodd');
 						if (opts.mode !== 'none') skin.surface(ctx, view, cfg);
 						ctx.restore();
-						ctx.save(); ctx.beginPath();
-						for (const h of cfg.holes) { ctx.moveTo(h.x + h.r + cfg.puckR, h.y); ctx.arc(h.x, h.y, h.r + cfg.puckR, 0, TAU); }
-						ctx.clip(); skin.surface(ctx, view, cfg); ctx.restore();
+						ctx.save(); ctx.clip(holeClip); skin.surface(ctx, view, cfg); ctx.restore();
 					}
 					// Launch zone
 					ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 0.01; ctx.setLineDash([0.04, 0.03]);
@@ -2763,7 +3036,7 @@
 					const seats = view.roster, n = seats.length;
 					if (!n) return;
 					// A spent board lights the winner, not the seat that happened to throw last.
-					const lit = view.state === 'scored' ? leader(seats) : view.turn;
+					const lit = view.state === 'scored' ? leader(seats) : view.turn, round = view.opts.cards === 'round';
 					const cw = Math.min(HUD_MAX, (cfg.boardW - 0.12) / n - HUD_GAP);
 					const x0 = (cfg.boardW - (n * cw + (n - 1) * HUD_GAP)) / 2;
 					ctx.save();
@@ -2771,9 +3044,12 @@
 					for (let i = 0; i < n; i++) {
 						const x = x0 + i * (cw + HUD_GAP), col = seatColor(i), on = i === lit;
 						ctx.fillStyle = on ? 'rgba(255,255,255,0.13)' : theme.hud;
-						ctx.fillRect(x, HUD_Y, cw, HUD_H);
-						if (on) { ctx.strokeStyle = col; ctx.lineWidth = 0.014; ctx.strokeRect(x, HUD_Y, cw, HUD_H); }
-						else if (theme.hudLine) { ctx.strokeStyle = theme.hudLine; ctx.lineWidth = 0.006; ctx.strokeRect(x, HUD_Y, cw, HUD_H); }
+						if (round) drawRoundCell(x, cw, on, col);
+						else {
+							ctx.fillRect(x, HUD_Y, cw, HUD_H);
+							if (on) { ctx.strokeStyle = col; ctx.lineWidth = 0.014; ctx.strokeRect(x, HUD_Y, cw, HUD_H); }
+							else if (theme.hudLine) { ctx.strokeStyle = theme.hudLine; ctx.lineWidth = 0.006; ctx.strokeRect(x, HUD_Y, cw, HUD_H); }
+						}
 						ctx.fillStyle = col;
 						ctx.beginPath(); ctx.arc(x + 0.055, HUD_Y + 0.072, 0.042, 0, Math.PI * 2); ctx.fill();
 						ctx.fillStyle = on ? '#ffffff' : theme.text;
@@ -2798,6 +3074,25 @@
 						ctx.fillRect(x, y, cw * left, 0.026);
 					}
 					ctx.restore();
+				}
+				// The rounded score card: the same cell with soft corners, its border inset by half
+				// its width so the round corner is not cut by the neighbouring fill.
+				const HUD_CORNER = 0.05;
+				function roundCellPath(x, y, w, h, r) {
+					ctx.beginPath();
+					ctx.moveTo(x + r, y);
+					ctx.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
+					ctx.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
+					ctx.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
+					ctx.arc(x + r, y + r, r, Math.PI, 1.5 * Math.PI);
+					ctx.closePath();
+				}
+				function drawRoundCell(x, cw, on, col) {
+					roundCellPath(x, HUD_Y, cw, HUD_H, HUD_CORNER); ctx.fill();
+					const lw = on ? 0.014 : 0.006;
+					if (!on && !theme.hudLine) return;
+					roundCellPath(x + lw / 2, HUD_Y + lw / 2, cw - lw, HUD_H - lw, HUD_CORNER - lw / 2);
+					ctx.strokeStyle = on ? col : theme.hudLine; ctx.lineWidth = lw; ctx.stroke();
 				}
 				// What each seat asks for, at the right of its cell (blank = don't care) and, while
 				// a vote is open, its time draining under the whole row: every seat is voting.

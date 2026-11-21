@@ -94,7 +94,7 @@ function strategicTargets(w, cfg, i) {
 		let holeDistance = Infinity, holeIndex = 0;
 		for (let k = 0; k < cfg.holes.length; k++) {
 			const hole = cfg.holes[k];
-			const d = Math.hypot(w.x[j] - hole.x, w.y[j] - hole.y) - (hole.r + cfg.puckR);
+			const d = holeGap(cfg, hole, w.x[j], w.y[j]) - cfg.puckR;
 			if (d < holeDistance) { holeDistance = d; holeIndex = k; }
 		}
 		if (holeDistance >= best) continue;

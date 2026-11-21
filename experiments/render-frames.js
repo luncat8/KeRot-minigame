@@ -2,6 +2,8 @@
 // `npm install` there once), so a visual change can be looked at — and diffed — without
 // a browser. Same stub technique as client-smoke.js, but with a real 2D context.
 //   node experiments/render-frames.js [outDir] [--glass] [--decor=radial|hex]
+//     [--mode=zones|advance|none] [--zone=hatch|wavy|rounded|arcs]
+//     [--holes=classic|rim|well|triangle] [--cards=round]
 //   node experiments/render-frames.js --tone
 // Writes one PNG per (ui theme × disk schema) of a fixed mid-game board; --glass
 // attaches the optional presentation skin and gives the files a -glass suffix,
@@ -19,7 +21,13 @@ Object.assign(globalThis, require('../js/cfg.js'), require('../js/field.js'), re
 
 const args = process.argv.slice(2);
 const glass = args.includes('--glass'), tone = args.includes('--tone');
-const decorArg = (args.find(a => a.startsWith('--decor=')) || '').slice(8);
+const arg = name => (args.find(a => a.startsWith('--' + name + '=')) || '').slice(name.length + 3);
+const decorArg = arg('decor'), modeArg = arg('mode') || 'zones', cardsArg = arg('cards');
+if (arg('zone')) CFG.zoneStyle = arg('zone');
+if (arg('holes')) CFG.holeStyle = arg('holes');
+// Non-default shapes and modes name their files, so a sweep never overwrites the baseline.
+const tag = (modeArg !== 'zones' ? '-' + modeArg : '') + (CFG.zoneStyle !== 'hatch' ? '-' + CFG.zoneStyle : '') +
+	(CFG.holeStyle !== 'classic' ? '-' + CFG.holeStyle : '') + (cardsArg ? '-cards' : '');
 const outDir = args.find(a => !a.startsWith('--')) || path.join(__dirname, 'logs', 'frames');
 fs.mkdirSync(outDir, { recursive: true });
 globalThis.Path2D = Path2D;
@@ -76,9 +84,9 @@ function board() {
 	roster[0].score = 160; roster[1].score = 420; roster[2].score = 90; roster[3].score = 230;
 	roster[0].balls = 2; roster[1].balls = 2; roster[2].balls = 2; roster[3].balls = 3;
 	const aim = { pending: pending, hasStroke: true, vx: -1.35, vy: -0.12 };
-	return { w: w, aim: aim, opts: { ring: true, preview: true, mode: 'zones', theme: 'classic' }, pred: pred, roster: roster, turn: 2, resolveT: 0, state: 'aim' };
+	return { w: w, aim: aim, opts: { ring: true, preview: true, mode: modeArg, theme: 'classic', cards: cardsArg }, pred: pred, roster: roster, turn: 2, resolveT: 0, state: 'aim' };
 }
-const themes = Object.keys(Render.themes), schemas = Object.keys(DISK_SCHEMAS);
+const themes = arg('theme') ? [arg('theme')] : Object.keys(Render.themes), schemas = arg('schema') ? [arg('schema')] : Object.keys(DISK_SCHEMAS);
 const schema0 = CFG.diskSchema;
 // Rec. 709 luma of the frame, and of a board-space patch of it: the mean says how much
 // light the ice holds, the max says whether a single pixel still reads as a lamp.
@@ -183,7 +191,7 @@ for (const theme of themes) {
 		const view = board();
 		view.opts.theme = theme;
 		Render.drawWorld(view);
-		const file = path.join(outDir, theme + '-' + schema + (glass ? '-glass' : '') + (glass && decorArg === 'hex' ? '-hex' : '') + '.png');
+		const file = path.join(outDir, theme + '-' + schema + (glass ? '-glass' : '') + (glass && decorArg === 'hex' ? '-hex' : '') + tag + '.png');
 		fs.writeFileSync(file, cv.toBuffer('image/png'));
 		const pixels = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
 		const tone = luma(pixels, PATCH.frame).mean;

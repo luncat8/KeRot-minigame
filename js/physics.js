@@ -12,17 +12,71 @@ function considerHole(i, hole, tau, rem) {
 	if (tau < 0 || tau > rem || (_evFound && tau >= _evTau)) return;
 	_evTau = tau; _evI = i; _evJ = hole; _evAxis = -1; _evKind = 3; _evFound = true;
 }
-function holeEntryTime(w, i, hole, rem) {
-	const dx = w.x[i] - hole.x, dy = w.y[i] - hole.y;
-	const r = hole.r + w.r[i], c = dx * dx + dy * dy - r * r;
-	if (c <= 0) return 0;
-	const vx = w.vx[i], vy = w.vy[i], vv = vx * vx + vy * vy;
-	if (vv <= 0) return -1;
-	const dot = dx * vx + dy * vy;
-	if (dot >= 0) return -1;
+// Hole shapes (CFG.holeStyle). Every style but 'triangle' is the round void of radius
+// r. The triangle stands on its wall, apex inward, its sides parallel to the wedge
+// sides that run from the board corners to the disk centre, so it chimes with the
+// return zone next to it; it keeps the semicircle's area, so it eats as much ice.
+const _tri = new Float64Array(6);
+function holeTriangle(cfg, hole, out) {
+	const tan = cfg.diskY / cfg.diskX, h = hole.r * Math.sqrt(Math.PI * tan / 2), b = h / tan;
+	const inward = hole.y < cfg.diskY ? 1 : -1;
+	out[0] = hole.x - b; out[1] = hole.y; out[2] = hole.x + b; out[3] = hole.y;
+	out[4] = hole.x; out[5] = hole.y + inward * h;
+	return out;
+}
+// Signed distance from (x, y) to a triangle's outline, negative inside.
+function triGap(t, x, y) {
+	let best = Infinity, inside = true;
+	const orient = (t[2] - t[0]) * (t[5] - t[1]) - (t[3] - t[1]) * (t[4] - t[0]);
+	for (let k = 0; k < 3; k++) {
+		const ax = t[2 * k], ay = t[2 * k + 1], bx = t[(2 * k + 2) % 6], by = t[(2 * k + 3) % 6];
+		const ex = bx - ax, ey = by - ay, px = x - ax, py = y - ay;
+		const u = clamp((px * ex + py * ey) / (ex * ex + ey * ey), 0, 1);
+		const dx = px - u * ex, dy = py - u * ey, d = dx * dx + dy * dy;
+		if (d < best) best = d;
+		if ((ex * py - ey * px) * orient < 0) inside = false;
+	}
+	return inside ? -Math.sqrt(best) : Math.sqrt(best);
+}
+// Clearance between a point and a hole's void: a puck of radius r is swallowed at
+// holeGap <= r.
+function holeGap(cfg, hole, x, y) {
+	if (cfg.holeStyle === 'triangle') return triGap(holeTriangle(cfg, hole, _tri), x, y);
+	const dx = x - hole.x, dy = y - hole.y;
+	return Math.sqrt(dx * dx + dy * dy) - hole.r;
+}
+// Ray against a circle of radius r around (cx, cy): the entry time, or Infinity.
+function circleEntry(dx, dy, vx, vy, r) {
+	const vv = vx * vx + vy * vy, c = dx * dx + dy * dy - r * r, dot = dx * vx + dy * vy;
+	if (vv <= 0 || dot >= 0) return Infinity;
 	const disc = dot * dot - vv * c;
-	if (disc < 0) return -1;
-	const tau = (-dot - Math.sqrt(disc)) / vv;
+	return disc < 0 ? Infinity : (-dot - Math.sqrt(disc)) / vv;
+}
+// The triangle grown by the puck radius is convex, so its first contact is either an
+// edge's flat face, pushed out by r, or a corner's circle of radius r.
+function triEntryTime(t, x, y, vx, vy, r) {
+	let best = Infinity;
+	const orient = (t[2] - t[0]) * (t[5] - t[1]) - (t[3] - t[1]) * (t[4] - t[0]) > 0 ? 1 : -1;
+	for (let k = 0; k < 3; k++) {
+		const ax = t[2 * k], ay = t[2 * k + 1], bx = t[(2 * k + 2) % 6], by = t[(2 * k + 3) % 6];
+		const ex = bx - ax, ey = by - ay, len = Math.hypot(ex, ey);
+		const nx = orient * ey / len, ny = -orient * ex / len; // outward normal
+		const d0 = (x - ax) * nx + (y - ay) * ny - r, dv = vx * nx + vy * ny;
+		if (d0 > 0 && dv < 0) {
+			const tau = -d0 / dv, u = ((x + vx * tau - ax) * ex + (y + vy * tau - ay) * ey) / (len * len);
+			if (u >= 0 && u <= 1 && tau < best) best = tau;
+		}
+		const tau = circleEntry(x - ax, y - ay, vx, vy, r);
+		if (tau < best) best = tau;
+	}
+	return best;
+}
+function holeEntryTime(w, i, hole, rem) {
+	const cfg = w.cfg;
+	if (holeGap(cfg, hole, w.x[i], w.y[i]) <= w.r[i]) return 0;
+	const tau = cfg.holeStyle === 'triangle'
+		? triEntryTime(holeTriangle(cfg, hole, _tri), w.x[i], w.y[i], w.vx[i], w.vy[i], w.r[i])
+		: circleEntry(w.x[i] - hole.x, w.y[i] - hole.y, w.vx[i], w.vy[i], hole.r + w.r[i]);
 	return tau <= rem ? tau : -1;
 }
 
@@ -455,9 +509,7 @@ function absorbBlackHoles(w) {
 	for (let i = w.n - 1; i >= 0; i--) {
 		let captured = false;
 		for (let k = 0; k < w.cfg.holes.length; k++) {
-			const hole = w.cfg.holes[k], dx = w.x[i] - hole.x, dy = w.y[i] - hole.y;
-			const r = hole.r + w.r[i];
-			if (dx * dx + dy * dy <= r * r) { captured = true; break; }
+			if (holeGap(w.cfg, w.cfg.holes[k], w.x[i], w.y[i]) <= w.r[i]) { captured = true; break; }
 		}
 		if (!captured) continue;
 		const owner = w.own[i];
@@ -472,4 +524,4 @@ function beginSettle(w) {
 	beginSpinRamp(w, 0, w.cfg.settleTime);
 	w.settling = true;
 }
-if (typeof module !== 'undefined') module.exports = { createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, beginSpinRamp, stopSpinRamp, spinNow, diskOverlap, surfVelAt, holdable, wakeOnDisk, swapRemovePuck, absorbBlackHoles, FR_RINGS, FR_RAYS, FR_N, FR_RAD, FR_COS, FR_SIN };
+if (typeof module !== 'undefined') module.exports = { holeTriangle, holeGap, holeEntryTime, createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, beginSpinRamp, stopSpinRamp, spinNow, diskOverlap, surfVelAt, holdable, wakeOnDisk, swapRemovePuck, absorbBlackHoles, FR_RINGS, FR_RAYS, FR_N, FR_RAD, FR_COS, FR_SIN };

@@ -34,6 +34,13 @@ const CFG = {
 	maxThrows: 96, // hard game cap: a board that keeps handing pucks back still ends
 	scoreDisplayMax: 999, // scores are shown as 0..scoreDisplayMax per game
 	recycleMode: 'advance', // 'none' | 'zones' | 'advance' (radio group)
+	// The shapes of the return zone and the black holes (radio groups). They are rules,
+	// not skins: the drawn outline is the region the rule tests (js/rules.js, js/physics.js).
+	// zoneStyle: 'hatch' | 'wavy' — the straight wedge; 'rounded' — an outline that
+	// hugs the disk and the holes, no straight edge; 'arcs' — one curve around the disk,
+	// the holes inside the zone. holeStyle: 'classic' | 'rim' | 'well' — the round void,
+	// drawn three ways; 'triangle' — a triangular void.
+	zoneStyle: 'hatch', holeStyle: 'classic',
 	diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
 	// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel
 	// slider alone; 'turn' — the seats vote before every turn; 'round' — before every

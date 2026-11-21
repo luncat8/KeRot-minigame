@@ -23,6 +23,52 @@ function inTri(z, x, y) {
 	const e3 = (z.ax - z.cx) * (y - z.cy) - (z.ay - z.cy) * (x - z.cx);
 	return e1 >= 0 && e2 >= 0 && e3 >= 0;
 }
+// The soft zone shapes ('rounded', 'arcs') are the region zoneField > 0 of a clearance
+// field — the distance to what the zone keeps clear of, blended by a smooth minimum so
+// every corner comes out rounded. The renderer traces this same function, so the drawn
+// outline and the rule agree to its tracing grid, and its inset lines are level sets of
+// it: copies of the outline.
+// The fillet scale must exceed twice the narrowest hole ↔ guard gap (8 cm on the shipped
+// board): then the 'rounded' outline bridges that gap instead of threading through it.
+const ZONE_SOFT_K = 0.3;
+function smin(a, b, k) {
+	const h = Math.max(k - Math.abs(a - b), 0) / k;
+	return Math.min(a, b) - h * h * k / 4;
+}
+function isSoftZone(cfg) { return cfg.zoneStyle === 'rounded' || cfg.zoneStyle === 'arcs'; }
+// Signed distance to the line through a and b, positive on the side of the point p.
+function sideGap(ax, ay, bx, by, px, py, x, y) {
+	const ex = bx - ax, ey = by - ay, d = (ex * (y - ay) - ey * (x - ax)) / Math.sqrt(ex * ex + ey * ey);
+	return ex * (py - ay) - ey * (px - ax) < 0 ? -d : d;
+}
+// 'arcs': one curve from wall to wall around the disk — the guard blended into the
+// vertical through the disk centre — so the holes lie inside the zone. They need no
+// exemption: a puck that touches a void is swallowed in the step it gets there
+// (absorbBlackHoles), long before a handoff could recycle it.
+// 'rounded' on the wedge side: clear of the guard and of each hole's reach, and on the
+// wall side of the line hole → disk centre. That line is buried where the hole and the
+// guard blend, so it only closes the zone and never shows. On the fan side there are
+// no holes: the fan's own sides, with the corners at the guard rounded.
+function zoneField(cfg, mode, x, y) {
+	const left = mode === 'advance';
+	const gx = x - cfg.diskX, gy = y - cfg.diskY;
+	let d = Math.sqrt(gx * gx + gy * gy) - cfg.diskR - cfg.puckR;
+	if (cfg.zoneStyle === 'arcs') d = smin(d, left ? cfg.diskX - x : x - cfg.diskX, ZONE_SOFT_K);
+	else if (left) {
+		for (let k = 0; k < cfg.holes.length; k++) {
+			const hole = cfg.holes[k];
+			d = smin(d, holeGap(cfg, hole, x, y) - cfg.puckR, ZONE_SOFT_K);
+			d = smin(d, sideGap(hole.x, hole.y, cfg.diskX, cfg.diskY, 0, cfg.diskY, x, y), ZONE_SOFT_K);
+		}
+	} else {
+		const z = cfg.returnZone;
+		d = smin(d, sideGap(z.ax, z.ay, z.bx, z.by, z.cx, z.cy, x, y), ZONE_SOFT_K);
+		d = smin(d, sideGap(z.ax, z.ay, z.cx, z.cy, z.bx, z.by, x, y), ZONE_SOFT_K);
+	}
+	if (!left) return d;
+	const v = cfg.advanceZone; // the launch lane joins whatever the shape
+	return Math.max(d, Math.min(x - v.lx, v.lx + v.lw - x));
+}
 // 'zones' is the eject fan: inside the triangle apex→far corners. 'advance' is the
 // wedge behind the disk plus the launch lane: a puck has to get past the disk and
 // out of its own box. Both tables put a vertex on the disk centre and their sides run
@@ -30,6 +76,7 @@ function inTri(z, x, y) {
 // the guard — no second test needed, and no extra exemption the picture does not show.
 function inReturnZone(cfg, mode, x, y) {
 	if (mode === 'none') return false;
+	if (isSoftZone(cfg)) return zoneField(cfg, mode, x, y) > 0;
 	if (mode === 'zones') return inTri(cfg.returnZone, x, y) && !inGuard(cfg, x, y);
 	if (mode === 'advance') {
 		const v = cfg.advanceZone;
@@ -82,4 +129,4 @@ function reindexOwners(w, removed) {
 // Remove one puck by index — the puck waiting on the launch spot, for instance.
 function removePuckAt(w, at) { moveLast(w, at); }
 
-if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, inReturnZone, puckWouldRecycle, moveLast, takePucks, recyclePucks, dropOwned, reindexOwners, removePuckAt };
+if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, isSoftZone, zoneField, inReturnZone, puckWouldRecycle, moveLast, takePucks, recyclePucks, dropOwned, reindexOwners, removePuckAt };

@@ -317,3 +317,20 @@
   PannerNode with distance models buys nothing for a strictly 2-D stereo question.
   The continuous hiss takes one panner on its chain, driven by the speed-weighted
   mean pan of the sliding pucks.
+- A rule region with rounded corners, drawn exactly: write it as one clearance field
+  (distances to what it keeps clear of, merged by a polynomial smooth minimum), test
+  the rule as `field > 0`, and let the renderer trace the same function with marching
+  squares. Insets are just higher levels of the field. Clamp the field to the board
+  (`min(field, distance inside the walls + ε)`) on a grid that overhangs the walls, and
+  every contour closes into a loop that fills evenodd. Chain the segments (two link
+  slots per cell edge suffice) or a dash pattern restarts in every grid cell.
+- A gap narrower than the fillet scale is bridged by a smooth minimum: with k > twice the
+  gap, `smin(a, b)` stays negative across it, so an outline hugging two shapes runs
+  around both instead of threading the gap — and a straight helper side buried in that
+  bridge closes the region without ever showing.
+- Timing code loaded by `eval` in a node harness: a *direct* eval inside a module
+  wrapper makes every free name a dynamic scope lookup (10× slower here). Use
+  `(0, eval)(src)` — global scope, as the classic script runs — before trusting a ms.
+- A convex shape grown by a puck radius: the first contact of a straight path is an
+  edge face pushed out by r (check the hit lies within the edge) or a corner circle of
+  radius r. Verify against brute-force stepping of `gap(p(t)) <= r` on random rays.

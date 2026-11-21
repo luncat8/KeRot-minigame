@@ -4,14 +4,14 @@
 const UI = (() => {
 	const $ = id => document.getElementById(id);
 	const els = {};
-	const opts = { ring: true, preview: true, mode: CFG.recycleMode, theme: 'classic', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3 };
+	const opts = { ring: true, preview: true, mode: CFG.recycleMode, theme: 'classic', cards: 'square', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3 };
 	// What a link with no parameters opens. Taken now, before boot parameters or a
 	// preset move CFG — a shared link lists only what differs from this.
 	const SHIPPED = {
 		omega: CFG.omega, muK: CFG.muK, muS: CFG.muS, puckM: CFG.puckM,
-		schema: CFG.diskSchema, recycle: CFG.recycleMode, vote: CFG.speedVote, voteMode: CFG.voteMode, balls: CFG.ballsPerPlayer,
+		schema: CFG.diskSchema, recycle: CFG.recycleMode, zones: CFG.zoneStyle, holes: CFG.holeStyle, vote: CFG.speedVote, voteMode: CFG.voteMode, balls: CFG.ballsPerPlayer,
 		botspeed: CFG.botSpeed, warp: !!CFG.warp, warpTries: CFG.warpTries, warpTurns: CFG.warpTurns, warpGoal: CFG.warpGoal,
-		theme: 'classic', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3, seats: 'human,balanced,blackhole,retriever',
+		theme: 'classic', cards: 'square', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3, seats: 'human,balanced,blackhole,retriever',
 	};
 	// The speed bar's select is the same setting as the rule radios in the drawer; it
 	// says who sets the speed, in the words a turn wants.
@@ -32,7 +32,7 @@ const UI = (() => {
 			els[id] = $(id);
 		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
 			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus', 'speedMode',
-			'fx', 'chkSfx', 'decor', 'face', 'vol', 'volVal', 'result', 'resultWinner', 'resultScores'])
+			'chkCards', 'fx', 'chkSfx', 'decor', 'face', 'vol', 'volVal', 'result', 'resultWinner', 'resultScores'])
 			els[id] = $(id);
 		els.canvas = $('c');
 		// Every physics input invalidates the ghost: it is only valid for the settings
@@ -71,6 +71,7 @@ const UI = (() => {
 		els.view.addEventListener('change', () => { View.set(els.view.value); markCustom(); });
 		fillSelect(els.theme, Render.themes, opts.theme);
 		els.theme.addEventListener('change', () => { opts.theme = els.theme.value; document.body.dataset.theme = opts.theme; markCustom(); });
+		els.chkCards.addEventListener('change', () => { opts.cards = els.chkCards.checked ? 'round' : 'square'; markCustom(); });
 		els.fx.addEventListener('change', () => { syncFX(); markCustom(); });
 		els.chkSfx.addEventListener('change', () => { syncFX(); markCustom(); });
 		els.decor.addEventListener('change', () => { syncFX(); markCustom(); });
@@ -92,6 +93,10 @@ const UI = (() => {
 		for (const r of radios('recycle')) {
 			r.addEventListener('change', () => { if (r.checked) { CFG.recycleMode = r.value; opts.mode = r.value; markCustom(); } });
 		}
+		// The shapes are live rules too: the renderer rebakes on the next frame, and the
+		// ghost is re-simulated because a void of another shape swallows other paths.
+		for (const r of radios('zoneStyle')) r.addEventListener('change', () => { if (r.checked) { CFG.zoneStyle = r.value; Game.invalidateGhost(); markCustom(); } });
+		for (const r of radios('holeStyle')) r.addEventListener('change', () => { if (r.checked) { CFG.holeStyle = r.value; Game.invalidateGhost(); markCustom(); } });
 		// The speed rule is live, like the return rule: it applies from the next handoff.
 		for (const r of radios('speedVote')) r.addEventListener('change', () => { if (r.checked) setRule(r.value, CFG.voteMode); });
 		for (const r of radios('voteMode')) r.addEventListener('change', () => { if (r.checked) setRule(CFG.speedVote, r.value); });
@@ -142,6 +147,8 @@ const UI = (() => {
 		if (Math.abs(CFG.puckM - SHIPPED.puckM) > 1e-3) parts.push('mass=' + numParam(CFG.puckM));
 		if (CFG.diskSchema !== SHIPPED.schema) parts.push('schema=' + CFG.diskSchema);
 		if (CFG.recycleMode !== SHIPPED.recycle) parts.push('recycle=' + CFG.recycleMode);
+		if (CFG.zoneStyle !== SHIPPED.zones) parts.push('zones=' + CFG.zoneStyle);
+		if (CFG.holeStyle !== SHIPPED.holes) parts.push('holes=' + CFG.holeStyle);
 		if (CFG.speedVote !== SHIPPED.vote) parts.push('vote=' + CFG.speedVote);
 		if (CFG.voteMode !== SHIPPED.voteMode) parts.push('votemode=' + CFG.voteMode);
 		if (CFG.botSpeed !== SHIPPED.botspeed) parts.push('botspeed=' + CFG.botSpeed);
@@ -150,6 +157,7 @@ const UI = (() => {
 		if (CFG.warpTurns !== SHIPPED.warpTurns) parts.push('warpturns=' + CFG.warpTurns);
 		if (CFG.warpGoal !== SHIPPED.warpGoal) parts.push('warpgoal=' + numParam(CFG.warpGoal));
 		if (opts.theme !== SHIPPED.theme) parts.push('theme=' + opts.theme);
+		if (opts.cards !== SHIPPED.cards) parts.push('cards=' + opts.cards);
 		if (opts.fx !== SHIPPED.fx) parts.push('fx=' + opts.fx);
 		if (opts.sfx !== SHIPPED.sfx) parts.push('sfx=' + (opts.sfx ? 1 : 0));
 		if (opts.decor !== SHIPPED.decor) parts.push('decor=' + opts.decor);
@@ -180,6 +188,7 @@ const UI = (() => {
 		els.mass.value = String(Math.log10(CFG.puckM));
 		els.diskSchema.value = CFG.diskSchema;
 		els.theme.value = opts.theme;
+		els.chkCards.checked = opts.cards === 'round';
 		els.fx.value = opts.fx;
 		els.chkSfx.checked = opts.sfx;
 		els.decor.value = opts.decor;
@@ -188,6 +197,8 @@ const UI = (() => {
 		if (els.view) els.view.value = View.isFit() ? 'fit' : 'side';
 		for (const r of radios('recycle')) r.checked = r.value === CFG.recycleMode;
 		opts.mode = CFG.recycleMode;
+		for (const r of radios('zoneStyle')) r.checked = r.value === CFG.zoneStyle;
+		for (const r of radios('holeStyle')) r.checked = r.value === CFG.holeStyle;
 		for (const r of radios('speedVote')) r.checked = r.value === CFG.speedVote;
 		for (const r of radios('voteMode')) r.checked = r.value === CFG.voteMode;
 		els.speedMode.value = CFG.speedVote;
@@ -218,6 +229,7 @@ const UI = (() => {
 		if (!setup) return;
 		applyCfg(setup);
 		if (setup.omega !== undefined || setup.autoOmega) Game.setOmega(CFG.omega); // a set speed, not a voted one
+		if (CARD_STYLES.includes(setup.cards)) opts.cards = setup.cards;
 		if (setup.fx && FX_MODES.includes(setup.fx)) opts.fx = setup.fx;
 		if (setup.sfx !== undefined) opts.sfx = !!setup.sfx;
 		if (setup.decor && DECOR_MODES.includes(setup.decor)) opts.decor = setup.decor;

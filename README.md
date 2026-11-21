@@ -12,6 +12,18 @@ puck once to throw, or use the Throw button or Space. When the last throw is don
 board names the winner; **double-click the board** (or press **R**) to deal a new game. The page
 includes the full settings panel, bot profiles, score maps, recycling rules, and speed voting.
 
+## Field marking shapes
+
+Two rule groups in the settings pick the shape of the return zone and of the black
+holes; what is drawn is exactly what the rule tests. **Return zone shape**: the straight
+hatched wedge (shipped), the same wedge with wavy lines, *rounded* (an outline that hugs
+the disk and the holes, filled with inset copies of itself), or *one arc* around the
+disk with the holes inside the zone. **Black holes**: round with a dashed reach
+(shipped), rim only, a stepped well, or a triangle standing on its wall with sides
+parallel to the wedge and the semicircle's area. A checkbox rounds the score cards.
+URL keys: `zones=hatch|wavy|rounded|arcs`, `holes=classic|rim|well|triangle`,
+`cards=round`. Validate with `node experiments/zone-shapes.js`.
+
 ## Optional glass presentation
 
 The shipped page stays lightweight. **Plain** loads only the classic scripts below; the
