@@ -26,7 +26,7 @@ const ZoneEditor = (() => {
 	function setupOf(cfg, game, opts) {
 		return {
 			geometry: boardGeometry(cfg), omega: game.omegaStart, muK: cfg.muK, muS: cfg.muS, puckM: cfg.puckM,
-			schema: cfg.diskSchema, recycle: cfg.recycleMode, zones: cfg.zoneStyle, holes: cfg.holeStyle,
+			schema: cfg.diskSchema, recycle: cfg.recycleMode, zones: cfg.zoneStyle, holes: cfg.holeStyle, diskScale: cfg.diskScale,
 			balls: cfg.ballsPerPlayer, maxThrows: cfg.maxThrows, vote: cfg.speedVote, voteMode: cfg.voteMode,
 			botspeed: cfg.botSpeed, warp: cfg.warp, warpTries: cfg.warpTries, warpTurns: cfg.warpTurns, warpGoal: cfg.warpGoal,
 			seats: game.seatTypes, theme: opts.theme, cards: opts.cards, fx: opts.fx, sfx: opts.sfx,
@@ -92,6 +92,7 @@ const ZoneEditor = (() => {
 		const status = element('p', drawer, 'Changes stay on this board, including after Reset. Copy to keep or share them.');
 		status.className = 'editor-status'; status.setAttribute('role', 'status');
 		const controls = [], handles = [];
+		let symmetry = false;
 		const geometryGroup = element('details', drawer); geometryGroup.open = false;
 		element('summary', geometryGroup, 'Geometry · exact values');
 		function number(parent, label, key, get, set, step = '0.01') {
@@ -119,10 +120,22 @@ const ZoneEditor = (() => {
 			const get = () => cfg[key]; input.value = get(); controls.push({ input, get });
 			input.addEventListener('change', () => { cfg[key] = input.value; changed(); });
 		}
+		function checkbox(label, get, set) {
+			const row = element('label', rulesGroup, label), input = element('input', row);
+			input.type = 'checkbox'; input.checked = !!get();
+			controls.push({ input, get, checkbox: true });
+			input.addEventListener('change', () => set(input.checked, input));
+		}
 		select('Score map', 'diskSchema', Object.keys(DISK_SCHEMAS));
 		select('Return rule', 'recycleMode', ['none', 'zones', 'advance']);
 		select('Return shape', 'zoneStyle', ZONE_STYLES);
 		select('Hole shape', 'holeStyle', HOLE_STYLES);
+		checkbox('Symmetry mirror (half-Y)', () => symmetry, setSymmetry);
+		checkbox('Big-disk scales contents (scale | crop)', () => cfg.diskScale, on => {
+			cfg.diskScale = on;
+			if (on) game.setOmega(clamp(autoOmega(cfg), 0, cfg.omegaMax));
+			changed();
+		});
 		number(rulesGroup, 'Disk speed (rad/s)', 'omega', () => game.omegaStart, value => { game.setOmega(clamp(value, 0, cfg.omegaMax)); changed(); }, '0.001');
 		number(rulesGroup, 'Pucks per seat', 'balls', () => cfg.ballsPerPlayer, value => { cfg.ballsPerPlayer = Math.round(clamp(value, 1, 8)); changed(); }, '1');
 		number(rulesGroup, 'Maximum throws', 'maxThrows', () => cfg.maxThrows, value => { cfg.maxThrows = Math.round(clamp(value, 1, 512)); changed(); }, '1');
@@ -130,28 +143,68 @@ const ZoneEditor = (() => {
 		const outputLabel = element('label', drawer, 'Preset text (select to copy manually)');
 		const output = element('textarea', outputLabel); output.readOnly = true;
 		function refresh() {
-			for (const c of controls) if (document.activeElement !== c.input) c.input.value = String(Number.isFinite(c.get()) ? Number(c.get().toFixed(6)) : c.get());
+			for (const c of controls) {
+				if (document.activeElement === c.input) continue;
+				if (c.checkbox) c.input.checked = !!c.get();
+				else c.input.value = String(Number.isFinite(c.get()) ? Number(c.get().toFixed(6)) : c.get());
+			}
+			syncSymmetryControls();
 			output.value = descriptor(setupOf(cfg, game, ui.opts()));
 			draw();
 		}
 		function changed() {
 			game.reset(); render.resize(true); game.invalidateGhost(); ui.refreshEditor(); refresh();
 		}
+		// Symmetry across the half-Y line: the disk centre stays on the midline and the
+		// second hole mirrors the first, so the two holes are always the same pair.
+		function enforceSymmetry(b) {
+			b.diskY = b.boardH / 2;
+			const h0 = b.holes[0];
+			b.holes[1] = { x: h0.x, y: b.boardH - h0.y, r: h0.r };
+		}
+		function symmetryInputs() {
+			const out = [];
+			const dy = controls.find(c => c.input.dataset.param === 'diskY');
+			if (dy) out.push(dy.input);
+			for (const k of ['hole1x', 'hole1y', 'hole1r']) {
+				const c = controls.find(c => c.input.dataset.param === k);
+				if (c) out.push(c.input);
+			}
+			return out;
+		}
+		function syncSymmetryControls() {
+			for (const i of symmetryInputs()) i.disabled = symmetry;
+		}
+		function setSymmetry(on) {
+			symmetry = on;
+			if (on) {
+				const b = boardGeometry(cfg);
+				enforceSymmetry(b);
+				if (applyBoardGeometry(cfg, b)) status.textContent = 'Symmetry on: holes mirror across the half-board line and the disk stays on it.';
+				else status.textContent = 'Mirror would overlap the holes — move a hole off the centre line first.';
+			} else status.textContent = 'Symmetry off: holes and the disk move freely.';
+			syncSymmetryControls();
+			changed();
+		}
 		function changeGeometry(proposal, drag) {
+			if (symmetry) enforceSymmetry(proposal);
+			const oldR = cfg.diskR;
 			const b = drag ? project(boardGeometry(cfg), proposal) : proposal;
 			if (!applyBoardGeometry(cfg, b)) {
 				status.textContent = 'Not applied: keep the disk inside the board, holes apart, and a clear launch lane (at least one puck wide).';
 				return;
 			}
 			status.textContent = 'Board updated. Close to play, or copy this setup.';
+			if (cfg.diskScale && cfg.diskR !== oldR) game.setOmega(clamp(autoOmega(cfg), 0, cfg.omegaMax));
 			changed();
 		}
 		function handle(label, get, set, visible = () => true) { handles.push({ label, get, set, visible }); }
 		handle('disk', () => [cfg.diskX, cfg.diskY], (b, x, y) => { b.diskX = x; b.diskY = y; });
 		handle('disk radius', () => [cfg.diskX + cfg.diskR, cfg.diskY], (b, x, y) => { b.diskR = Math.max(0.15, Math.hypot(x - b.diskX, y - b.diskY)); });
 		for (let i = 0; i < 2; i++) {
-			handle('hole ' + (i + 1), () => [cfg.holes[i].x, cfg.holes[i].y], (b, x, y) => { b.holes[i].x = x; b.holes[i].y = y; });
-			handle('hole radius', () => [cfg.holes[i].x + cfg.holes[i].r, cfg.holes[i].y], (b, x, y) => { b.holes[i].r = Math.max(0.02, Math.hypot(x - b.holes[i].x, y - b.holes[i].y)); });
+			const vis = () => i === 0 || !symmetry;
+			handle('hole ' + (i + 1), () => [cfg.holes[i].x, cfg.holes[i].y], (b, x, y) => { b.holes[i].x = x; b.holes[i].y = y; }, vis);
+			handle('hole radius', () => [cfg.holes[i].x + cfg.holes[i].r, cfg.holes[i].y], (b, x, y) => { b.holes[i].r = Math.max(0.02, Math.hypot(x - b.holes[i].x, y - b.holes[i].y)); }, vis);
 		}
 		handle('reach', () => [cfg.diskX + (cfg.recycleMode === 'zones' ? cfg.boardW - cfg.diskX : -cfg.diskX) * cfg.zoneReach, cfg.diskY],
 			(b, x) => { b.zoneReach = clamp(cfg.recycleMode === 'zones' ? (x - b.diskX) / (b.boardW - b.diskX) : (b.diskX - x) / b.diskX, 0.1, 1); },

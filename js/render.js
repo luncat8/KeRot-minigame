@@ -10,7 +10,7 @@ function createRenderer() {
 	// is the top of the ice — over every marking already painted, including the voids,
 	// the aim ghost and the stones.
 	let skin = null;
-	let texDisk = null, texSchema = '', texRadius = 0, ppmDisk = 0, puckGrad = null, wallPath = null, gridPath = null;
+	let texDisk = null, texSchema = '', texRadius = 0, ppmDisk = 0, texScale = false, puckGrad = null, wallPath = null, gridPath = null;
 	let zoneFan = null, zoneAdv = null, sectorPath = null, bandPath = null, holeClip = null;
 	let builtZone = '', builtHole = ''; // the shape styles the zone and hole paths were baked for
 	const holeTri = new Float64Array(6);
@@ -366,7 +366,7 @@ function createRenderer() {
 		g.globalCompositeOperation = 'destination-in';
 		g.fillStyle = '#ffffff';
 		g.beginPath(); g.arc(tex.width / 2, tex.height / 2, cfg.diskR * ppm, 0, Math.PI * 2); g.fill();
-		texDisk = cut; texSchema = cfg.diskSchema; texRadius = cfg.diskR; ppmDisk = ppm;
+		texDisk = cut; texSchema = cfg.diskSchema; texRadius = cfg.diskR; texScale = cfg.diskScale; ppmDisk = ppm;
 	}
 	function toWorld(clientX, clientY) {
 		const r = cv.getBoundingClientRect();
@@ -483,7 +483,7 @@ function createRenderer() {
 	function drawWorld(view) {
 		const w = view.w, aim = view.aim, opts = view.opts, pred = view.pred;
 		if (opts.theme !== themeName) applyTheme(opts.theme);
-		if (cfg.diskSchema !== texSchema || cfg.diskR !== texRadius) bakeDisk();
+		if (cfg.diskSchema !== texSchema || cfg.diskR !== texRadius || cfg.diskScale !== texScale) bakeDisk();
 		if (cfg.zoneStyle !== builtZone || cfg.holeStyle !== builtHole) buildZonePaths();
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, cv.width, cv.height);

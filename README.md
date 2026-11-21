@@ -34,7 +34,10 @@ URL keys: `zones=hatch|wavy|rounded|arcs|3-rounded|6-hemi`, `holes=classic|rim|w
 handles to move/resize the disk and holes, tune wedge/fan reach or the cut-zone gap,
 resize pucks, and adjust the launch lane. Expand **Geometry · exact values** for numeric
 editing, including board dimensions. The drawer also offers score/return/hole shapes,
-disk speed, pucks per seat and the throw cap. Invalid placements stop at the boundary;
+disk speed, pucks per seat and the throw cap. **Symmetry mirror (half-Y)** locks the disk
+centre to the board's midline and mirrors the second hole across it, so the two holes stay
+the same pair and the disk cannot move in Y; the second hole's handles are driven by the first.
+Invalid placements stop at the boundary;
 numeric edits that would overlap the disk, holes or launch area are rejected.
 
 **Done · play** (or Escape / the entry button) starts a fresh game on the edited board.
@@ -42,6 +45,10 @@ numeric edits that would overlap the disk, holes or launch area are rejected.
 the **classic default** preset restores stock geometry and responsive board fitting.
 Custom boards keep their explicit world dimensions when the window changes size. Disk
 paint stays in physical metres: changing radius clips/reveals the existing scoring map.
+**Big-disk scales contents (scale | crop)** flips this: with scale on, the painted score
+map grows and shrinks with the disk radius instead of staying in metres, and the disk's
+default speed is re-solved so the out-of-friction hold zone keeps its size relative to the
+disk. Crop (default) is the metre-fixed behaviour above.
 
 **Copy preset** exports a playable URL, full setup JSON and a short summary to paste into
 chat when requesting a named preset. If clipboard access is blocked (including some

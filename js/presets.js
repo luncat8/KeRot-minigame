@@ -69,6 +69,7 @@ function applyCfg(setup) {
 	if (RECYCLES.includes(setup.recycle)) CFG.recycleMode = setup.recycle;
 	if (ZONE_STYLES.includes(setup.zones)) CFG.zoneStyle = setup.zones;
 	if (HOLE_STYLES.includes(setup.holes)) CFG.holeStyle = setup.holes;
+	if (setup.diskScale !== undefined) CFG.diskScale = !!setup.diskScale;
 	if (SPEED_RULES.includes(setup.vote)) CFG.speedVote = setup.vote;
 	if (VOTE_MODES.includes(setup.voteMode)) CFG.voteMode = setup.voteMode;
 	if (SPEED_STRATS[setup.botspeed]) CFG.botSpeed = setup.botspeed;
@@ -125,6 +126,8 @@ function parseQuery(search) {
 		const v = q[key] && q[key].toLowerCase();
 		if (list.includes(v)) { out[key] = v; found = true; }
 	}
+	const ds = q.diskscale && q.diskscale.toLowerCase();
+	if (ds !== undefined) { out.diskScale = ds === '1' || ds === 'true' || ds === 'on'; found = true; }
 	const vote = q.vote && q.vote.toLowerCase(), voteMode = q.votemode && q.votemode.toLowerCase();
 	if (SPEED_RULES.includes(vote)) { out.vote = vote; found = true; }
 	if (VOTE_MODES.includes(voteMode)) { out.voteMode = voteMode; found = true; }
