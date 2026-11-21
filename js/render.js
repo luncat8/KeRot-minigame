@@ -91,7 +91,7 @@ function createRenderer() {
 		// Both return rules: a fill with the on-disk guard (diskR + puckR) punched
 		// out of it, so the exemption is drawn instead of implied, plus the outline
 		// to stroke and the lines that fill it. The 'advance' rule adds the launch lane.
-		if (isSoftZone(cfg)) { zoneFan = softZone('zones'); zoneAdv = softZone('advance'); }
+		if (isFieldZone(cfg)) { zoneFan = softZone('zones'); zoneAdv = softZone('advance'); }
 		else {
 			const hatch = cfg.zoneStyle === 'wavy' ? wavyHatch() : straightHatch();
 			zoneFan = bakeZone(z, null, hatch);
@@ -192,7 +192,7 @@ function createRenderer() {
 		}
 		return p;
 	}
-	// A soft zone (js/rules.js zoneField) is traced from the rule's own field on a grid
+	// A field zone (js/rules.js zoneField) is traced from the rule's own field on a grid
 	// that overhangs the board. The outline is the field's zero level closed off just
 	// outside the walls, so it fills as loops and its wall pieces fall outside the board
 	// clip; the lines are the field's higher levels — inset copies of the outline — or,

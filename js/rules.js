@@ -23,19 +23,26 @@ function inTri(z, x, y) {
 	const e3 = (z.ax - z.cx) * (y - z.cy) - (z.ay - z.cy) * (x - z.cx);
 	return e1 >= 0 && e2 >= 0 && e3 >= 0;
 }
-// The soft zone shapes ('rounded', 'arcs') are the region zoneField > 0 of a clearance
-// field — the distance to what the zone keeps clear of, blended by a smooth minimum so
-// every corner comes out rounded. The renderer traces this same function, so the drawn
-// outline and the rule agree to its tracing grid, and its inset lines are level sets of
-// it: copies of the outline.
+// The field zone shapes ('rounded', 'arcs', '3-rounded', '6-hemi') are the region
+// zoneField > 0 of a clearance field — the distance to what the zone keeps clear of.
+// The renderer traces this same function, so the drawn outline and the rule agree to
+// its tracing grid, and its inset lines are level sets of it: copies of the outline.
+// The soft pair blends that distance with a smooth minimum so every corner comes out
+// rounded; the cut pair takes a plain minimum, so the outline is the circles and
+// straight sides themselves, cut sharp where they meet.
 // The fillet scale must exceed twice the narrowest hole ↔ guard gap (8 cm on the shipped
 // board): then the 'rounded' outline bridges that gap instead of threading through it.
 const ZONE_SOFT_K = 0.3;
+// The cut pair keeps a visible strip of ice between the disk/hole rim and the zone
+// outline: one inset-line step, so a puck can sit in the gap without being recycled.
+const ZONE_CUT_GAP = 0.08;
 function smin(a, b, k) {
 	const h = Math.max(k - Math.abs(a - b), 0) / k;
 	return Math.min(a, b) - h * h * k / 4;
 }
 function isSoftZone(cfg) { return cfg.zoneStyle === 'rounded' || cfg.zoneStyle === 'arcs'; }
+function isCutZone(cfg) { return cfg.zoneStyle === '3-rounded' || cfg.zoneStyle === '6-hemi'; }
+function isFieldZone(cfg) { return isSoftZone(cfg) || isCutZone(cfg); }
 // Signed distance to the line through a and b, positive on the side of the point p.
 function sideGap(ax, ay, bx, by, px, py, x, y) {
 	const ex = bx - ax, ey = by - ay, d = (ex * (y - ay) - ey * (x - ax)) / Math.sqrt(ex * ex + ey * ey);
@@ -49,11 +56,29 @@ function sideGap(ax, ay, bx, by, px, py, x, y) {
 // wall side of the line hole → disk centre. That line is buried where the hole and the
 // guard blend, so it only closes the zone and never shows. On the fan side there are
 // no holes: the fan's own sides, with the corners at the guard rounded.
+// '3-rounded': the wedge (or fan) cut by three bigger circles — the disk and each
+// hole grown by puckR + gap — so the outline is their arcs and the wedge's straight
+// sides, with a strip of ice between rim and outline. '6-hemi': the half-board
+// through the disk centre cut by one bigger circle around the disk, so the outline
+// is a circular arc and the holes lie inside, as in 'arcs' but cut sharp.
 function zoneField(cfg, mode, x, y) {
 	const left = mode === 'advance';
 	const gx = x - cfg.diskX, gy = y - cfg.diskY;
 	let d = Math.sqrt(gx * gx + gy * gy) - cfg.diskR - cfg.puckR;
-	if (cfg.zoneStyle === 'arcs') d = smin(d, left ? cfg.diskX - x : x - cfg.diskX, ZONE_SOFT_K);
+	if (isCutZone(cfg)) {
+		d -= ZONE_CUT_GAP;
+		if (cfg.zoneStyle === '6-hemi') d = Math.min(d, left ? cfg.diskX - x : x - cfg.diskX);
+		else if (left) {
+			d = Math.min(d, sideGap(0, 0, cfg.diskX, cfg.diskY, 0, cfg.diskY, x, y));
+			d = Math.min(d, sideGap(0, cfg.boardH, cfg.diskX, cfg.diskY, 0, cfg.diskY, x, y));
+			for (let k = 0; k < cfg.holes.length; k++) d = Math.min(d, holeGap(cfg, cfg.holes[k], x, y) - cfg.puckR - ZONE_CUT_GAP);
+		} else {
+			const z = cfg.returnZone;
+			d = Math.min(d, sideGap(z.ax, z.ay, z.bx, z.by, z.cx, z.cy, x, y));
+			d = Math.min(d, sideGap(z.ax, z.ay, z.cx, z.cy, z.bx, z.by, x, y));
+			for (let k = 0; k < cfg.holes.length; k++) d = Math.min(d, holeGap(cfg, cfg.holes[k], x, y) - cfg.puckR - ZONE_CUT_GAP);
+		}
+	} else if (cfg.zoneStyle === 'arcs') d = smin(d, left ? cfg.diskX - x : x - cfg.diskX, ZONE_SOFT_K);
 	else if (left) {
 		for (let k = 0; k < cfg.holes.length; k++) {
 			const hole = cfg.holes[k];
@@ -76,7 +101,7 @@ function zoneField(cfg, mode, x, y) {
 // the guard — no second test needed, and no extra exemption the picture does not show.
 function inReturnZone(cfg, mode, x, y) {
 	if (mode === 'none') return false;
-	if (isSoftZone(cfg)) return zoneField(cfg, mode, x, y) > 0;
+	if (isFieldZone(cfg)) return zoneField(cfg, mode, x, y) > 0;
 	if (mode === 'zones') return inTri(cfg.returnZone, x, y) && !inGuard(cfg, x, y);
 	if (mode === 'advance') {
 		const v = cfg.advanceZone;
@@ -129,4 +154,4 @@ function reindexOwners(w, removed) {
 // Remove one puck by index — the puck waiting on the launch spot, for instance.
 function removePuckAt(w, at) { moveLast(w, at); }
 
-if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, isSoftZone, zoneField, inReturnZone, puckWouldRecycle, moveLast, takePucks, recyclePucks, dropOwned, reindexOwners, removePuckAt };
+if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, isSoftZone, isCutZone, isFieldZone, ZONE_CUT_GAP, zoneField, inReturnZone, puckWouldRecycle, moveLast, takePucks, recyclePucks, dropOwned, reindexOwners, removePuckAt };

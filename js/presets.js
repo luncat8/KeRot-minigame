@@ -39,7 +39,7 @@ const PRESETS = {
 const NUM_RANGES = { omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.5], puckM: [CFG.massMin, CFG.massMax], balls: [1, 8],
 	warpTries: [1, 16], warpTurns: [0, 6], warpGoal: [0, 3], vol: [0, 2] };
 const RECYCLES = ['none', 'zones', 'advance'];
-const ZONE_STYLES = ['hatch', 'wavy', 'rounded', 'arcs'], HOLE_STYLES = ['classic', 'rim', 'well', 'triangle']; // CFG.zoneStyle, CFG.holeStyle
+const ZONE_STYLES = ['hatch', 'wavy', 'rounded', 'arcs', '3-rounded', '6-hemi'], HOLE_STYLES = ['classic', 'rim', 'well', 'triangle']; // CFG.zoneStyle, CFG.holeStyle
 const CARD_STYLES = ['square', 'round']; // the score cards' corners; page state, not CFG
 const SPEED_RULES = ['off', 'turn', 'round'], VOTE_MODES = ['delta', 'exact']; // CFG.speedVote, CFG.voteMode
 const VIEWS = ['fit', 'side']; // the layout keys of index.html; fit is the shipped one

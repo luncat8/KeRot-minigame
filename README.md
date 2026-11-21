@@ -17,11 +17,14 @@ includes the full settings panel, bot profiles, score maps, recycling rules, and
 Two rule groups in the settings pick the shape of the return zone and of the black
 holes; what is drawn is exactly what the rule tests. **Return zone shape**: the straight
 hatched wedge (shipped), the same wedge with wavy lines, *rounded* (an outline that hugs
-the disk and the holes, filled with inset copies of itself), or *one arc* around the
-disk with the holes inside the zone. **Black holes**: round with a dashed reach
-(shipped), rim only, a stepped well, or a triangle standing on its wall with sides
-parallel to the wedge and the semicircle's area. A checkbox rounds the score cards.
-URL keys: `zones=hatch|wavy|rounded|arcs`, `holes=classic|rim|well|triangle`,
+the disk and the holes, filled with inset copies of itself), *one arc* around the
+disk with the holes inside the zone, *3-rounded* (the wedge cut by bigger circles
+around the disk and the holes, with a strip of ice between rim and outline), or
+*6-hemi* (one circular outline around the disk, the holes inside). **Black holes**:
+round with a dashed reach (shipped), rim only, a stepped well, or a triangle standing
+on its wall with sides parallel to the wedge and the semicircle's area. A checkbox
+rounds the score cards.
+URL keys: `zones=hatch|wavy|rounded|arcs|3-rounded|6-hemi`, `holes=classic|rim|well|triangle`,
 `cards=round`. Validate with `node experiments/zone-shapes.js`.
 
 ## Optional glass presentation

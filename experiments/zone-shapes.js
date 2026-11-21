@@ -1,9 +1,11 @@
 // The zone and hole shapes are rules, so the picture has to be the rule. Checks:
-//  - every soft zone outline the renderer traces (marching squares over zoneField)
+//  - every field zone outline the renderer traces (marching squares over zoneField)
 //    encloses the same points inZone() accepts, except within a grid cell of the
 //    boundary; the outline comes out as closed loops, the inset lines as polylines;
 //  - 'rounded' keeps clear of the guard and of every hole's reach and bridges the
 //    hole ↔ guard gap; 'arcs' puts the holes inside the zone; the lane stays in;
+//  - '3-rounded' keeps the gap clear of the disk and the holes and stays inside the
+//    wedge; '6-hemi' keeps the gap clear of the disk and puts the holes inside;
 //  - the triangle void: semicircle area, sides parallel to the wedge side, and the
 //    swept entry time agrees with brute-force stepping on random rays;
 //  - the circle void's entry time is unchanged;
@@ -57,7 +59,7 @@ function evenOdd(subs, x, y) {
 let seed = 7;
 const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 
-for (const style of ['rounded', 'arcs']) {
+for (const style of ['rounded', 'arcs', '3-rounded', '6-hemi']) {
 	CFG.zoneStyle = style;
 	Render.resize(true); // warm: the timing below is a rebake, what a board resize pays
 	const t0 = Date.now();
@@ -67,7 +69,7 @@ for (const style of ['rounded', 'arcs']) {
 	for (const [mode, z] of [['zones', zones.fan], ['advance', zones.adv]]) {
 		const loops = z.path.subs;
 		check(loops.length > 0 && loops.every(s => s.closed), style + '/' + mode + ': the outline is closed loops', loops.length + ' loop(s)');
-		if (style === 'rounded') check(z.hatch.subs.length > 3 && z.hatch.subs.every(s => s.pts.length >= 4), style + '/' + mode + ': inset lines traced');
+		if (style !== 'arcs') check(z.hatch.subs.length > 3 && z.hatch.subs.every(s => s.pts.length >= 4), style + '/' + mode + ': inset lines traced');
 		let bad = 0, near = 0;
 		for (let k = 0; k < 40000; k++) {
 			const x = rnd() * CFG.boardW, y = rnd() * CFG.boardH;
@@ -116,6 +118,45 @@ for (const h of CFG.holes) {
 	}
 }
 check(outside === 0, 'arcs: the holes lie inside the return zone', String(outside));
+// '3-rounded': nothing inside the bigger circles (disk + gap, each hole + gap), the
+// wedge sides hold, the lane is in, and the strip between rim and outline is safe ice.
+CFG.zoneStyle = '3-rounded';
+leaks = 0;
+for (let k = 0; k < 40000; k++) {
+	const x = rnd() * CFG.boardW, y = rnd() * CFG.boardH;
+	if (!inReturnZone(CFG, 'advance', x, y)) continue;
+	const dx = x - CFG.diskX, dy = y - CFG.diskY;
+	if (dx * dx + dy * dy < (CFG.diskR + CFG.puckR + ZONE_CUT_GAP) * (CFG.diskR + CFG.puckR + ZONE_CUT_GAP)) leaks++;
+	for (const h of CFG.holes) if (holeGap(CFG, h, x, y) < CFG.puckR + ZONE_CUT_GAP - 1e-9) leaks++;
+}
+check(leaks === 0, '3-rounded: no zone point inside the bigger circles', String(leaks));
+check(inReturnZone(CFG, 'advance', 0.05, CFG.diskY) && inReturnZone(CFG, 'advance', CFG.launchX, 0.3), '3-rounded: wedge axis and lane are in');
+check(!inReturnZone(CFG, 'advance', CFG.diskX - CFG.diskR - CFG.puckR - ZONE_CUT_GAP / 2, CFG.diskY), '3-rounded: the gap strip stays out');
+check(!inReturnZone(CFG, 'advance', 0.3, 0.05), '3-rounded: outside the wedge stays out');
+check(inReturnZone(CFG, 'zones', CFG.boardW, CFG.diskY) && !inReturnZone(CFG, 'zones', CFG.diskX + CFG.diskR + CFG.puckR + ZONE_CUT_GAP / 2, CFG.diskY), '3-rounded: fan side keeps the gap too');
+// '6-hemi': the gap clear of the disk, the holes inside, the half-board holds.
+CFG.zoneStyle = '6-hemi';
+leaks = 0;
+for (let k = 0; k < 40000; k++) {
+	const x = rnd() * CFG.boardW, y = rnd() * CFG.boardH;
+	if (!inReturnZone(CFG, 'advance', x, y)) continue;
+	const dx = x - CFG.diskX, dy = y - CFG.diskY;
+	if (dx * dx + dy * dy < (CFG.diskR + CFG.puckR + ZONE_CUT_GAP) * (CFG.diskR + CFG.puckR + ZONE_CUT_GAP)) leaks++;
+}
+check(leaks === 0, '6-hemi: no zone point inside the bigger disk circle', String(leaks));
+outside = 0;
+for (const h of CFG.holes) {
+	for (let a = 0; a < 2 * Math.PI; a += 0.05) {
+		for (let r = 0; r <= h.r + CFG.puckR; r += 0.02) {
+			const x = h.x + r * Math.cos(a), y = h.y + r * Math.sin(a);
+			if (y < 0 || y > CFG.boardH) continue;
+			if (!inReturnZone(CFG, 'advance', x, y)) outside++;
+		}
+	}
+}
+check(outside === 0, '6-hemi: the holes lie inside the return zone', String(outside));
+check(inReturnZone(CFG, 'advance', 0.05, CFG.diskY) && inReturnZone(CFG, 'advance', CFG.launchX, 0.3), '6-hemi: half-board and lane are in');
+check(!inReturnZone(CFG, 'advance', CFG.diskX + 0.3, CFG.diskY), '6-hemi: the right half stays out');
 CFG.zoneStyle = 'hatch';
 
 // The triangle void.
@@ -173,11 +214,12 @@ rays('classic');
 			}
 		}
 	}
-	check(drawn === 48, 'every zone × hole × rule combination draws', drawn + ' frames');
+	check(drawn === 72, 'every zone × hole × rule combination draws', drawn + ' frames');
 }
 const setup = parseQuery('zones=Arcs&holes=triangle&cards=round');
 applyCfg(setup);
 check(CFG.zoneStyle === 'arcs' && CFG.holeStyle === 'triangle' && setup.cards === 'round', 'URL keys reach CFG and the page options');
+check(parseQuery('zones=3-rounded') && parseQuery('zones=6-hemi'), 'URL keys reach the cut zones');
 check(parseQuery('zones=diamond&holes=hex') === null, 'unknown shapes are dropped');
 applyCfg(PRESETS.default);
 check(CFG.zoneStyle === 'hatch' && CFG.holeStyle === 'classic', 'the default preset restores the shipped shapes');
