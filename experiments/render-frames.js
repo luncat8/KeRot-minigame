@@ -2,8 +2,8 @@
 // `npm install` there once), so a visual change can be looked at — and diffed — without
 // a browser. Same stub technique as client-smoke.js, but with a real 2D context.
 //   node experiments/render-frames.js [outDir] [--glass] [--decor=radial|hex]
-//     [--mode=zones|advance|none] [--zone=hatch|wavy|rounded|arcs]
-//     [--holes=classic|rim|well|triangle] [--cards=round]
+//     [--mode=zones|advance|none] [--zone=hatch|wavy|white|snow|rounded|arcs]
+//     [--holes=classic|rim|well|domes|triangle] [--cards=round]
 //   node experiments/render-frames.js --tone
 // Writes one PNG per (ui theme × disk schema) of a fixed mid-game board; --glass
 // attaches the optional presentation skin and gives the files a -glass suffix,
@@ -26,7 +26,7 @@ const decorArg = arg('decor'), modeArg = arg('mode') || 'zones', cardsArg = arg(
 if (arg('zone')) CFG.zoneStyle = arg('zone');
 if (arg('holes')) CFG.holeStyle = arg('holes');
 // Non-default shapes and modes name their files, so a sweep never overwrites the baseline.
-const tag = (modeArg !== 'zones' ? '-' + modeArg : '') + (CFG.zoneStyle !== 'hatch' ? '-' + CFG.zoneStyle : '') +
+const tag = (modeArg !== 'zones' ? '-' + modeArg : '') + (CFG.zoneStyle !== 'wavy' ? '-' + CFG.zoneStyle : '') +
 	(CFG.holeStyle !== 'classic' ? '-' + CFG.holeStyle : '') + (cardsArg ? '-cards' : '');
 const outDir = args.find(a => !a.startsWith('--')) || path.join(__dirname, 'logs', 'frames');
 fs.mkdirSync(outDir, { recursive: true });

@@ -12,9 +12,19 @@ function createRenderer() {
 	let skin = null;
 	let texDisk = null, texSchema = '', texRadius = 0, ppmDisk = 0, texScale = false, puckGrad = null, wallPath = null, gridPath = null;
 	let zoneFan = null, zoneAdv = null, sectorPath = null, bandPath = null, holeClip = null;
+	let domeGrad = [], waterPath = null, holeBody = [], holeArtKey = ''; // baked hole looks
 	let builtZone = '', builtHole = ''; // the shape styles the zone and hole paths were baked for
 	const holeTri = new Float64Array(6);
 	const Z_FILL = 'rgba(32,178,170,0.16)', Z_LINE = 'rgba(46,204,196,0.55)', Z_HATCH = 'rgba(46,204,196,0.16)';
+// Two extra straight-wedge markings: white lines on the ice, and a snow field with
+// dark lines. The field zones keep the teal pair.
+const ZONE_PAINT = {
+	white: { fill: 'rgba(255,255,255,0.08)', line: 'rgba(255,255,255,0.72)', hatch: 'rgba(255,255,255,0.26)' },
+	snow: { fill: 'rgba(244,250,253,0.92)', line: 'rgba(34,46,56,0.75)', hatch: 'rgba(34,46,56,0.22)' },
+};
+const HOLE_DARK = '#090812', HOLE_RIM = '#9b59b6', HOLE_REACH = 'rgba(186, 104, 200, 0.65)';
+const HOLE_WATER = '#1c5a8c', HOLE_WATER_LINE = 'rgba(150,210,255,0.55)';
+function zonePaint(style) { return ZONE_PAINT[style] || { fill: Z_FILL, line: Z_LINE, hatch: Z_HATCH }; }
 	const SECTOR_SHADE = 'rgba(45,52,54,0.42)'; // 3 of the 6 face sectors
 	let labelRot = 0;
 	const HUD_Y = 0.04, HUD_H = 0.23, HUD_GAP = 0.02, HUD_MAX = 0.46;
@@ -101,6 +111,7 @@ function createRenderer() {
 			zoneAdv = bakeZone(v, [v.lx, 0, v.lw, cfg.boardH], hatch);
 		}
 		buildHoleClip();
+		buildHoleArt();
 		// Puck face: 6 sectors, 3 shaded, unit radius (scaled per puck at draw time).
 		sectorPath = new Path2D();
 		for (let k = 0; k < 3; k++) {
@@ -163,7 +174,12 @@ function createRenderer() {
 		line.moveTo(p1x, p1y); line.lineTo(v1x, v1y); line.lineTo(v2x, v2y); line.lineTo(p2x, p2y);
 		line.arc(cfg.diskX, cfg.diskY, Rg, a1, a0, !ccw);
 		line.closePath();
-		if (rect) { fill.rect(rect[0], rect[1], rect[2], rect[3]); line.rect(rect[0], rect[1], rect[2], rect[3]); }
+		// The wedge on its own, lane-free: the zone/hole swap draws it as a void and
+		// keeps the launch lane (right, near the start) as the zone.
+		const wedge = new Path2D(), wedgeLine = new Path2D();
+		wedge.addPath(fill); wedgeLine.addPath(line);
+		let lane = null;
+		if (rect) { fill.rect(rect[0], rect[1], rect[2], rect[3]); line.rect(rect[0], rect[1], rect[2], rect[3]); lane = new Path2D(); lane.rect(rect[0], rect[1], rect[2], rect[3]); }
 		const hole = new Path2D();
 		hole.moveTo(cfg.diskX, cfg.diskY);
 		hole.lineTo(p1x, p1y);
@@ -171,11 +187,13 @@ function createRenderer() {
 		hole.closePath();
 		const path = new Path2D();
 		path.addPath(fill); path.addPath(hole);
+		const wedgeRegion = new Path2D();
+		wedgeRegion.addPath(wedge); wedgeRegion.addPath(hole);
 		// A shortened wedge can end inside the guard; clip both sides of the subtraction.
 		const guardClip = new Path2D();
 		guardClip.rect(0, 0, cfg.boardW, cfg.boardH);
 		guardClip.moveTo(cfg.diskX + Rg, cfg.diskY); guardClip.arc(cfg.diskX, cfg.diskY, Rg, 0, TAU);
-		return { path: path, line: line, hatch: hatch, clip: fill, guardClip };
+		return { path: path, line: line, hatch: hatch, clip: fill, guardClip, wedge: wedgeRegion, wedgeLine: wedgeLine, lane: lane };
 	}
 	const HATCH_STEP = 0.14;
 	function straightHatch() {
@@ -185,14 +203,13 @@ function createRenderer() {
 		}
 		return p;
 	}
-	// The same stripes, each wavering on two incommensurate sines; the golden-angle phase
-	// step keeps neighbours from ever running in step.
+	// Regular waves: every stripe carries the same sine, so the field reads as even,
+	// parallel swells instead of the incommensurate ripples of the old pattern.
 	function wavyHatch() {
-		const p = new Path2D(), len = cfg.boardH * Math.SQRT2, du = 0.02;
-		for (let s = -cfg.boardH, n = 0; s < cfg.boardW; s += HATCH_STEP, n++) {
-			const phase = n * GOLDEN;
+		const p = new Path2D(), len = cfg.boardH * Math.SQRT2, du = 0.02, amp = 0.03, wl = 0.45;
+		for (let s = -cfg.boardH; s < cfg.boardW; s += HATCH_STEP) {
 			for (let u = 0; u <= len + du / 2; u += du) {
-				const off = 0.024 * Math.sin(u * 10.5 + phase) + 0.007 * Math.sin(u * 27 + 2 * phase);
+				const off = amp * Math.sin(u * TAU / wl);
 				const x = s + (u + off) / Math.SQRT2, y = (u - off) / Math.SQRT2;
 				if (u === 0) p.moveTo(x, y); else p.lineTo(x, y);
 			}
@@ -298,6 +315,42 @@ function createRenderer() {
 			else { holeClip.moveTo(h.x + h.r + cfg.puckR, h.y); holeClip.arc(h.x, h.y, h.r + cfg.puckR, 0, TAU); }
 		}
 	}
+	// The hole bodies' painted looks, baked once per hole geometry and shape — never
+	// per frame: the 'domes' radial gradient per hole, the blue water wave field, and
+	// each hole's own body path (a circle, or the triangle) for the zone/hole swap.
+	function buildHoleArt() {
+		const key = cfg.holeStyle + '|' + cfg.puckR + '|' + cfg.holes.map(h => h.x + ',' + h.y + ',' + h.r).join(';');
+		if (key === holeArtKey) return;
+		holeArtKey = key;
+		domeGrad = []; holeBody = [];
+		for (const h of cfg.holes) {
+			const p = new Path2D();
+			if (cfg.holeStyle === 'triangle') {
+				const t = holeTriangle(cfg, h, holeTri);
+				p.moveTo(t[0], t[1]); p.lineTo(t[2], t[3]); p.lineTo(t[4], t[5]); p.closePath();
+			} else {
+				p.moveTo(h.x + h.r, h.y); p.arc(h.x, h.y, h.r, 0, TAU);
+			}
+			holeBody.push(p);
+			if (cfg.holeStyle === 'domes') {
+				const g = ctx.createRadialGradient(h.x, h.y - h.r * 0.3, h.r * 0.1, h.x, h.y, h.r);
+				g.addColorStop(0, 'rgba(196,172,224,0.6)'); g.addColorStop(0.7, 'rgba(120,96,156,0.5)'); g.addColorStop(1, 'rgba(58,44,78,0.65)');
+				domeGrad.push(g);
+			}
+		}
+		waterPath = waterWaves();
+	}
+	// Blue water: a field of even horizontal swells, stroked inside the capture disk.
+	function waterWaves() {
+		const p = new Path2D(), step = 0.06, amp = 0.02, wl = 0.5;
+		for (let y = -0.2; y < cfg.boardH + 0.2; y += step) {
+			for (let x = 0; x <= cfg.boardW; x += 0.01) {
+				const off = amp * Math.sin(x * TAU / wl + y * 2);
+				if (x === 0) p.moveTo(x, y + off); else p.lineTo(x, y + off);
+			}
+		}
+		return p;
+	}
 	// Triangle t grown by r: each edge pushed out along its normal, the corners rounded.
 	function growTriangle(path, t, r) {
 		const cw = (t[2] - t[0]) * (t[5] - t[1]) - (t[3] - t[1]) * (t[4] - t[0]) > 0; // increasing canvas angle
@@ -372,58 +425,102 @@ function createRenderer() {
 		const r = cv.getBoundingClientRect();
 		return { x: (clientX - r.left) * cfg.boardW / r.width, y: (clientY - r.top) * cfg.boardH / r.height };
 	}
-	function drawZones(mode) {
-		if (mode === 'none') return;
-		const z = mode === 'advance' ? zoneAdv : zoneFan;
-		ctx.save();
-		if (z.clip) { ctx.clip(z.clip); ctx.clip(z.guardClip, 'evenodd'); }
-		ctx.fillStyle = Z_FILL;
-		ctx.fill(z.path, 'evenodd');
-		ctx.save(); ctx.clip(z.path, 'evenodd');
-		ctx.strokeStyle = Z_HATCH; ctx.lineWidth = 0.012; ctx.stroke(z.hatch);
+	// One void's look: the dark body and its rim.
+	function drawHoleLook(region, outline) {
+		ctx.fillStyle = HOLE_DARK; ctx.fill(region, 'evenodd');
+		ctx.strokeStyle = HOLE_RIM; ctx.lineWidth = 0.018; ctx.stroke(outline);
+	}
+	// One zone's look: the fill, its hatch and the dashed outline.
+	function drawZoneLook(region, outline, hatch, paint) {
+		ctx.fillStyle = paint.fill; ctx.fill(region, 'evenodd');
+		ctx.save(); ctx.clip(region, 'evenodd');
+		ctx.strokeStyle = paint.hatch; ctx.lineWidth = 0.012; ctx.stroke(hatch);
 		ctx.restore();
-		ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = Z_LINE;
-		ctx.stroke(z.line); ctx.setLineDash([]);
+		ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = paint.line;
+		ctx.stroke(outline); ctx.setLineDash([]);
+	}
+	function drawZones(mode, view) {
+		if (mode === 'none') return;
+		const swap = !!(view && view.opts && view.opts.swap);
+		const z = mode === 'advance' ? zoneAdv : zoneFan;
+		const paint = zonePaint(cfg.zoneStyle);
+		ctx.save();
+		if (swap) {
+			// The return zone is drawn as a void; the launch lane (right, near the
+			// start) keeps the zone marking. The field zones have no separate wedge
+			// and lane, so their whole traced region takes the void look.
+			if (z.wedge) {
+				drawHoleLook(z.wedge, z.wedgeLine);
+				if (z.lane) drawZoneLook(z.lane, z.lane, z.hatch, paint);
+			} else drawHoleLook(z.path, z.line);
+		} else {
+			if (z.clip) { ctx.clip(z.clip); ctx.clip(z.guardClip, 'evenodd'); }
+			ctx.fillStyle = paint.fill;
+			ctx.fill(z.path, 'evenodd');
+			ctx.save(); ctx.clip(z.path, 'evenodd');
+			ctx.strokeStyle = paint.hatch; ctx.lineWidth = 0.012; ctx.stroke(z.hatch);
+			ctx.restore();
+			ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = paint.line;
+			ctx.stroke(z.line); ctx.setLineDash([]);
+		}
 		if (mode === 'advance') {
 			const v = cfg.advanceZone;
 			// upright in both halves: the wedge's live part is its left edge, the only
-			// stretch of it the disk guard does not cover, and the lane is the strip
-			drawZoneLabel(0.10, cfg.diskY, -Math.PI / 2);
-			drawZoneLabel(v.lx + v.lw / 2, cfg.diskY * 0.75, -Math.PI / 2);
-		} else {
-			drawZoneLabel(2.55, 0.75 * 0.75, labelRot); // inside the fan, along its edges
-			drawZoneLabel(2.55, (cfg.boardH - 0.75) * 0.75, -labelRot);
+			// stretch of it the disk guard does not cover, and the lane is the strip.
+			// In the swap the wedge is a void, so only the lane keeps its label.
+			if (!swap) drawZoneLabel(0.10, cfg.diskY, -Math.PI / 2, paint.line);
+			drawZoneLabel(v.lx + v.lw / 2, cfg.diskY * 0.75, -Math.PI / 2, paint.line);
+		} else if (!swap) {
+			drawZoneLabel(2.55, 0.75 * 0.75, labelRot, paint.line); // inside the fan, along its edges
+			drawZoneLabel(2.55, (cfg.boardH - 0.75) * 0.75, -labelRot, paint.line);
 		}
 		ctx.restore();
 	}
-	const HOLE_DARK = '#090812', HOLE_RIM = '#9b59b6', HOLE_REACH = 'rgba(186, 104, 200, 0.65)';
-	// The black-inside view option fills every hole's capture region — the shape grown
-	// by the puck radius (holeClip) — so a puck visibly slides onto the black and falls
-	// when its centre reaches the dashed ring, not when its edge touches the void rim.
-	function drawBlackHoles(fill) {
+	// The hole bodies: the capture region may be filled black or with blue water
+	// waves, each hole is drawn in its shape, and the zone/hole swap paints the
+	// holes as zones (the return zone takes the void look instead).
+	function drawBlackHoles(fill, view) {
+		const opt = view ? view.opts : null;
+		const water = !!(opt && opt.holeWater);
+		const swap = !!(opt && opt.swap);
+		const filled = water ? 'water' : (fill ? 'black' : 'none');
 		ctx.save();
 		ctx.beginPath(); ctx.rect(0, 0, cfg.boardW, cfg.boardH); ctx.clip();
-		if (fill) { ctx.fillStyle = HOLE_DARK; ctx.fill(holeClip); }
+		if (filled === 'black') { ctx.fillStyle = HOLE_DARK; ctx.fill(holeClip); }
+		else if (filled === 'water') {
+			ctx.fillStyle = HOLE_WATER; ctx.fill(holeClip);
+			ctx.save(); ctx.clip(holeClip);
+			ctx.strokeStyle = HOLE_WATER_LINE; ctx.lineWidth = 0.012; ctx.stroke(waterPath);
+			ctx.restore();
+		}
+		const paint = zonePaint(cfg.zoneStyle);
+		const z = (opt && opt.mode === 'advance') ? zoneAdv : zoneFan;
 		for (let i = 0; i < cfg.holes.length; i++) {
 			const hole = cfg.holes[i];
-			if (cfg.holeStyle === 'triangle') drawTriangleHole(hole, fill);
-			else drawRoundHole(hole, cfg.holeStyle, fill);
+			if (swap) { drawZoneLook(holeBody[i], holeBody[i], z.hatch, paint); continue; }
+			if (cfg.holeStyle === 'triangle') drawTriangleHole(hole, filled !== 'none');
+			else drawRoundHole(i, hole, cfg.holeStyle, filled !== 'none');
 			ctx.fillStyle = '#e5c3ff'; ctx.font = font.hole;
 			ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('VOID', hole.x, hole.y + (hole.y < cfg.diskY ? 0.055 : -0.055));
 		}
 		ctx.restore();
 	}
 	// 'classic' and 'well' draw the reach ring: the locus of a swallowed puck's centre
-	// (r + puckR), so the ring grows with the puck; 'rim' leaves it implied. 'well'
-	// steps the void down into a core. With the black-inside option the capture disk
-	// is already filled, so only the ring is drawn.
-	function drawRoundHole(hole, style, fill) {
-		if (style !== 'rim') {
+	// (r + puckR), so the ring grows with the puck; 'rim' leaves it implied. 'domes'
+	// is a faded dome. The ring rides the ice only — never over a filled capture disk.
+	function drawRoundHole(i, hole, style, fill) {
+		if (style !== 'rim' && !fill) {
 			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r + cfg.puckR, 0, TAU);
 			ctx.strokeStyle = HOLE_REACH; ctx.lineWidth = 0.012; ctx.setLineDash([0.035, 0.025]); ctx.stroke();
 			ctx.setLineDash([]);
 		}
 		if (fill) return;
+		if (style === 'domes') {
+			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r, 0, TAU);
+			ctx.fillStyle = domeGrad[i]; ctx.fill();
+			ctx.strokeStyle = HOLE_RIM; ctx.lineWidth = 0.018; ctx.stroke();
+			return;
+		}
 		ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r, 0, TAU);
 		ctx.fillStyle = HOLE_DARK; ctx.fill();
 		ctx.strokeStyle = HOLE_RIM; ctx.lineWidth = 0.018; ctx.stroke();
@@ -454,10 +551,10 @@ function createRenderer() {
 		ctx.lineTo(hole.x, hole.y + k * (t[5] - hole.y)); ctx.closePath();
 		ctx.strokeStyle = 'rgba(155, 89, 182, 0.45)'; ctx.lineWidth = 0.012; ctx.stroke();
 	}
-	function drawZoneLabel(x, y, rot) {
+	function drawZoneLabel(x, y, rot, color) {
 		ctx.save();
 		ctx.translate(x, y); ctx.rotate(rot);
-		ctx.fillStyle = Z_LINE; ctx.font = font.zone;
+		ctx.fillStyle = color || Z_LINE; ctx.font = font.zone;
 		ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 		ctx.fillText('RETURN', 0, 0);
 		ctx.restore();
@@ -504,7 +601,7 @@ function createRenderer() {
 		ctx.fillStyle = floorFill[themeName]; ctx.fillRect(0, 0, cfg.boardW, cfg.boardH);
 		if (theme.grid) { ctx.strokeStyle = theme.grid; ctx.lineWidth = 0.006; ctx.stroke(gridPath); }
 		if (skin && skin.floor) skin.floor(ctx, view, cfg);
-		drawZones(opts.mode);
+		drawZones(opts.mode, view);
 		// Disk: field sprite rotated by theta. It is already cut to the circle, so this
 		// needs no clip — which is both cheaper and smoother on the rim.
 		ctx.save();
@@ -522,7 +619,7 @@ function createRenderer() {
 				ctx.beginPath(); ctx.arc(cfg.diskX, cfg.diskY, dh, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
 			}
 		}
-		drawBlackHoles(opts.holeFill);
+		drawBlackHoles(opts.holeFill, view);
 		// The ice surface: reflections and the frozen veil that sits over the markings.
 		if (skin && skin.surface) {
 			ctx.save();

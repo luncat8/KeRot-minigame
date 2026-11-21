@@ -30,7 +30,7 @@ const ZoneEditor = (() => {
 			balls: cfg.ballsPerPlayer, maxThrows: cfg.maxThrows, vote: cfg.speedVote, voteMode: cfg.voteMode,
 			botspeed: cfg.botSpeed, warp: cfg.warp, warpTries: cfg.warpTries, warpTurns: cfg.warpTurns, warpGoal: cfg.warpGoal,
 			seats: game.seatTypes, theme: opts.theme, cards: opts.cards, fx: opts.fx, sfx: opts.sfx,
-			decor: opts.decor, face: opts.face, vol: opts.vol, ring: opts.ring, ghost: opts.preview, holeFill: opts.holeFill,
+			decor: opts.decor, face: opts.face, vol: opts.vol, ring: opts.ring, ghost: opts.preview, holeFill: opts.holeFill, holeWater: opts.holeWater, swap: opts.swap,
 		};
 	}
 	function setupQuery(setup) {

@@ -243,7 +243,7 @@ rays('classic');
 			}
 		}
 	}
-	check(drawn === 72, 'every zone × hole × rule combination draws', drawn + ' frames');
+	check(drawn === ZONE_STYLES.length * HOLE_STYLES.length * 3, 'every zone × hole × rule combination draws', drawn + ' frames');
 }
 const setup = parseQuery('zones=Arcs&holes=triangle&cards=round');
 applyCfg(setup);
@@ -251,6 +251,6 @@ check(CFG.zoneStyle === 'arcs' && CFG.holeStyle === 'triangle' && setup.cards ==
 check(parseQuery('zones=3-rounded') && parseQuery('zones=6-hemi'), 'URL keys reach the cut zones');
 check(parseQuery('zones=diamond&holes=hex') === null, 'unknown shapes are dropped');
 applyCfg(PRESETS.default);
-check(CFG.zoneStyle === 'hatch' && CFG.holeStyle === 'classic', 'the default preset restores the shipped shapes');
+check(CFG.zoneStyle === 'wavy' && CFG.holeStyle === 'classic', 'the default preset restores the shipped shapes');
 if (!fail) console.log('OK (zone and hole shapes: drawn = rule, swept entry, every combination, URL keys)');
 process.exit(fail);

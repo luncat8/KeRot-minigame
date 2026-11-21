@@ -57,7 +57,7 @@ assert(projected.diskX >= cfg.diskR && projected.diskX < cfg.diskX);
 assert.deepEqual(Editor.project(defaults, defaults), defaults);
 
 const setup = Editor.setupOf(cfg, game, { theme: 'classic', cards: 'round', fx: 'plain', sfx: false,
-	decor: 'radial', face: 'launch', vol: 1.3, ring: false, preview: true, holeFill: false });
+	decor: 'radial', face: 'launch', vol: 1.3, ring: false, preview: true, holeFill: false, holeWater: false, swap: false });
 setup.seats = ['human', 'timing']; setup.maxThrows = 73; setup.balls = 5;
 const query = Editor.setupQuery(setup), parsed = parseQuery('?' + query);
 assert.deepEqual(parsed, setup, 'every exported setting round-trips through the URL');

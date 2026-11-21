@@ -137,6 +137,29 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		view.opts.holeFill = false; ops.length = 0; Render.drawWorld(view);
 		check(captureFills === ops.filter(o => o === 'fill').length - 1,
 			'the black-inside option replaces the two void fills with one capture-disk fill', captureFills);
+	// The new hole looks and the zone/hole swap: the reach ring rides the ice only,
+	// water fills the capture disk with waves, domes paint a faded body, and the swap
+	// draws the return zone as a void and the holes as zones.
+	view.opts = { ring: false, preview: false, mode: 'advance', theme: 'classic' };
+	view.opts.holeFill = true; ops.length = 0; Render.drawWorld(view);
+	check(!ops.includes(reachArc(CFG.holes[0].r + CFG.puckR)), 'the reach ring stays off the filled disk');
+	view.opts.holeFill = false; view.opts.holeWater = true; ops.length = 0; Render.drawWorld(view);
+	check(ops.includes('fill') && ops.includes('stroke'), 'the water option fills the capture disk and strokes the waves');
+	view.opts.holeWater = false; view.opts.swap = true; ops.length = 0; Render.drawWorld(view);
+	check(ops.filter(o => o === 'fill:evenodd').length >= 2, 'the swap paints the holes as zones (fill:evenodd each)',
+		String(ops.filter(o => o === 'fill:evenodd').length));
+	view.opts.swap = false;
+	CFG.holeStyle = 'domes'; Render.resize(true); ops.length = 0; Render.drawWorld(view);
+	check(ops.includes('fill') && ops.includes('stroke'), 'the domes shape paints a faded body');
+	CFG.holeStyle = 'classic'; Render.resize(true);
+	for (const zs of ['white', 'snow']) {
+		CFG.zoneStyle = zs; Render.resize(true); ops.length = 0; Render.drawWorld(view);
+		check(ops.includes('fill:evenodd'), zs + ' zone marking draws');
+	}
+	CFG.zoneStyle = 'rounded'; Render.resize(true); view.opts.swap = true; ops.length = 0; Render.drawWorld(view);
+	check(ops.includes('fill:evenodd'), 'the swap also renders a field zone as a void');
+	view.opts.swap = false;
+	CFG.zoneStyle = 'wavy'; Render.resize(true);
 	// The board is sized to fit its box, not to the window: it keeps its aspect, never
 	// exceeds the box on either axis, and fills it on the tight one — that is what
 	// keeps the page from ever growing a scrollbar.

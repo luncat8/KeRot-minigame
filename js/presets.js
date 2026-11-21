@@ -16,7 +16,7 @@ if (typeof module !== 'undefined') Object.assign(globalThis,
 // the bundle's μ and mass are in, so every mass preset keeps its own eject ring.
 const PRESETS = {
 	default: { label: 'classic default', geometry: null, maxThrows: 96, muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'advance',
-		zones: 'hatch', holes: 'classic', vote: 'round', voteMode: 'delta', theme: 'classic', cards: 'square', fx: 'plain', sfx: false, balls: 4,
+		zones: 'wavy', holes: 'classic', vote: 'round', voteMode: 'delta', theme: 'classic', cards: 'square', fx: 'plain', sfx: false, balls: 4,
 		decor: 'radial', face: 'launch', vol: 1.3,
 		botspeed: 'auto', warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, seats: ['human', 'balanced', 'blackhole', 'retriever'] },
 	slick: { label: 'slick ice · long slides', muK: 0.012, muS: 0.030, puckM: 4, autoOmega: true },
@@ -50,7 +50,7 @@ const PRESETS = {
 const NUM_RANGES = { maxThrows: [1, 512], omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.5], puckM: [CFG.massMin, CFG.massMax], balls: [1, 8],
 	warpTries: [1, 16], warpTurns: [0, 6], warpGoal: [0, 3], vol: [0, 2] };
 const RECYCLES = ['none', 'zones', 'advance'];
-const ZONE_STYLES = ['hatch', 'wavy', 'rounded', 'arcs', '3-rounded', '6-hemi'], HOLE_STYLES = ['classic', 'rim', 'well', 'triangle']; // CFG.zoneStyle, CFG.holeStyle
+const ZONE_STYLES = ['hatch', 'wavy', 'white', 'snow', 'rounded', 'arcs', '3-rounded', '6-hemi'], HOLE_STYLES = ['classic', 'rim', 'well', 'domes', 'triangle']; // CFG.zoneStyle, CFG.holeStyle
 const CARD_STYLES = ['square', 'round']; // the score cards' corners; page state, not CFG
 const SPEED_RULES = ['off', 'turn', 'round'], VOTE_MODES = ['delta', 'exact']; // CFG.speedVote, CFG.voteMode
 const VIEWS = ['fit', 'side']; // the layout keys of index.html; fit is the shipped one
@@ -164,7 +164,7 @@ function parseQuery(search) {
 		const seats = q.seats.split(',').map(s => s.trim().toLowerCase()).filter(s => SEAT_TYPES.includes(s)).slice(0, CFG.maxPlayers);
 		if (seats.length) { out.seats = seats; found = true; }
 	}
-	for (const [urlName, key] of [['ring', 'ring'], ['ghost', 'ghost'], ['holefill', 'holeFill']]) {
+	for (const [urlName, key] of [['ring', 'ring'], ['ghost', 'ghost'], ['holefill', 'holeFill'], ['holewater', 'holeWater'], ['swap', 'swap']]) {
 		const v = q[urlName];
 		if (v === '1' || v === 'true' || v === '0' || v === 'false') { out[key] = v === '1' || v === 'true'; found = true; }
 	}

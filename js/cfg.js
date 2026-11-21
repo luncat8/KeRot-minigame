@@ -36,13 +36,15 @@ const CFG = {
 	recycleMode: 'advance', // 'none' | 'zones' | 'advance' (radio group)
 	// The shapes of the return zone and the black holes (radio groups). They are rules,
 	// not skins: the drawn outline is the region the rule tests (js/rules.js, js/physics.js).
-	// zoneStyle: 'hatch' | 'wavy' — the straight wedge; 'rounded' — an outline that
-	// hugs the disk and the holes, no straight edge; 'arcs' — one curve around the disk,
-	// the holes inside the zone; '3-rounded' — the wedge cut by bigger circles around
-	// the disk and the holes, outlined by those three circles alone; '6-hemi' — one
-	// circular outline around the disk, the holes inside. holeStyle: 'classic' | 'rim'
-	// | 'well' — the round void, drawn three ways; 'triangle' — a triangular void.
-	zoneStyle: 'hatch', holeStyle: 'classic',
+	// zoneStyle: 'hatch' | 'wavy' | 'white' | 'snow' — the straight wedge (a diagonal
+	// hatch, regular waves, white lines, or a snow field with dark lines); 'rounded' —
+	// an outline that hugs the disk and the holes, no straight edge; 'arcs' — one curve
+	// around the disk, the holes inside the zone; '3-rounded' — the wedge cut by bigger
+	// circles around the disk and the holes, outlined by those three circles alone;
+	// '6-hemi' — one circular outline around the disk, the holes inside. holeStyle:
+	// 'classic' | 'rim' | 'well' | 'domes' — the round void, drawn four ways;
+	// 'triangle' — a triangular void.
+	zoneStyle: 'wavy', holeStyle: 'classic',
 	zoneCutGap: 0.06, zoneReach: 1, customGeometry: false, diskScale: false, // scale: paint + default speed grow/shrink with the disk radius; crop (default): paint stays in metres
 	diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
 	// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel

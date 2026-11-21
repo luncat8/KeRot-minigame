@@ -4,7 +4,7 @@
 const UI = (() => {
 	const $ = id => document.getElementById(id);
 	const els = {};
-	const opts = { ring: true, preview: true, holeFill: false, mode: CFG.recycleMode, theme: 'classic', cards: 'square', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3 };
+	const opts = { ring: true, preview: true, holeFill: false, holeWater: false, swap: false, mode: CFG.recycleMode, theme: 'classic', cards: 'square', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3 };
 	// What a link with no parameters opens. Taken now, before boot parameters or a
 	// preset move CFG — a shared link lists only what differs from this.
 	const SHIPPED = {
@@ -31,7 +31,7 @@ const UI = (() => {
 		// are the first controls bound; the rest of the panel is read below.
 		for (const id of ['btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'btnSettings'])
 			els[id] = $(id);
-		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'chkHoleFill', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
+		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'chkHoleFill', 'chkHoleWater', 'chkSwap', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
 			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus', 'speedMode',
 			'chkCards', 'fx', 'chkSfx', 'decor', 'face', 'vol', 'volVal', 'result', 'resultWinner', 'resultScores'])
 			els[id] = $(id);
@@ -61,6 +61,8 @@ const UI = (() => {
 		els.chkWarp.checked = CFG.warp;
 		els.chkWarp.addEventListener('change', () => { Game.setWarp(els.chkWarp.checked); syncWarp(); markCustom(); });
 		els.chkHoleFill.addEventListener('change', () => markCustom()); // a visual switch: the link is all it changes
+		els.chkHoleWater.addEventListener('change', () => markCustom());
+		els.chkSwap.addEventListener('change', () => markCustom());
 		els.warpTries.min = '1'; els.warpTries.max = String(WARP_MAX_TRIES);
 		els.warpTries.addEventListener('input', () => { CFG.warpTries = parseInt(els.warpTries.value, 10); syncWarp(); markCustom(); });
 		els.warpTurns.addEventListener('input', () => { CFG.warpTurns = parseInt(els.warpTurns.value, 10); syncWarp(); markCustom(); });
@@ -175,6 +177,8 @@ const UI = (() => {
 		if (els.chkRing && !els.chkRing.checked) parts.push('ring=0');
 		if (els.chkPreview && !els.chkPreview.checked) parts.push('ghost=0');
 		if (els.chkHoleFill && els.chkHoleFill.checked) parts.push('holefill=1');
+		if (els.chkHoleWater && els.chkHoleWater.checked) parts.push('holewater=1');
+		if (els.chkSwap && els.chkSwap.checked) parts.push('swap=1');
 		return parts.join('&');
 	}
 	// Any manual control change leaves the bundle the preset select last applied,
@@ -251,6 +255,8 @@ const UI = (() => {
 		if (setup.ring !== undefined) els.chkRing.checked = setup.ring;
 		if (setup.ghost !== undefined) els.chkPreview.checked = setup.ghost;
 		if (setup.holeFill !== undefined) els.chkHoleFill.checked = setup.holeFill;
+		if (setup.holeWater !== undefined) els.chkHoleWater.checked = setup.holeWater;
+		if (setup.swap !== undefined) els.chkSwap.checked = setup.swap;
 		if (setup.seats && setup.seats.length) Game.setSeatTypes(setup.seats); // resets itself
 		else if (setup.omega !== undefined || setup.muK !== undefined || setup.muS !== undefined || setup.puckM !== undefined ||
 			setup.geometry !== undefined || setup.maxThrows !== undefined || setup.autoOmega || setup.balls !== undefined || setup.schema || setup.recycle || setup.vote || setup.voteMode) Game.reset();
@@ -274,6 +280,8 @@ const UI = (() => {
 		if (els.chkRing && !els.chkRing.checked) q += '&ring=0';
 		if (els.chkPreview && !els.chkPreview.checked) q += '&ghost=0';
 		if (els.chkHoleFill && els.chkHoleFill.checked) q += '&holefill=1';
+		if (els.chkHoleWater && els.chkHoleWater.checked) q += '&holewater=1';
+		if (els.chkSwap && els.chkSwap.checked) q += '&swap=1';
 		writeQuery(q);
 	}
 	function fillSelect(sel, table, value) {
@@ -507,6 +515,8 @@ const UI = (() => {
 	function optsNow() {
 		opts.ring = els.chkRing.checked; opts.preview = els.chkPreview.checked;
 		opts.holeFill = els.chkHoleFill.checked;
+		opts.holeWater = els.chkHoleWater.checked;
+		opts.swap = els.chkSwap.checked;
 		opts.fx = FX_MODES.includes(els.fx.value) ? els.fx.value : 'plain';
 		opts.sfx = !!els.chkSfx.checked;
 		return opts;

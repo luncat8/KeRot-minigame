@@ -262,8 +262,10 @@
 			<label><input type="radio" name="recycle" value="advance" id="recAdvance" checked> wedge + lane (behind the disk, launch strip)</label>
 		</fieldset>
 		<fieldset><legend>return zone shape</legend>
-			<label><input type="radio" name="zoneStyle" value="hatch" checked> straight wedge, hatched</label>
-			<label><input type="radio" name="zoneStyle" value="wavy"> straight wedge, wavy lines</label>
+			<label><input type="radio" name="zoneStyle" value="wavy" checked> straight wedge, wavy lines</label>
+			<label><input type="radio" name="zoneStyle" value="hatch"> straight wedge, hatched</label>
+			<label><input type="radio" name="zoneStyle" value="white"> straight wedge, white lines</label>
+			<label><input type="radio" name="zoneStyle" value="snow"> snow field, dark lines</label>
 			<label><input type="radio" name="zoneStyle" value="rounded"> rounded &mdash; hugs the disk and the holes</label>
 			<label><input type="radio" name="zoneStyle" value="arcs"> one arc around the disk, holes inside</label>
 			<label><input type="radio" name="zoneStyle" value="3-rounded"> 3-rounded &mdash; wedge cut by bigger circles, disk and holes</label>
@@ -273,6 +275,7 @@
 			<label><input type="radio" name="holeStyle" value="classic" checked> round, dashed reach</label>
 			<label><input type="radio" name="holeStyle" value="rim"> round, rim only</label>
 			<label><input type="radio" name="holeStyle" value="well"> round well, dashed reach</label>
+			<label><input type="radio" name="holeStyle" value="domes"> domes, faded</label>
 			<label><input type="radio" name="holeStyle" value="triangle"> triangle on the wall</label>
 		</fieldset>
 		<fieldset><legend>disk speed in play</legend>
@@ -298,6 +301,8 @@
 		<div class="row"><label><span><input type="checkbox" id="chkRing" checked> eject ring</span></label>
 		<label><span><input type="checkbox" id="chkPreview" checked> ghost trajectory</span></label>
 		<label><span><input type="checkbox" id="chkHoleFill"> holes filled black</span></label></div>
+		<div class="row"><label><span><input type="checkbox" id="chkHoleWater"> holes water (blue waves)</span></label>
+		<label><span><input type="checkbox" id="chkSwap"> swap zone &amp; hole looks</span></label></div>
 		<div class="row"><label>colour scheme <select id="theme"></select></label>
 			<label><span><input type="checkbox" id="chkCards"> rounded score cards</span></label></div>
 		<div class="row"><label>presentation <select id="fx">
