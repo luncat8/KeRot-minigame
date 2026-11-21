@@ -30,7 +30,7 @@ const ZoneEditor = (() => {
 			balls: cfg.ballsPerPlayer, maxThrows: cfg.maxThrows, vote: cfg.speedVote, voteMode: cfg.voteMode,
 			botspeed: cfg.botSpeed, warp: cfg.warp, warpTries: cfg.warpTries, warpTurns: cfg.warpTurns, warpGoal: cfg.warpGoal,
 			seats: game.seatTypes, theme: opts.theme, cards: opts.cards, fx: opts.fx, sfx: opts.sfx,
-			decor: opts.decor, face: opts.face, vol: opts.vol, ring: opts.ring, ghost: opts.preview,
+			decor: opts.decor, face: opts.face, vol: opts.vol, ring: opts.ring, ghost: opts.preview, holeFill: opts.holeFill,
 		};
 	}
 	function setupQuery(setup) {
@@ -66,6 +66,8 @@ const ZoneEditor = (() => {
 		const blocked = ['panel', 'menuTab', 'helpTab', 'help'].map(id => document.getElementById(id)).filter(Boolean);
 		const inert = blocked.map(node => node.inert);
 		blocked.forEach(node => { node.inert = true; });
+		// Editing owns the screen: the help drawer and its edge hover stay out of it.
+		if (typeof Help !== 'undefined') Help.suspend();
 		const host = document.getElementById('app');
 		const overlay = element('canvas', host), drawer = element('section', host), style = element('style', document.head);
 		overlay.id = 'zoneEditorOverlay'; drawer.id = 'zoneEditorDrawer';
@@ -79,6 +81,8 @@ const ZoneEditor = (() => {
 #zoneEditorDrawer label { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 7px 0; }
 #zoneEditorDrawer input { width: 88px; box-sizing: border-box; }
 #zoneEditorDrawer select { max-width: 150px; }
+#zoneEditorDrawer .editor-copy { display: flex; gap: 8px; margin: 8px 0; }
+#zoneEditorDrawer .editor-copy button { flex: 1 1 auto; }
 #zoneEditorDrawer label:has(textarea) { display: block; }
 #zoneEditorDrawer textarea { display: block; margin-top: 7px; width: 100%; box-sizing: border-box; height: 90px; font-size: 11px; }
 #zoneEditorDrawer summary { cursor: pointer; padding: 8px 0; font-weight: bold; }
@@ -139,8 +143,10 @@ const ZoneEditor = (() => {
 		number(rulesGroup, 'Disk speed (rad/s)', 'omega', () => game.omegaStart, value => { game.setOmega(clamp(value, 0, cfg.omegaMax)); changed(); }, '0.001');
 		number(rulesGroup, 'Pucks per seat', 'balls', () => cfg.ballsPerPlayer, value => { cfg.ballsPerPlayer = Math.round(clamp(value, 1, 8)); changed(); }, '1');
 		number(rulesGroup, 'Maximum throws', 'maxThrows', () => cfg.maxThrows, value => { cfg.maxThrows = Math.round(clamp(value, 1, 512)); changed(); }, '1');
-		const copy = element('button', drawer, 'Copy preset');
-		const outputLabel = element('label', drawer, 'Preset text (select to copy manually)');
+		const copyRow = element('div', drawer); copyRow.className = 'editor-copy';
+		const copy = element('button', copyRow, 'Copy preset');
+		const copyChanges = element('button', copyRow, 'Copy changes only');
+		const outputLabel = element('label', drawer, 'Preset / link text (select to copy manually)');
 		const output = element('textarea', outputLabel); output.readOnly = true;
 		function refresh() {
 			for (const c of controls) {
@@ -273,20 +279,26 @@ const ZoneEditor = (() => {
 		overlay.addEventListener('pointerup', pointerEnd);
 		overlay.addEventListener('pointercancel', pointerEnd);
 		overlay.addEventListener('lostpointercapture', () => { drag = null; });
-		async function copyText() {
-			output.value = descriptor(setupOf(cfg, game, ui.opts()));
+		async function copyText(text, done) {
+			output.value = text;
 			try {
 				if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('Clipboard unavailable');
 				await navigator.clipboard.writeText(output.value);
-				status.textContent = 'Preset copied.';
+				status.textContent = done;
 			} catch (e) {
 				output.focus(); output.select();
 				let copied = false;
 				try { copied = document.execCommand('copy'); } catch (error) { /* Manual copy stays available. */ }
-				status.textContent = copied ? 'Preset copied.' : 'Clipboard blocked. Preset selected: press Ctrl+C / ⌘C, or long-press to copy.';
+				status.textContent = copied ? done : 'Clipboard blocked. Preset selected: press Ctrl+C / ⌘C, or long-press to copy.';
 			}
 		}
-		copy.addEventListener('click', copyText);
+		copy.addEventListener('click', () => copyText(descriptor(setupOf(cfg, game, ui.opts())), 'Preset copied.'));
+		// The changes link skips every value the shipped board already has, so a shared
+		// link keeps the reader's attention on what this board sets differently.
+		copyChanges.addEventListener('click', () => {
+			const query = ui.changesQuery();
+			copyText('index.html' + (query ? '?' + query : ''), query ? 'Changes copied.' : 'Nothing differs from the default board — plain link copied.');
+		});
 		done.addEventListener('click', close);
 		revert.addEventListener('click', () => {
 			ui.applySetup(original); cfg.customGeometry = wasCustom; changed();
@@ -307,6 +319,7 @@ const ZoneEditor = (() => {
 			window.removeEventListener('keydown', keydown, true); window.removeEventListener('resize', resize); window.removeEventListener('scroll', resize, true);
 			overlay.remove(); drawer.remove(); style.remove();
 			blocked.forEach((node, i) => { node.inert = inert[i]; });
+			if (typeof Help !== 'undefined') Help.resume();
 			delete document.body.dataset.editing;
 			game.setEditing(false); game.reset();
 			if (previousPause) game.togglePause();

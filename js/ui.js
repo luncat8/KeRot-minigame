@@ -4,7 +4,7 @@
 const UI = (() => {
 	const $ = id => document.getElementById(id);
 	const els = {};
-	const opts = { ring: true, preview: true, mode: CFG.recycleMode, theme: 'classic', cards: 'square', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3 };
+	const opts = { ring: true, preview: true, holeFill: false, mode: CFG.recycleMode, theme: 'classic', cards: 'square', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3 };
 	// What a link with no parameters opens. Taken now, before boot parameters or a
 	// preset move CFG — a shared link lists only what differs from this.
 	const SHIPPED = {
@@ -12,6 +12,7 @@ const UI = (() => {
 		schema: CFG.diskSchema, recycle: CFG.recycleMode, zones: CFG.zoneStyle, holes: CFG.holeStyle, vote: CFG.speedVote, voteMode: CFG.voteMode, balls: CFG.ballsPerPlayer,
 		botspeed: CFG.botSpeed, warp: !!CFG.warp, warpTries: CFG.warpTries, warpTurns: CFG.warpTurns, warpGoal: CFG.warpGoal,
 		theme: 'classic', cards: 'square', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3, seats: 'human,balanced,blackhole,retriever',
+		diskScale: CFG.diskScale,
 	};
 	// The speed bar's select is the same setting as the rule radios in the drawer; it
 	// says who sets the speed, in the words a turn wants.
@@ -30,7 +31,7 @@ const UI = (() => {
 		// are the first controls bound; the rest of the panel is read below.
 		for (const id of ['btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'btnSettings'])
 			els[id] = $(id);
-		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
+		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'chkHoleFill', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
 			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus', 'speedMode',
 			'chkCards', 'fx', 'chkSfx', 'decor', 'face', 'vol', 'volVal', 'result', 'resultWinner', 'resultScores'])
 			els[id] = $(id);
@@ -59,6 +60,7 @@ const UI = (() => {
 		// next bot turn on; only switching it off has to reach a search under way.
 		els.chkWarp.checked = CFG.warp;
 		els.chkWarp.addEventListener('change', () => { Game.setWarp(els.chkWarp.checked); syncWarp(); markCustom(); });
+		els.chkHoleFill.addEventListener('change', () => markCustom()); // a visual switch: the link is all it changes
 		els.warpTries.min = '1'; els.warpTries.max = String(WARP_MAX_TRIES);
 		els.warpTries.addEventListener('input', () => { CFG.warpTries = parseInt(els.warpTries.value, 10); syncWarp(); markCustom(); });
 		els.warpTurns.addEventListener('input', () => { CFG.warpTurns = parseInt(els.warpTurns.value, 10); syncWarp(); markCustom(); });
@@ -151,6 +153,7 @@ const UI = (() => {
 		if (CFG.recycleMode !== SHIPPED.recycle) parts.push('recycle=' + CFG.recycleMode);
 		if (CFG.zoneStyle !== SHIPPED.zones) parts.push('zones=' + CFG.zoneStyle);
 		if (CFG.holeStyle !== SHIPPED.holes) parts.push('holes=' + CFG.holeStyle);
+		if (!!CFG.diskScale !== SHIPPED.diskScale) parts.push('diskscale=' + (CFG.diskScale ? 1 : 0));
 		if (CFG.speedVote !== SHIPPED.vote) parts.push('vote=' + CFG.speedVote);
 		if (CFG.voteMode !== SHIPPED.voteMode) parts.push('votemode=' + CFG.voteMode);
 		if (CFG.botSpeed !== SHIPPED.botspeed) parts.push('botspeed=' + CFG.botSpeed);
@@ -171,6 +174,7 @@ const UI = (() => {
 		if (View.query()) parts.push(View.query());
 		if (els.chkRing && !els.chkRing.checked) parts.push('ring=0');
 		if (els.chkPreview && !els.chkPreview.checked) parts.push('ghost=0');
+		if (els.chkHoleFill && els.chkHoleFill.checked) parts.push('holefill=1');
 		return parts.join('&');
 	}
 	// Any manual control change leaves the bundle the preset select last applied,
@@ -246,6 +250,7 @@ const UI = (() => {
 		if (setup.view) View.set(setup.view);
 		if (setup.ring !== undefined) els.chkRing.checked = setup.ring;
 		if (setup.ghost !== undefined) els.chkPreview.checked = setup.ghost;
+		if (setup.holeFill !== undefined) els.chkHoleFill.checked = setup.holeFill;
 		if (setup.seats && setup.seats.length) Game.setSeatTypes(setup.seats); // resets itself
 		else if (setup.omega !== undefined || setup.muK !== undefined || setup.muS !== undefined || setup.puckM !== undefined ||
 			setup.geometry !== undefined || setup.maxThrows !== undefined || setup.autoOmega || setup.balls !== undefined || setup.schema || setup.recycle || setup.vote || setup.voteMode) Game.reset();
@@ -268,6 +273,7 @@ const UI = (() => {
 		let q = presetQuery(name);
 		if (els.chkRing && !els.chkRing.checked) q += '&ring=0';
 		if (els.chkPreview && !els.chkPreview.checked) q += '&ghost=0';
+		if (els.chkHoleFill && els.chkHoleFill.checked) q += '&holefill=1';
 		writeQuery(q);
 	}
 	function fillSelect(sel, table, value) {
@@ -500,10 +506,11 @@ const UI = (() => {
 	}
 	function optsNow() {
 		opts.ring = els.chkRing.checked; opts.preview = els.chkPreview.checked;
+		opts.holeFill = els.chkHoleFill.checked;
 		opts.fx = FX_MODES.includes(els.fx.value) ? els.fx.value : 'plain';
 		opts.sfx = !!els.chkSfx.checked;
 		return opts;
 	}
-	return { bind, update, actions, opts: optsNow, applySetup, applyPreset,
+	return { bind, update, actions, opts: optsNow, applySetup, applyPreset, changesQuery: liveQuery,
 		refreshEditor() { pullControls(); sync(); markCustom(); } };
 })();

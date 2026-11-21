@@ -27,6 +27,17 @@ const PRESETS = {
 	// pins the reference table its 1.356 rad/s was solved for (d_hold = 0.3 R).
 	grinder: { label: 'meat grinder · eject at 0.3 R', muK: 0.030, muS: 0.045, puckM: 4, omega: 1.356 },
 	rimtrap: { label: 'rim traps · 6 hemispheres', schema: 'rim6' },
+	// A wide board with a small disk: the disk keeps a quarter of the default radius
+	// and the contents scale with it (diskScale), so the eject ring and the hold
+	// geometry shrink to match; the wells sit in the two far corners. ω is the
+	// auto-ω of this disk, and the seat order puts the random seat on the left.
+	notsobigdisk: { label: 'not-so-big disk · small disk, well holes',
+		geometry: { boardW: 4.1942140790742535, boardH: 2.2, diskX: 1.1183164735294637, diskY: 1.1, diskR: 0.200000002241845,
+			puckR: 0.08030261092839523, launchX: 3.8442140790742534, launchY: 1.1, launchMinX: 3.644214079074253, launchMaxX: 4.044214079074253,
+			launchMinY: 0.95, launchMaxY: 1.25, zoneCutGap: 0.06, zoneReach: 1,
+			holes: [{ x: 0, y: 0, r: 0.46692223924468396 }, { x: 0, y: 2.2, r: 0.46692223924468396 }] },
+		omega: 1.5660459675595018, muK: 0.030, muS: 0.045, puckM: 4, zones: '3-rounded', holes: 'well',
+		diskScale: true, seats: ['random', 'balanced', 'blackhole', 'retriever'] },
 	crystal: { label: 'crystal ice · glass skin + sounds', fx: 'glass', sfx: true },
 	// Two tables built to show the two bot settings off: the same profiles, one set to
 	// play the disk with its votes, one set to look ahead before it throws.
@@ -153,8 +164,8 @@ function parseQuery(search) {
 		const seats = q.seats.split(',').map(s => s.trim().toLowerCase()).filter(s => SEAT_TYPES.includes(s)).slice(0, CFG.maxPlayers);
 		if (seats.length) { out.seats = seats; found = true; }
 	}
-	for (const key of ['ring', 'ghost']) {
-		const v = q[key];
+	for (const [urlName, key] of [['ring', 'ring'], ['ghost', 'ghost'], ['holefill', 'holeFill']]) {
+		const v = q[urlName];
 		if (v === '1' || v === 'true' || v === '0' || v === 'false') { out[key] = v === '1' || v === 'true'; found = true; }
 	}
 	return found ? out : null;

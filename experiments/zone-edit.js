@@ -1,6 +1,6 @@
 // Node-only geometry/editor model gates. No browser or dependencies.
 const assert = require('node:assert/strict');
-const { CFG, boardGeometry, validBoardGeometry, applyBoardGeometry, resetBoardGeometry } = require('../js/cfg.js');
+const { CFG, boardGeometry, validBoardGeometry, applyBoardGeometry, resetBoardGeometry, autoOmega } = require('../js/cfg.js');
 const { applyCfg, parseQuery, PRESETS } = require('../js/presets.js');
 const { createGame } = require('../js/game.js');
 const { zoneField } = require('../js/rules.js');
@@ -57,7 +57,7 @@ assert(projected.diskX >= cfg.diskR && projected.diskX < cfg.diskX);
 assert.deepEqual(Editor.project(defaults, defaults), defaults);
 
 const setup = Editor.setupOf(cfg, game, { theme: 'classic', cards: 'round', fx: 'plain', sfx: false,
-	decor: 'radial', face: 'launch', vol: 1.3, ring: false, preview: true });
+	decor: 'radial', face: 'launch', vol: 1.3, ring: false, preview: true, holeFill: false });
 setup.seats = ['human', 'timing']; setup.maxThrows = 73; setup.balls = 5;
 const query = Editor.setupQuery(setup), parsed = parseQuery('?' + query);
 assert.deepEqual(parsed, setup, 'every exported setting round-trips through the URL');
@@ -69,6 +69,8 @@ assert(Editor.descriptor(setup).includes('"timing"'));
 assert(Editor.descriptor(setup).includes('"muK":'));
 assert(!Editor.descriptor(setup).includes('staller'));
 assert.equal(parseQuery('?geometry=%7Bbad'), null);
+assert.equal(parseQuery('?holefill=1').holeFill, true, 'the holefill URL key parses to the setup key');
+assert.equal(parseQuery('?holefill=maybe'), null, 'a malformed view toggle drops the whole link');
 assert.equal(parseQuery('?geometry=%7B%7D&omega=1').omega, 1);
 assert.equal(parseQuery('?maxthrows=900').maxThrows, 512);
 assert.equal(parseQuery('?maxthrows=-3').maxThrows, 1);
@@ -81,6 +83,22 @@ applyCfg(PRESETS.default);
 assert.deepEqual(boardGeometry(CFG), defaults);
 assert.equal(CFG.customGeometry, false);
 assert.equal(CFG.maxThrows, 96);
+// The not-so-big-disk preset is a whole-board bundle: valid, applied verbatim and
+// reproducible from its own link.
+const small = PRESETS['notsobigdisk'];
+assert(small && small.geometry, 'the not-so-big-disk preset exists');
+assert(validBoardGeometry(small.geometry), 'the preset board is valid');
+applyCfg(Object.assign({}, small, { seats: small.seats.slice() }));
+assert.deepEqual(boardGeometry(CFG), small.geometry, 'the preset board applies verbatim');
+assert.equal(CFG.customGeometry, true);
+assert.equal(CFG.zoneStyle, '3-rounded');
+assert.equal(CFG.holeStyle, 'well');
+assert.equal(CFG.diskScale, true);
+assert(Math.abs(CFG.omega - autoOmega(CFG)) < 1e-6, 'the preset speed is the auto-ω of its own disk');
+const smallParsed = parseQuery('?preset=notsobigdisk');
+assert(smallParsed && smallParsed.preset === 'notsobigdisk', 'the preset is a URL key');
+applyCfg(smallParsed);
+assert.deepEqual(boardGeometry(CFG), small.geometry, 'the preset link reopens the same board');
 CFG.holes[0].x = 5;
 resetBoardGeometry(CFG);
 assert.deepEqual(boardGeometry(CFG), defaults, 'default snapshot cannot be mutated through an applied board');

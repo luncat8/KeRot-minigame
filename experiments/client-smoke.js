@@ -16,7 +16,7 @@ function makeCtx() {
 	return {
 		fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', globalAlpha: 1, textAlign: '', textBaseline: '', lineCap: '', lineJoin: '',
 		save() { }, restore() { }, translate() { }, rotate(a) { ops.push('rotate' + (a === undefined ? '' : ':' + a.toFixed(3))); }, scale() { }, setTransform() { },
-		beginPath() { }, closePath() { }, moveTo() { }, lineTo() { }, arc() { }, rect() { }, strokeRect() { ops.push('strokeRect'); }, fillRect() { ops.push('fillRect'); },
+		beginPath() { }, closePath() { }, moveTo() { }, lineTo() { }, arc(x, y, r) { ops.push('arc:' + num(x) + ',' + num(y) + ',' + num(r)); }, rect() { }, strokeRect() { ops.push('strokeRect'); }, fillRect() { ops.push('fillRect'); },
 		stroke() { ops.push('stroke'); }, fill(p, rule) { ops.push('fill' + (rule ? ':' + rule : '')); },
 		clip(p, rule) { ops.push('clip' + (rule ? ':' + rule : '')); }, setLineDash() { }, drawImage() { },
 		fillText(t) { ops.push('text:' + t); }, strokeText(t) { ops.push('outline:' + t); },
@@ -125,6 +125,18 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	Render.drawWorld(view);
 	check(!ops.includes('text:RETURN') && ops.length > 0, 'mode none draws no zone, still renders');
 	check(withZones > ops.length, 'zones mode costs extra draw calls only');
+	// Hole capture visuals: the dashed ring is the locus of a swallowed puck's centre,
+	// so it grows with the puck; the black-inside option fills the whole capture disk.
+	const reachArc = r => 'arc:' + num(CFG.holes[0].x) + ',' + num(CFG.holes[0].y) + ',' + num(r);
+	check(ops.includes(reachArc(CFG.holes[0].r + CFG.puckR)), 'the hole ring is the puck-centre capture circle', reachArc(CFG.holes[0].r + CFG.puckR));
+	CFG.puckR = 0.08; Render.resize(true); ops.length = 0; Render.drawWorld(view);
+	check(ops.includes(reachArc(CFG.holes[0].r + 0.08)), 'the ring grows with the puck', reachArc(CFG.holes[0].r + 0.08));
+	CFG.puckR = 0.1; Render.resize(true);
+		view.opts.holeFill = true; ops.length = 0; Render.drawWorld(view);
+		const captureFills = ops.filter(o => o === 'fill').length;
+		view.opts.holeFill = false; ops.length = 0; Render.drawWorld(view);
+		check(captureFills === ops.filter(o => o === 'fill').length - 1,
+			'the black-inside option replaces the two void fills with one capture-disk fill', captureFills);
 	// The board is sized to fit its box, not to the window: it keeps its aspect, never
 	// exceeds the box on either axis, and fills it on the tight one — that is what
 	// keeps the page from ever growing a scrollbar.
@@ -624,7 +636,19 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(!help.cls.open, 'a tap out on the board closes it');
 	fireWindow('pointermove', { pointerType: 'touch', clientX: 8 });
 	check(!help.cls.open, 'a touch move is not a hover');
-	console.log('help smoke: drawer opens, pins and closes, no exceptions');
+	// Edit mode owns the screen: the drawer and its edge hover stay out of it.
+	Help.suspend();
+	fireWindow('pointermove', { pointerType: 'mouse', clientX: 8 });
+	check(!help.cls.open, 'the edge hover stays shut while the help is suspended');
+	tab.click();
+	check(!help.cls.open, 'the tab cannot pin it while suspended');
+	fireWindow('pointerdown', { target: { id: 'board' } });
+	Help.resume();
+	fireWindow('pointermove', { pointerType: 'mouse', clientX: 8 });
+	check(help.cls.open === true, 'resume restores the edge hover');
+	Help.dismiss();
+	check(!help.cls.open, 'the drawer closes again after the resume');
+	console.log('help smoke: drawer opens, pins, suspends for edit mode and closes, no exceptions');
 	// Disk pattern, colour scheme and puck mass — the three controls this round added.
 	const schemaKeys = els.diskSchema.children.map(o => o.value), themeKeys = els.theme.children.map(o => o.value);
 	check(schemaKeys.join() === Object.keys(DISK_SCHEMAS).join(), 'the disk pattern select lists every schema', schemaKeys.join());
@@ -764,6 +788,12 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		check(els.preset.value === 'stones', 'the preset select shows the applied bundle');
 		check(historyCalls.length === 1 && historyCalls[0] === '?preset=stones&ring=0&ghost=0', 'the preset is echoed into the address bar, with view toggles that differ', historyCalls.join(','));
 		check(els.omega.value === String(CFG.omega) && els.massVal.textContent.startsWith('20.00 kg'), 'sliders and readouts follow the preset');
+		UI.applySetup(parseQuery('?holefill=1'));
+		check(els.chkHoleFill.checked && UI.opts().holeFill, 'the holefill URL key drives the view option');
+		els.chkHoleFill.checked = true; els.chkHoleFill.on.change();
+		check(historyCalls[historyCalls.length - 1].includes('holefill=1'), 'a manual switch echoes the non-default view key into the link');
+		els.chkHoleFill.checked = false; els.chkHoleFill.on.change();
+		check(!/(?:^|&)holefill=/.test(historyCalls[historyCalls.length - 1]), 'the shipped default leaves the view key out of the link');
 		els.omega.value = '1.5'; els.omega.on.input();
 		check(CFG.omega === 1.5 && els.preset.value === '', 'a manual touch marks the bundle as custom');
 		check(historyCalls[historyCalls.length - 1].indexOf('preset=') < 0 && historyCalls[historyCalls.length - 1].indexOf('omega=1.5') >= 0,
@@ -818,9 +848,24 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		els.vol.value = '1.3'; els.vol.on.input();
 		const tail = historyCalls[historyCalls.length - 1];
 		check(!/(?:^|&)face=/.test(tail) && !/(?:^|&)vol=/.test(tail), 'shipped listener and volume leave no keys in the link', tail);
+		// The not-so-big-disk preset is a whole-board bundle, and its changes link keeps
+		// only the keys that differ from the shipped board.
+		UI.applyPreset('default'); // back to the shipped presentation and table first
+		UI.applyPreset('notsobigdisk');
+		check(CFG.diskScale === true && CFG.zoneStyle === '3-rounded' && CFG.holeStyle === 'well' && CFG.customGeometry &&
+			Math.abs(CFG.omega - autoOmega(CFG)) < 1e-6, 'the not-so-big-disk preset applies the small board', CFG.omega.toFixed(6));
+		check(Game.seatTypes.join() === 'random,balanced,blackhole,retriever', 'the preset swaps the roster', Game.seatTypes.join());
+		const smallChanges = UI.changesQuery();
+		check(smallChanges.includes('geometry=') && smallChanges.includes('zones=3-rounded') && smallChanges.includes('holes=well') &&
+			smallChanges.includes('diskscale=1') && smallChanges.includes('omega=1.566046') &&
+			smallChanges.includes('seats=random,balanced,blackhole,retriever'), 'the changes link names every difference', smallChanges);
+		check(!/(?:^|&)(muk|mus|mass|schema|recycle|balls|vote|vol|theme|fx|sfx|decor|face|cards)=/.test(smallChanges),
+			'shipped values stay out of the changes link', smallChanges);
+		UI.applySetup(parseQuery('?' + smallChanges));
+		check(CFG.diskScale === true && CFG.zoneStyle === '3-rounded' && CFG.holeStyle === 'well', 'the changes link reopens the board');
 		UI.applyPreset('default');
 			console.log('presets/url smoke: ' + Object.keys(PRESETS).length + ' presets, parameters applied and clamped, sliders pulled, roster swapped, link echoed');
-		els.chkRing.checked = true; els.chkPreview.checked = true;
+			els.chkRing.checked = true; els.chkPreview.checked = true; els.chkHoleFill.checked = false;
 	}
 	// Drive actual pointer handlers through the renderer's client-to-world mapping.
 	{

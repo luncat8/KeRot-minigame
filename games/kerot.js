@@ -59,7 +59,7 @@
 				// circular outline around the disk, the holes inside. holeStyle: 'classic' | 'rim'
 				// | 'well' — the round void, drawn three ways; 'triangle' — a triangular void.
 				zoneStyle: 'hatch', holeStyle: 'classic',
-				zoneCutGap: 0.06, zoneReach: 1, customGeometry: false,
+				zoneCutGap: 0.06, zoneReach: 1, customGeometry: false, diskScale: false, // scale: paint + default speed grow/shrink with the disk radius; crop (default): paint stays in metres
 				diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
 				// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel
 				// slider alone; 'turn' — the seats vote before every turn; 'round' — before every
@@ -195,6 +195,11 @@
 			// which is why every schema shares the one palette below: its red channel rises with v,
 			// so nothing pays more than it looks like it should.
 			if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'));
+			// Reference radius for scale mode (captured lazily on first use, so it never depends on
+			// module load order): the classic score pattern keeps its size relative to the disk, so it
+			// grows and shrinks with the radius. At the shipped radius the factor is 1, so toggling
+			// scale there is a no-op; the ring schemas already scale via ring().
+			let diskRefR = 0;
 			
 			// A circle of a 'rings' schema, given in units of the disk radius like the reference
 			// draft: v = 1 inside r − w, 0 at r − w/2, −1 from r outward.
@@ -243,9 +248,11 @@
 			DISK_SCHEMAS.circles.aims = centres(DISK_SCHEMAS.circles.rings);
 			function blobField(s, ux, uy) {
 				let v = s.bias;
+				if (diskRefR === 0) diskRefR = CFG.diskR;
+				const f = CFG.diskScale ? CFG.diskR / diskRefR : 1;
 				for (let i = 0; i < s.blobs.length; i++) {
-					const b = s.blobs[i], dx = ux - b.x, dy = uy - b.y;
-					v += b.w * Math.exp(-(dx * dx + dy * dy) / (2 * b.sigma * b.sigma));
+					const b = s.blobs[i], dx = ux - b.x * f, dy = uy - b.y * f;
+					v += b.w * Math.exp(-(dx * dx + dy * dy) / (2 * (b.sigma * f) * (b.sigma * f)));
 				}
 				return v < -1 ? -1 : v > 1 ? 1 : v;
 			}
@@ -2635,7 +2642,7 @@
 				// is the top of the ice — over every marking already painted, including the voids,
 				// the aim ghost and the stones.
 				let skin = null;
-				let texDisk = null, texSchema = '', texRadius = 0, ppmDisk = 0, puckGrad = null, wallPath = null, gridPath = null;
+				let texDisk = null, texSchema = '', texRadius = 0, ppmDisk = 0, texScale = false, puckGrad = null, wallPath = null, gridPath = null;
 				let zoneFan = null, zoneAdv = null, sectorPath = null, bandPath = null, holeClip = null;
 				let builtZone = '', builtHole = ''; // the shape styles the zone and hole paths were baked for
 				const holeTri = new Float64Array(6);
@@ -2991,7 +2998,7 @@
 					g.globalCompositeOperation = 'destination-in';
 					g.fillStyle = '#ffffff';
 					g.beginPath(); g.arc(tex.width / 2, tex.height / 2, cfg.diskR * ppm, 0, Math.PI * 2); g.fill();
-					texDisk = cut; texSchema = cfg.diskSchema; texRadius = cfg.diskR; ppmDisk = ppm;
+					texDisk = cut; texSchema = cfg.diskSchema; texRadius = cfg.diskR; texScale = cfg.diskScale; ppmDisk = ppm;
 				}
 				function toWorld(clientX, clientY) {
 					const r = cv.getBoundingClientRect();
@@ -3022,26 +3029,33 @@
 					ctx.restore();
 				}
 				const HOLE_DARK = '#090812', HOLE_RIM = '#9b59b6', HOLE_REACH = 'rgba(186, 104, 200, 0.65)';
-				function drawBlackHoles() {
+				// The black-inside view option fills every hole's capture region — the shape grown
+				// by the puck radius (holeClip) — so a puck visibly slides onto the black and falls
+				// when its centre reaches the dashed ring, not when its edge touches the void rim.
+				function drawBlackHoles(fill) {
 					ctx.save();
 					ctx.beginPath(); ctx.rect(0, 0, cfg.boardW, cfg.boardH); ctx.clip();
+					if (fill) { ctx.fillStyle = HOLE_DARK; ctx.fill(holeClip); }
 					for (let i = 0; i < cfg.holes.length; i++) {
 						const hole = cfg.holes[i];
-						if (cfg.holeStyle === 'triangle') drawTriangleHole(hole);
-						else drawRoundHole(hole, cfg.holeStyle);
+						if (cfg.holeStyle === 'triangle') drawTriangleHole(hole, fill);
+						else drawRoundHole(hole, cfg.holeStyle, fill);
 						ctx.fillStyle = '#e5c3ff'; ctx.font = font.hole;
 						ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('VOID', hole.x, hole.y + (hole.y < cfg.diskY ? 0.055 : -0.055));
 					}
 					ctx.restore();
 				}
-				// 'classic' and 'well' draw the reach — r + puckR, where a puck is swallowed — as a
-				// dashed ring; 'rim' leaves it implied. 'well' steps the void down into a core.
-				function drawRoundHole(hole, style) {
+				// 'classic' and 'well' draw the reach ring: the locus of a swallowed puck's centre
+				// (r + puckR), so the ring grows with the puck; 'rim' leaves it implied. 'well'
+				// steps the void down into a core. With the black-inside option the capture disk
+				// is already filled, so only the ring is drawn.
+				function drawRoundHole(hole, style, fill) {
 					if (style !== 'rim') {
 						ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r + cfg.puckR, 0, TAU);
 						ctx.strokeStyle = HOLE_REACH; ctx.lineWidth = 0.012; ctx.setLineDash([0.035, 0.025]); ctx.stroke();
 						ctx.setLineDash([]);
 					}
+					if (fill) return;
 					ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r, 0, TAU);
 					ctx.fillStyle = HOLE_DARK; ctx.fill();
 					ctx.strokeStyle = HOLE_RIM; ctx.lineWidth = 0.018; ctx.stroke();
@@ -3057,8 +3071,10 @@
 					ctx.fillStyle = '#030206'; ctx.fill();
 				}
 				// The triangle and a smaller copy of it on the same wall point, so the inner one
-				// nests toward the wall like the rings of the round void.
-				function drawTriangleHole(hole) {
+				// nests toward the wall like the rings of the round void. With the black-inside
+				// option the grown capture triangle is already filled.
+				function drawTriangleHole(hole, fill) {
+					if (fill) return;
 					const t = holeTriangle(cfg, hole, holeTri);
 					ctx.lineJoin = 'miter';
 					ctx.beginPath(); ctx.moveTo(t[0], t[1]); ctx.lineTo(t[2], t[3]); ctx.lineTo(t[4], t[5]); ctx.closePath();
@@ -3108,7 +3124,7 @@
 				function drawWorld(view) {
 					const w = view.w, aim = view.aim, opts = view.opts, pred = view.pred;
 					if (opts.theme !== themeName) applyTheme(opts.theme);
-					if (cfg.diskSchema !== texSchema || cfg.diskR !== texRadius) bakeDisk();
+					if (cfg.diskSchema !== texSchema || cfg.diskR !== texRadius || cfg.diskScale !== texScale) bakeDisk();
 					if (cfg.zoneStyle !== builtZone || cfg.holeStyle !== builtHole) buildZonePaths();
 					ctx.setTransform(1, 0, 0, 1, 0, 0);
 					ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, cv.width, cv.height);
@@ -3138,7 +3154,7 @@
 							ctx.beginPath(); ctx.arc(cfg.diskX, cfg.diskY, dh, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
 						}
 					}
-					drawBlackHoles();
+					drawBlackHoles(opts.holeFill);
 					// The ice surface: reflections and the frozen veil that sits over the markings.
 					if (skin && skin.surface) {
 						ctx.save();

@@ -1,0 +1,212 @@
+{
+ "date": "2026-11-21T09:48:13.373Z",
+ "schema": "classic",
+ "games": 12,
+ "table": [
+  "keeper",
+  "hunter",
+  "balanced",
+  "random"
+ ],
+ "omega0": 0.7831,
+ "voteT": 1,
+ "spinRampT": 1,
+ "voteDeltaMax": 0.5,
+ "results": [
+  {
+   "variant": "off",
+   "rule": "off",
+   "mode": "delta",
+   "speed": "auto",
+   "games": 12,
+   "throws": 23.083333333333332,
+   "simT": 103.24999999994736,
+   "votes": 0,
+   "changes": 0,
+   "meanAbsDelta": 0,
+   "shedPerGame": 0,
+   "omegaMin": 0.7831,
+   "omegaMax": 0.7831,
+   "omegaMean": 0.7831000000001108,
+   "msPerGame": 6198.833333333333,
+   "bots": [
+    {
+     "name": "keeper",
+     "score": 398.1666666666667,
+     "winPct": 16.666666666666668
+    },
+    {
+     "name": "hunter",
+     "score": 411.0833333333333,
+     "winPct": 33.333333333333336
+    },
+    {
+     "name": "balanced",
+     "score": 410.1666666666667,
+     "winPct": 50
+    },
+    {
+     "name": "random",
+     "score": 98.58333333333333,
+     "winPct": 0
+    }
+   ]
+  },
+  {
+   "variant": "turn-delta",
+   "rule": "turn",
+   "mode": "delta",
+   "speed": "auto",
+   "games": 12,
+   "throws": 29.166666666666668,
+   "simT": 161.4263888887833,
+   "votes": 28.166666666666668,
+   "changes": 27.166666666666668,
+   "meanAbsDelta": 0.11010991820040907,
+   "shedPerGame": 5,
+   "omegaMin": 0.6656,
+   "omegaMax": 1.8081000000000003,
+   "omegaMean": 1.0570884584080995,
+   "msPerGame": 7240.083333333333,
+   "bots": [
+    {
+     "name": "keeper",
+     "score": 244.91666666666666,
+     "winPct": 16.666666666666668
+    },
+    {
+     "name": "hunter",
+     "score": 367.9166666666667,
+     "winPct": 50
+    },
+    {
+     "name": "balanced",
+     "score": 319.8333333333333,
+     "winPct": 33.333333333333336
+    },
+    {
+     "name": "random",
+     "score": 100.66666666666667,
+     "winPct": 0
+    }
+   ]
+  },
+  {
+   "variant": "turn-exact",
+   "rule": "turn",
+   "mode": "exact",
+   "speed": "auto",
+   "games": 12,
+   "throws": 30.083333333333332,
+   "simT": 166.67777777766744,
+   "votes": 29.083333333333332,
+   "changes": 26.833333333333332,
+   "meanAbsDelta": 0.5062918631859302,
+   "shedPerGame": 5.5,
+   "omegaMin": 0.7831,
+   "omegaMax": 3.048645724143587,
+   "omegaMean": 1.4433605938130414,
+   "msPerGame": 5808.333333333333,
+   "bots": [
+    {
+     "name": "keeper",
+     "score": 174.25,
+     "winPct": 33.333333333333336
+    },
+    {
+     "name": "hunter",
+     "score": 184.66666666666666,
+     "winPct": 25
+    },
+    {
+     "name": "balanced",
+     "score": 199.25,
+     "winPct": 41.666666666666664
+    },
+    {
+     "name": "random",
+     "score": 59.25,
+     "winPct": 0
+    }
+   ]
+  },
+  {
+   "variant": "round-delta",
+   "rule": "round",
+   "mode": "delta",
+   "speed": "auto",
+   "games": 12,
+   "throws": 25.25,
+   "simT": 122.57777777770768,
+   "votes": 7.583333333333333,
+   "changes": 6.5,
+   "meanAbsDelta": 0.15877136752136747,
+   "shedPerGame": 1.75,
+   "omegaMin": 0.4531,
+   "omegaMax": 1.3556,
+   "omegaMean": 0.7893068860303742,
+   "msPerGame": 6779.916666666667,
+   "bots": [
+    {
+     "name": "keeper",
+     "score": 375.6666666666667,
+     "winPct": 25
+    },
+    {
+     "name": "hunter",
+     "score": 477.9166666666667,
+     "winPct": 50
+    },
+    {
+     "name": "balanced",
+     "score": 470.8333333333333,
+     "winPct": 25
+    },
+    {
+     "name": "random",
+     "score": 97.08333333333333,
+     "winPct": 0
+    }
+   ]
+  },
+  {
+   "variant": "round-exact",
+   "rule": "round",
+   "mode": "exact",
+   "speed": "auto",
+   "games": 12,
+   "throws": 29.416666666666668,
+   "simT": 144.06388888879943,
+   "votes": 9.5,
+   "changes": 8.5,
+   "meanAbsDelta": 0.5834358936904042,
+   "shedPerGame": 4.25,
+   "omegaMin": 0.438125,
+   "omegaMax": 2.6870833333333337,
+   "omegaMean": 1.1535338629368141,
+   "msPerGame": 126452.5,
+   "bots": [
+    {
+     "name": "keeper",
+     "score": 289.25,
+     "winPct": 8.333333333333334
+    },
+    {
+     "name": "hunter",
+     "score": 339,
+     "winPct": 41.666666666666664
+    },
+    {
+     "name": "balanced",
+     "score": 353.6666666666667,
+     "winPct": 50
+    },
+    {
+     "name": "random",
+     "score": 83.66666666666667,
+     "winPct": 0
+    }
+   ]
+  }
+ ]
+}

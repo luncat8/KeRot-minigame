@@ -46,6 +46,9 @@ const frame = page => page.evaluate(() => new Promise(resolve => requestAnimatio
 		const listenerCount = await page.evaluate(() => window.__windowListeners.length);
 		await page.click('#btnEdit'); await page.waitForSelector('#zoneEditorDrawer');
 		assert(await page.evaluate(() => Game.paused && Game.editing && !Game.canAim() && document.getElementById('panel').inert));
+		// The help drawer and its edge hover stay out of the edit screen.
+		await page.mouse.move(5, 400); await frame(page);
+		assert(!await page.evaluate(() => document.getElementById('help').classList.contains('open')), 'the help stays shut while editing');
 		const original = await page.evaluate(() => boardGeometry(CFG));
 		const t = await page.evaluate(() => Game.world.t); await frame(page);
 		assert.equal(await page.evaluate(() => Game.world.t), t, 'simulation stays paused');
@@ -93,6 +96,11 @@ const frame = page => page.evaluate(() => new Promise(resolve => requestAnimatio
 		await page.getByRole('button', { name: 'Copy preset', exact: true }).click();
 		await page.waitForFunction(() => document.querySelector('.editor-status').textContent === 'Preset copied.');
 		assert((await page.evaluate(() => window.__copied)).includes('geometry='));
+		await page.getByRole('button', { name: 'Copy changes only', exact: true }).click();
+		await page.waitForFunction(() => document.querySelector('.editor-status').textContent === 'Changes copied.');
+		const changes = await page.evaluate(() => window.__copied);
+		assert(changes.includes('geometry=') && changes.includes('maxthrows=67') && !/(?:^|&)(muk|mus|mass|schema|recycle|balls)=/.test(changes),
+			'the changes copy keeps the edits and skips the shipped values', changes);
 		const setup = await page.evaluate(() => JSON.parse(document.querySelector('#zoneEditorDrawer textarea').value.split('\njson: ')[1].split('\nsummary: ')[0]));
 		await page.evaluate(() => {
 			navigator.clipboard.writeText = () => Promise.reject(new Error('blocked'));
@@ -105,6 +113,9 @@ const frame = page => page.evaluate(() => new Promise(resolve => requestAnimatio
 		assert.equal(await page.locator('#zoneEditorDrawer, #zoneEditorOverlay').count(), 0);
 		assert.equal(await page.evaluate(() => window.__windowListeners.length), listenerCount, 'editor window listeners are removed');
 		assert(await page.evaluate(() => !Game.editing && !Game.paused && !document.getElementById('panel').inert));
+		await page.mouse.move(5, 400); await frame(page);
+		assert(await page.evaluate(() => document.getElementById('help').classList.contains('open')), 'the help hover works again after the editor closes');
+		await page.mouse.move(600, 400); await frame(page); // close it again for the steps below
 		// Preset text is actually sufficient to reopen the edited board, without loading the editor.
 		const query = await page.evaluate(s => ZoneEditor.setupQuery(s), setup);
 		await page.goto(url + '?' + query); await frame(page);
