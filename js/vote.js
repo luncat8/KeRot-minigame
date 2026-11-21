@@ -138,6 +138,7 @@ const VOTE_FLAT = 0.02; // × the mean parked rate: a smaller spread is no reaso
 const VOTE_MOVE = 0.01; // × the mean parked rate per rad/s of change: the tie-break
 const _vote = { kind: VOTE_NONE, value: 0 };
 const _riderD = new Float64Array(MAX_PUCKS), _riderPay = new Float64Array(MAX_PUCKS);
+const _stable8 = new Float64Array(8); // a seat-by-seat stable-rate scratch for the staller's lead check
 let _speeds = new Float64Array(256), _worth = new Float64Array(256), _currentK = 0;
 
 // The riders on the disk: how far out each rides, and what it pays seat s — an own
@@ -224,12 +225,26 @@ function chooseVote(name, w, cfg, s, roster, next, rng, strat) {
 	_vote.kind = VOTE_NONE; _vote.value = 0;
 	if (st.none) return _vote;
 	const p = BOT_PROFILES[name] || BOT_PROFILES.balanced, om0 = cfg.omega, exact = cfg.voteMode === 'exact';
+	// "use the time you have": a seat already ahead from pucks parked on the scoring disk
+	// asks for a slower disk, so its lead keeps dwelling in red for the window it is given
+	// (a slower disk rotates less, so a parked puck does not rotate off its red lobe).
+	// Only profiles with patience > 0 (the timing bot) do this, and only when actually
+	// ahead — a seat that is behind plays the board straight. Added before the flat
+	// check, so an ahead timing bot votes to slow even when the bare economics say "don't care".
+	let lead = 0;
+	if (p.patience) {
+		_stable8.fill(0); stableRates(w, _stable8);
+		let own = 0, enemy = 0;
+		for (let k = 0; k < _stable8.length; k++) if (k === s) own += _stable8[k]; else enemy += _stable8[k];
+		lead = own - enemy;
+	}
 	const riders = gatherRiders(w, cfg, s, p, st), throwW = throwWeight(cfg, s, roster, next, p, st);
 	const omFrom = voteStartSpeed(w, cfg), n = fillVoteSpeeds(cfg, om0, exact);
 	if (_worth.length < n) _worth = new Float64Array(n);
 	let vMin = Infinity, vMax = -Infinity;
 	for (let k = 0; k < n; k++) {
-		const v = speedWorth(cfg, om0, _speeds[k], riders, throwW, omFrom);
+		let v = speedWorth(cfg, om0, _speeds[k], riders, throwW, omFrom);
+		if (lead > 0) v += p.patience * lead * (om0 - _speeds[k]) / cfg.omegaMax; // slower (ω < ω0) pays more
 		_worth[k] = v; vMin = Math.min(vMin, v); vMax = Math.max(vMax, v);
 	}
 	const r0 = Math.PI * cfg.puckR * cfg.puckR * diskMeanRed(cfg), flat = VOTE_FLAT * r0; // r0: the mean parked rate

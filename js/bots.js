@@ -15,6 +15,11 @@ const BOT_SAMPLES = BOT_GROUPS * BOT_LEVELS;
 // worth barely a window (recPrice), so extending a game by recycling is a tactical
 // fallback, never a scoring plan. Opportunity is the locked rate, not the rate at the
 // sample instant: a puck crossing red at handoff pays for the window and then leaves.
+// The turn's score window is hard-capped (handoffT), so a bot cannot score more by
+// stretching its turn — it can only spend the window it is given well. The timing bot
+// does exactly that: it weights the *within-turn* red-time (score) far above the
+// far-future lock (opportunity), so it throws to get pucks dwelling in red (and
+// double-passing the zone) instead of merely building the best end-state.
 const BOT_PROFILES = {
 	random: { score: 0.10, opportunity: 0.10, denial: 0.05, recovery: 0.30, reserve: 0.20, risk: 0.30, kill: 0.05, noise: 8.0 },
 	keeper: { score: 1.00, opportunity: 1.20, denial: 0.15, recovery: 0.20, reserve: 0.15, risk: 1.30, kill: 0.10, noise: 0.00 },
@@ -22,6 +27,10 @@ const BOT_PROFILES = {
 	retriever: { score: 0.60, opportunity: 0.70, denial: 0.10, recovery: 0.50, reserve: 0.90, risk: 1.00, kill: 0.10, noise: 0.05 },
 	blackhole: { score: 0.40, opportunity: 0.50, denial: 0.70, recovery: 0.20, reserve: 0.10, risk: 0.60, kill: 1.60, noise: 0.05 },
 	balanced: { score: 0.90, opportunity: 1.00, denial: 0.35, recovery: 0.30, reserve: 0.40, risk: 1.00, kill: 0.40, noise: 0.05 },
+	// patience: when this seat is already ahead from pucks parked on the scoring disk,
+	// how strongly it votes to slow the disk, so its lead keeps dwelling in red for the
+	// window it is given. 0 for every shipped profile; only the timing bot leans on it.
+	timing: { score: 1.70, opportunity: 0.55, denial: 0.35, recovery: 0.30, reserve: 0.30, risk: 1.35, kill: 0.15, noise: 0.05, patience: 1.2 },
 };
 const BOT_SPREAD = [0.78, 0.36, 0.48, 0.48, 0.10];
 // One record per target group; v0 is a solved launch speed (0 = sample the whole
@@ -321,4 +330,4 @@ function feedTangent(cfg, x, y, rf) {
 	return null;
 }
 
-if (typeof module !== 'undefined') module.exports = { makeRng, chooseStroke, botOut, botTargets, strategicTargets, feedTangent, makeStrokeRank, rankFinish, BOT_SAMPLES, BOT_PROFILES, BOT_GROUPS };
+if (typeof module !== 'undefined') module.exports = { makeRng, chooseStroke, evaluateStroke, botOut, botTargets, strategicTargets, feedTangent, makeStrokeRank, rankFinish, BOT_SAMPLES, BOT_PROFILES, BOT_GROUPS };

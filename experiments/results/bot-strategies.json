@@ -1,10 +1,10 @@
 {
-	"date": "2026-10-15T23:16:19.363Z",
+	"date": "2026-11-21T06:59:36.519Z",
 	"config": {
-		"games": 6,
+		"games": 5,
 		"seed0": 20261014,
 		"diskSchema": "classic",
-		"seats": 6,
+		"seats": 7,
 		"ballsPerPlayer": 4,
 		"blackHoles": [
 			{
@@ -18,7 +18,7 @@
 				"r": 0.18
 			}
 		],
-		"recycleMode": "zones",
+		"recycleMode": "advance",
 		"samplesPerAction": 20,
 		"scoreSampleHz": 30,
 		"note": "Seats rotate every game. Score includes turn-integrated red area; recovery is a return to the active rule; black-hole captures permanently consume a ball."
@@ -26,107 +26,120 @@
 	"bots": [
 		{
 			"type": "random",
-			"scoreMean": 42,
-			"scoreStd": 24.583192089989726,
-			"scoreMin": 15,
-			"scoreMax": 88,
-			"rawMean": 67.25881531841502,
+			"scoreMean": 72.8,
+			"scoreStd": 44.056327581858206,
+			"scoreMin": 13,
+			"scoreMax": 128,
+			"rawMean": 135.4888060171266,
 			"winPct": 0,
-			"recoveredPerGame": 1.3333333333333333,
-			"lostPerGame": 2,
-			"enemyEliminationsPerGame": 0.8333333333333334,
-			"msPerAction": 209.82067175
+			"recoveredPerGame": 3,
+			"lostPerGame": 3,
+			"enemyEliminationsPerGame": 0.8,
+			"msPerAction": 264.66408688571426
 		},
 		{
 			"type": "keeper",
-			"scoreMean": 153.16666666666666,
-			"scoreStd": 47.3969642722213,
-			"scoreMin": 80,
-			"scoreMax": 223,
-			"rawMean": 245.62003002618613,
+			"scoreMean": 177.8,
+			"scoreStd": 56.79225299281584,
+			"scoreMin": 99,
+			"scoreMax": 267,
+			"rawMean": 330.7469505816411,
 			"winPct": 0,
-			"recoveredPerGame": 0.16666666666666666,
-			"lostPerGame": 2.3333333333333335,
-			"enemyEliminationsPerGame": 1.5,
-			"msPerAction": 193.21598728
+			"recoveredPerGame": 2.6,
+			"lostPerGame": 2.2,
+			"enemyEliminationsPerGame": 1.6,
+			"msPerAction": 280.85271042424245
 		},
 		{
 			"type": "hunter",
-			"scoreMean": 194,
-			"scoreStd": 55.06965286495518,
-			"scoreMin": 121,
-			"scoreMax": 296,
-			"rawMean": 310.85349005305693,
-			"winPct": 16.666666666666668,
-			"recoveredPerGame": 0.16666666666666666,
-			"lostPerGame": 2,
-			"enemyEliminationsPerGame": 2.1666666666666665,
-			"msPerAction": 209.43179543999997
+			"scoreMean": 180.6,
+			"scoreStd": 53.69394751738784,
+			"scoreMin": 106,
+			"scoreMax": 274,
+			"rawMean": 336.25429763002677,
+			"winPct": 0,
+			"recoveredPerGame": 1.6,
+			"lostPerGame": 3.2,
+			"enemyEliminationsPerGame": 2.6,
+			"msPerAction": 272.6591221785714
 		},
 		{
 			"type": "retriever",
-			"scoreMean": 126.66666666666667,
-			"scoreStd": 42.22821594884423,
-			"scoreMin": 77,
-			"scoreMax": 189,
-			"rawMean": 203.44160806249852,
+			"scoreMean": 111.4,
+			"scoreStd": 22.07804339156892,
+			"scoreMin": 71,
+			"scoreMax": 136,
+			"rawMean": 207.01743219050772,
 			"winPct": 0,
-			"recoveredPerGame": 1,
-			"lostPerGame": 2,
-			"enemyEliminationsPerGame": 0.8333333333333334,
-			"msPerAction": 211.6228427
+			"recoveredPerGame": 1.4,
+			"lostPerGame": 2.8,
+			"enemyEliminationsPerGame": 0.6,
+			"msPerAction": 296.314306
 		},
 		{
 			"type": "blackhole",
-			"scoreMean": 125.33333333333333,
-			"scoreStd": 47.52426280917523,
-			"scoreMin": 81,
-			"scoreMax": 199,
-			"rawMean": 200.98328887730995,
-			"winPct": 16.666666666666668,
-			"recoveredPerGame": 0.3333333333333333,
-			"lostPerGame": 1.1666666666666667,
-			"enemyEliminationsPerGame": 3.6666666666666665,
-			"msPerAction": 222.65577903999997
+			"scoreMean": 284,
+			"scoreStd": 87.94543763038536,
+			"scoreMin": 147,
+			"scoreMax": 393,
+			"rawMean": 528.4642147347577,
+			"winPct": 40,
+			"recoveredPerGame": 3.2,
+			"lostPerGame": 1.8,
+			"enemyEliminationsPerGame": 6,
+			"msPerAction": 288.34033220000003
 		},
 		{
 			"type": "balanced",
-			"scoreMean": 250.16666666666666,
-			"scoreStd": 95.6302195380147,
-			"scoreMin": 113,
-			"scoreMax": 403,
-			"rawMean": 401.0357902740316,
-			"winPct": 66.66666666666667,
-			"recoveredPerGame": 0,
-			"lostPerGame": 1.3333333333333333,
-			"enemyEliminationsPerGame": 1,
-			"msPerAction": 215.26750145833333
+			"scoreMean": 263.2,
+			"scoreStd": 57.07679037927764,
+			"scoreMin": 187,
+			"scoreMax": 341,
+			"rawMean": 489.6021157465184,
+			"winPct": 20,
+			"recoveredPerGame": 2.8,
+			"lostPerGame": 3,
+			"enemyEliminationsPerGame": 2.4,
+			"msPerAction": 295.0114353235294
+		},
+		{
+			"type": "timing",
+			"scoreMean": 306.2,
+			"scoreStd": 138.1642500793892,
+			"scoreMin": 165,
+			"scoreMax": 506,
+			"rawMean": 570.0732121696471,
+			"winPct": 40,
+			"recoveredPerGame": 3,
+			"lostPerGame": 1.6,
+			"enemyEliminationsPerGame": 3,
+			"msPerAction": 297.82746248571425
 		}
 	],
 	"game": {
 		"throws": {
-			"mean": 26.833333333333332,
-			"std": 1.7716909687891083,
-			"min": 25,
-			"max": 30
+			"mean": 45.4,
+			"std": 1.8547236990991407,
+			"min": 44,
+			"max": 49
 		},
 		"recycled": {
-			"mean": 3,
-			"std": 2.0816659994661326,
-			"min": 1,
-			"max": 7
+			"mean": 17.6,
+			"std": 1.7435595774162693,
+			"min": 16,
+			"max": 21
 		},
 		"permanentlyLost": {
-			"mean": 10.833333333333334,
-			"std": 1.5723301886761005,
-			"min": 8,
-			"max": 13
+			"mean": 17.6,
+			"std": 2.33238075793812,
+			"min": 14,
+			"max": 20
 		},
 		"simTime": {
-			"mean": 98.8944444443963,
-			"std": 8.129306076402466,
-			"min": 89.16666666662694,
-			"max": 114.93333333327104
+			"mean": 168.10666666655624,
+			"std": 8.989707695153118,
+			"min": 155.11666666656686,
+			"max": 183.3166666665415
 		}
 	}
 }

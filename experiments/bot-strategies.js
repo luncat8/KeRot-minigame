@@ -18,7 +18,7 @@ const SEED0 = parseInt(process.argv[3], 10) || 20261014;
 const SCHEMA = process.argv[4] || CFG.diskSchema;
 if (!DISK_SCHEMAS[SCHEMA]) { console.log('unknown disk schema ' + SCHEMA + ' — one of ' + Object.keys(DISK_SCHEMAS).join(', ')); process.exit(1); }
 CFG.diskSchema = SCHEMA;
-const BOTS = ['random', 'keeper', 'hunter', 'retriever', 'blackhole', 'balanced'];
+const BOTS = ['random', 'keeper', 'hunter', 'retriever', 'blackhole', 'balanced', 'timing'];
 const TICK = 8;
 let fail = 0;
 function check(ok, name) { if (!ok) { console.log('FAIL ' + name); fail = 1; } }
