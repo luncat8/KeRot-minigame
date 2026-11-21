@@ -58,8 +58,8 @@
 				// the disk and the holes, outlined by those three circles alone; '6-hemi' — one
 				// circular outline around the disk, the holes inside. holeStyle: 'classic' | 'rim'
 				// | 'well' — the round void, drawn three ways; 'triangle' — a triangular void.
-				zoneStyle: 'hatch', holeStyle: 'classic',
-				zoneCutGap: 0.06, zoneReach: 1, customGeometry: false, diskScale: false, // scale: paint + default speed grow/shrink with the disk radius; crop (default): paint stays in metres
+				zoneStyle: 'hatch', holeStyle: 'classic', swapZones: false,
+				zoneCutGap: 0.06, zoneReach: 1, customGeometry: false, scoreScale: 1, // scoreScale: score-map size relative to diskR (1 = 100%)
 				diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
 				// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel
 				// slider alone; 'turn' — the seats vote before every turn; 'round' — before every
@@ -195,11 +195,9 @@
 			// which is why every schema shares the one palette below: its red channel rises with v,
 			// so nothing pays more than it looks like it should.
 			if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'));
-			// Reference radius for scale mode (captured lazily on first use, so it never depends on
-			// module load order): the classic score pattern keeps its size relative to the disk, so it
-			// grows and shrinks with the radius. At the shipped radius the factor is 1, so toggling
-			// scale there is a no-op; the ring schemas already scale via ring().
-			let diskRefR = 0;
+			// Shipped disk radius the schemas' coordinates are authored at: patternScale(cfg)
+			// scales every schema proportionally to cfg.diskR and cfg.scoreScale (1 = 100%).
+			const DISK_REF_R = CFG.diskR;
 			
 			// A circle of a 'rings' schema, given in units of the disk radius like the reference
 			// draft: v = 1 inside r − w, 0 at r − w/2, −1 from r outward.
@@ -246,13 +244,12 @@
 				},
 			};
 			DISK_SCHEMAS.circles.aims = centres(DISK_SCHEMAS.circles.rings);
+			function patternScale(cfg) { return (cfg.diskR / DISK_REF_R) * (cfg.scoreScale || 1); }
 			function blobField(s, ux, uy) {
 				let v = s.bias;
-				if (diskRefR === 0) diskRefR = CFG.diskR;
-				const f = CFG.diskScale ? CFG.diskR / diskRefR : 1;
 				for (let i = 0; i < s.blobs.length; i++) {
-					const b = s.blobs[i], dx = ux - b.x * f, dy = uy - b.y * f;
-					v += b.w * Math.exp(-(dx * dx + dy * dy) / (2 * (b.sigma * f) * (b.sigma * f)));
+					const b = s.blobs[i], dx = ux - b.x, dy = uy - b.y;
+					v += b.w * Math.exp(-(dx * dx + dy * dy) / (2 * b.sigma * b.sigma));
 				}
 				return v < -1 ? -1 : v > 1 ? 1 : v;
 			}
@@ -265,7 +262,8 @@
 				return 2 * (best > 1 ? 1 : best) - 1;
 			}
 			function fieldLocal(cfg, ux, uy) {
-				const s = DISK_SCHEMAS[cfg.diskSchema];
+				const s = DISK_SCHEMAS[cfg.diskSchema], f = patternScale(cfg);
+				if (f !== 1) { ux /= f; uy /= f; }
 				return s.rings ? ringField(s, ux, uy) : blobField(s, ux, uy);
 			}
 			// World point -> rotate by -theta into disk-local frame, then evaluate.
@@ -300,7 +298,7 @@
 				return cv;
 			}
 			
-			if (typeof module !== 'undefined') module.exports = { DISK_SCHEMAS, fieldLocal, fieldWorld, fieldColor, bakeFieldCanvas };
+			if (typeof module !== 'undefined') module.exports = { DISK_REF_R, DISK_SCHEMAS, patternScale, fieldLocal, fieldWorld, fieldColor, bakeFieldCanvas };
 			}
 		},
 		"js/physics.js": function(module, exports, require, globalThis) {
@@ -308,7 +306,7 @@
 			// Fixed-step physics: area-weighted two-surface friction, co-rotation lock,
 			// puck spin (material rotation) and exact time-of-impact circle/wall collisions.
 			// Node-safe, no allocation in stepWorld (typed arrays + module scratch only).
-			if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'));
+			if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'), require('./rules.js'));
 			let _evTau = 0, _evKind = 0, _evI = 0, _evJ = 0, _evAxis = 0, _evFound = false;
 			function consider(i, j, axis, tau, rem) {
 				if (tau < 0 || tau > rem || (_evFound && tau >= _evTau)) return;
@@ -669,8 +667,8 @@
 					if (w.vx[i] > 0) consider(i, -1, 0, (cfg.boardW - r - w.x[i]) / w.vx[i], rem);
 					if (w.vy[i] < 0) consider(i, -1, 1, (r - w.y[i]) / w.vy[i], rem);
 					if (w.vy[i] > 0) consider(i, -1, 1, (cfg.boardH - r - w.y[i]) / w.vy[i], rem);
-					for (let k = 0; k < w.cfg.holes.length; k++) {
-						const tau = holeEntryTime(w, i, w.cfg.holes[k], rem);
+					if (!cfg.swapZones) for (let k = 0; k < cfg.holes.length; k++) {
+						const tau = holeEntryTime(w, i, cfg.holes[k], rem);
 						if (tau >= 0) considerHole(i, k, tau, rem);
 					}
 				}
@@ -813,10 +811,14 @@
 				return true;
 			}
 			function absorbBlackHoles(w) {
+				const cfg = w.cfg;
 				for (let i = w.n - 1; i >= 0; i--) {
 					let captured = false;
-					for (let k = 0; k < w.cfg.holes.length; k++) {
-						if (holeGap(w.cfg, w.cfg.holes[k], w.x[i], w.y[i]) <= w.r[i]) { captured = true; break; }
+					if (cfg.swapZones) captured = inSwapVoid(cfg, cfg.recycleMode, w.x[i], w.y[i]);
+					else {
+						for (let k = 0; k < cfg.holes.length; k++) {
+							if (holeGap(cfg, cfg.holes[k], w.x[i], w.y[i]) <= w.r[i]) { captured = true; break; }
+						}
 					}
 					if (!captured) continue;
 					const owner = w.own[i];
@@ -832,6 +834,7 @@
 				w.settling = true;
 			}
 			if (typeof module !== 'undefined') module.exports = { holeTriangle, holeGap, holeEntryTime, createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, beginSpinRamp, stopSpinRamp, spinNow, diskOverlap, surfVelAt, holdable, wakeOnDisk, swapRemovePuck, absorbBlackHoles, FR_RINGS, FR_RAYS, FR_N, FR_RAD, FR_COS, FR_SIN };
+			if (typeof module !== 'undefined') Object.assign(globalThis, module.exports);
 			}
 		},
 		"js/score.js": function(module, exports, require, globalThis) {
@@ -861,7 +864,7 @@
 			const _luts = {}; // per disk schema and radius
 			const _means = {}; // same key: mean red of the baked grid inside the disk circle
 			const _rgb = [0, 0, 0];
-			function lutKey(cfg) { return cfg.diskSchema + '@' + cfg.diskR; }
+			function lutKey(cfg) { return cfg.diskSchema + '@' + cfg.diskR + '@' + (cfg.scoreScale || 1); }
 			// Red channel over the disk, in disk-local metres, baked once per paint and radius. The
 			// field is fixed in the disk's frame, so turning never rebuilds it: the disk's rotation
 			// is applied to the sample point, never to the grid.
@@ -1176,7 +1179,7 @@
 			// the holes are far away, so the fan's own sides stay. '6-hemi': the half-board
 			// through the disk centre cut by one bigger circle around the disk, so the
 			// outline is a circular arc and the holes lie inside, as in 'arcs' but cut sharp.
-			function zoneField(cfg, mode, x, y) {
+			function zoneWedgeField(cfg, mode, x, y) {
 				const left = mode === 'advance';
 				const gx = x - cfg.diskX, gy = y - cfg.diskY;
 				let d = Math.sqrt(gx * gx + gy * gy) - cfg.diskR - cfg.puckR;
@@ -1210,9 +1213,56 @@
 					d = smin(d, sideGap(z.ax, z.ay, z.bx, z.by, z.cx, z.cy, x, y), ZONE_SOFT_K);
 					d = smin(d, sideGap(z.ax, z.ay, z.cx, z.cy, z.bx, z.by, x, y), ZONE_SOFT_K);
 				}
-				if (!left) return d;
+				return d;
+			}
+			function zoneField(cfg, mode, x, y) {
+				const d = zoneWedgeField(cfg, mode, x, y);
+				if (mode !== 'advance') return d;
 				const v = cfg.advanceZone; // the launch lane joins whatever the shape
 				return Math.max(d, Math.min(x - v.lx, v.lx + v.lw - x));
+			}
+			const SWAP_HOLE_GAP = 0.03;
+			// When return zones and holes swap, the old return zone (except the right strip near
+			// start) becomes the void, and the old holes become circular return zones. Signed
+			// clearance > 0 inside the void, traced by render.js and tested by absorbBlackHoles.
+			function swapVoidField(cfg, mode, x, y) {
+				if (mode === 'none') return -1;
+				let d;
+				if (isFieldZone(cfg)) d = zoneWedgeField(cfg, mode, x, y);
+				else if (mode === 'advance') {
+					const z = cfg.advanceZone;
+					d = Math.hypot(x - cfg.diskX, y - cfg.diskY) - cfg.diskR - cfg.puckR;
+					d = Math.min(d, sideGap(z.cx, z.cy, z.bx, z.by, z.ax, z.ay, x, y));
+					d = Math.min(d, sideGap(z.cx, z.cy, z.ax, z.ay, z.bx, z.by, x, y));
+					if (z.ax > 1e-6) d = Math.min(d, x - z.ax);
+				} else {
+					const z = cfg.returnZone;
+					d = Math.hypot(x - cfg.diskX, y - cfg.diskY) - cfg.diskR - cfg.puckR;
+					d = Math.min(d, sideGap(z.ax, z.ay, z.bx, z.by, z.cx, z.cy, x, y));
+					d = Math.min(d, sideGap(z.ax, z.ay, z.cx, z.cy, z.bx, z.by, x, y));
+					if (z.bx < cfg.boardW - 1e-6) d = Math.min(d, z.bx - x);
+				}
+				d = Math.min(d, cfg.advanceZone.lx - SWAP_HOLE_GAP - x);
+				for (let k = 0; k < cfg.holes.length; k++) {
+					d = Math.min(d, holeGap(cfg, cfg.holes[k], x, y) - cfg.puckR - SWAP_HOLE_GAP);
+				}
+				return d;
+			}
+			function inSwapVoid(cfg, mode, x, y) {
+				return !!cfg.swapZones && x >= 0 && x <= cfg.boardW && y >= 0 && y <= cfg.boardH && swapVoidField(cfg, mode, x, y) > 0;
+			}
+			function inHoleZone(cfg, x, y) {
+				for (let k = 0; k < cfg.holes.length; k++) {
+					if (holeGap(cfg, cfg.holes[k], x, y) <= cfg.puckR) return true;
+				}
+				return false;
+			}
+			function inSwappedReturnZone(cfg, mode, x, y) {
+				if (inHoleZone(cfg, x, y)) return true;
+				const v = cfg.advanceZone;
+				if (mode === 'advance') return x >= v.lx && x <= v.lx + v.lw;
+				if (mode === 'zones') return x >= v.lx && inReturnZone(cfg, 'zones', x, y);
+				return false;
 			}
 			// 'zones' is the eject fan: inside the triangle apex→far corners. 'advance' is the
 			// wedge behind the disk plus the launch lane: a puck has to get past the disk and
@@ -1247,14 +1297,15 @@
 			}
 			let _mode = 'none';
 			function puckWouldRecycle(w, i, mode) {
-				return w.st[i] === ST_SLEEP && inReturnZone(w.cfg, mode, w.x[i], w.y[i]);
+				if (w.st[i] !== ST_SLEEP) return false;
+				return w.cfg.swapZones ? inSwappedReturnZone(w.cfg, mode, w.x[i], w.y[i]) : inReturnZone(w.cfg, mode, w.x[i], w.y[i]);
 			}
 			function isRecyclable(w, i) { return puckWouldRecycle(w, i, _mode); }
 			// A return rule only claims a puck that has come to rest inside its zone, and the disk
 			// itself is exempt (inGuard), so nothing that still touches it is ever taken.
 			function recyclePucks(w, mode, onBack) {
 				_mode = mode;
-				return mode === 'none' ? 0 : takePucks(w, isRecyclable, onBack);
+				return mode === 'none' && !w.cfg.swapZones ? 0 : takePucks(w, isRecyclable, onBack);
 			}
 			let _dropOwner = -1;
 			function isOwnedBy(w, i) { return w.own[i] === _dropOwner; }
@@ -1274,7 +1325,8 @@
 			// Remove one puck by index — the puck waiting on the launch spot, for instance.
 			function removePuckAt(w, at) { moveLast(w, at); }
 			
-			if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, isSoftZone, isCutZone, isFieldZone, ZONE_CUT_GAP, zoneField, inReturnZone, puckWouldRecycle, moveLast, takePucks, recyclePucks, dropOwned, reindexOwners, removePuckAt };
+			if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, isSoftZone, isCutZone, isFieldZone, ZONE_CUT_GAP, zoneWedgeField, zoneField, swapVoidField, inSwapVoid, inHoleZone, inSwappedReturnZone, inReturnZone, puckWouldRecycle, moveLast, takePucks, recyclePucks, dropOwned, reindexOwners, removePuckAt };
+			if (typeof module !== 'undefined') Object.assign(globalThis, module.exports);
 			}
 		},
 		"js/predict.js": function(module, exports, require, globalThis) {
@@ -1490,17 +1542,20 @@
 				// equivalent lobes (rim6) the lead matters modulo one lobe period: any lobe
 				// parks a puck as well as the next.
 				const schema = DISK_SCHEMAS[cfg.diskSchema], aims = schema.aims, lobes = schema.lobes || 1, period = 2 * Math.PI / lobes;
+				const sc = patternScale(cfg), maxAim = Math.max(0, cfg.diskR - cfg.puckR);
 				const c = Math.cos(w.theta), s = Math.sin(w.theta);
 				let best = Infinity;
 				for (let k = 0; k < aims.length; k++) {
-					const awx = cfg.diskX + c * aims[k].x - s * aims[k].y, awy = cfg.diskY + s * aims[k].x + c * aims[k].y;
+					let ax = aims[k].x * sc, ay = aims[k].y * sc;
+					if (sc !== 1) { const ar = Math.hypot(ax, ay); if (ar > maxAim && ar > 0) { ax *= maxAim / ar; ay *= maxAim / ar; } }
+					const awx = cfg.diskX + c * ax - s * ay, awy = cfg.diskY + s * ax + c * ay;
 					const dist = Math.hypot(awx - w.x[i], awy - w.y[i]);
 					if (dist >= best) continue;
 					best = dist;
 					let lead = w.omegaCur * flightTime(cfg, dist);
 					if (lobes > 1) lead %= period;
 					const cl = Math.cos(lead), sl = Math.sin(lead);
-					const lx = aims[k].x * cl - aims[k].y * sl, ly = aims[k].x * sl + aims[k].y * cl;
+					const lx = ax * cl - ay * sl, ly = ax * sl + ay * cl;
 					setTarget(1, cfg.diskX + c * lx - s * ly, cfg.diskY + s * lx + c * ly);
 				}
 				// Group 4 records the middle feed so a microscope can see it. The decision itself
@@ -1525,7 +1580,19 @@
 				if (recoverD > 1e-6) { targetX -= recoverDX / recoverD * 2 * cfg.puckR; targetY -= recoverDY / recoverD * 2 * cfg.puckR; }
 				setTarget(2, targetX, targetY);
 				best = Infinity; targetX = cfg.diskX; targetY = cfg.diskY;
-				for (let j = 0; j < w.n; j++) {
+				if (cfg.swapZones) {
+					if (cfg.recycleMode !== 'none') for (let j = 0; j < w.n; j++) {
+						if (j === i || w.own[j] === owner) continue;
+						const d = -swapVoidField(cfg, cfg.recycleMode, w.x[j], w.y[j]);
+						if (d >= best) continue;
+						best = d;
+						const vx = cfg.recycleMode === 'advance' ? 0 : 0.5 * (cfg.diskX + cfg.diskR + cfg.launchMinX);
+						const vy = w.y[j] < cfg.diskY ? 0.15 : cfg.boardH - 0.15;
+						const pushX = vx - w.x[j], pushY = vy - w.y[j], pushD = Math.hypot(pushX, pushY) || 1;
+						targetX = w.x[j] - pushX / pushD * 2 * cfg.puckR;
+						targetY = w.y[j] - pushY / pushD * 2 * cfg.puckR;
+					}
+				} else for (let j = 0; j < w.n; j++) {
 					if (j === i || w.own[j] === owner) continue;
 					let holeDistance = Infinity, holeIndex = 0;
 					for (let k = 0; k < cfg.holes.length; k++) {
@@ -1841,7 +1908,9 @@
 			const HOLD_BIN = 0.01, HOLD_RAYS = 72; // m, directions
 			const _hold = {};
 			function holdProfile(cfg) {
-				if (_hold[cfg.diskSchema]) return _hold[cfg.diskSchema];
+				const key = cfg.diskSchema + '@' + cfg.diskR + '@' + cfg.puckR + '@' + (cfg.scoreScale || 1);
+				if (_hold[key]) return _hold[key];
+				if (Object.keys(_hold).length >= 16) for (const old of Object.keys(_hold)) delete _hold[old];
 				const w = createWorld(cfg), i = spawnPuck(w, cfg.diskX, cfg.diskY, 0), span = cfg.diskR - cfg.puckR;
 				const out = new Float64Array(Math.floor(span / HOLD_BIN) + 1);
 				let sum = 0;
@@ -1855,7 +1924,7 @@
 					sum += ring * (k === 0 ? Math.PI * HOLD_BIN * HOLD_BIN / 4 : 2 * Math.PI * k * HOLD_BIN * HOLD_BIN);
 					out[k] = sum / (Math.PI * span * span);
 				}
-				return (_hold[cfg.diskSchema] = out);
+				return (_hold[key] = out);
 			}
 			function holdableRate(cfg, omega) {
 				const prof = holdProfile(cfg);
@@ -2642,9 +2711,10 @@
 				// is the top of the ice — over every marking already painted, including the voids,
 				// the aim ghost and the stones.
 				let skin = null;
-				let texDisk = null, texSchema = '', texRadius = 0, ppmDisk = 0, texScale = false, puckGrad = null, wallPath = null, gridPath = null;
+				let texDisk = null, texSchema = '', texRadius = 0, ppmDisk = 0, texScore = 1, puckGrad = null, wallPath = null, gridPath = null;
 				let zoneFan = null, zoneAdv = null, sectorPath = null, bandPath = null, holeClip = null;
-				let builtZone = '', builtHole = ''; // the shape styles the zone and hole paths were baked for
+				let swapZoneNone = null, swapZoneAdv = null, swapZoneFan = null, swapVoidAdv = null, swapVoidFan = null;
+				let builtZone = '', builtHole = '', builtSwap = false; // the shape styles the zone and hole paths were baked for
 				const holeTri = new Float64Array(6);
 				const Z_FILL = 'rgba(32,178,170,0.16)', Z_LINE = 'rgba(46,204,196,0.55)', Z_HATCH = 'rgba(46,204,196,0.16)';
 				const SECTOR_SHADE = 'rgba(45,52,54,0.42)'; // 3 of the 6 face sectors
@@ -2681,7 +2751,7 @@
 				// Gradients belong to this renderer's canvas and board height. The theme table is
 				// shared by every renderer on the page, so the fills live here instead.
 				const floorFill = {};
-				const font = { hud: '', label: '', zone: '', hole: '', num: '', tag: '' };
+				const font = { hud: '', label: '', zone: '', holeZone: '', hole: '', num: '', tag: '' };
 				const ghostInk = [];
 				function setup(canvas, config) {
 					cfg = config || CFG;
@@ -2715,14 +2785,14 @@
 				function applyTheme(name) {
 					themeName = name; theme = THEMES[name];
 					const f = theme.font;
-					font.hud = 'bold 0.088px ' + f; font.label = '0.075px ' + f; font.zone = '0.09px ' + f;
+					font.hud = 'bold 0.088px ' + f; font.label = '0.075px ' + f; font.zone = '0.09px ' + f; font.holeZone = '0.055px ' + f;
 					font.hole = '0.045px ' + f; font.num = 'bold ' + (cfg.puckR * 0.55) + 'px ' + f; font.tag = '0.06px ' + f;
 					for (let c = 0; c < GHOST_CHUNKS; c++) ghostInk[c] = 'rgba(' + theme.ink + ',' + (0.10 + 0.07 * (GHOST_CHUNKS - c)).toFixed(3) + ')';
 					theme.inkSolid = 'rgb(' + theme.ink + ')';
 				}
 				function buildZonePaths() {
 					const z = cfg.returnZone, v = cfg.advanceZone;
-					builtZone = cfg.zoneStyle; builtHole = cfg.holeStyle;
+					builtZone = cfg.zoneStyle; builtHole = cfg.holeStyle; builtSwap = !!cfg.swapZones;
 					// Both return rules: a fill with the on-disk guard (diskR + puckR) punched
 					// out of it, so the exemption is drawn instead of implied, plus the outline
 					// to stroke and the lines that fill it. The 'advance' rule adds the launch lane.
@@ -2733,6 +2803,8 @@
 						zoneAdv = bakeZone(v, [v.lx, 0, v.lw, cfg.boardH], hatch);
 					}
 					buildHoleClip();
+					if (cfg.swapZones) buildSwapPaths();
+					else { swapZoneNone = swapZoneAdv = swapZoneFan = swapVoidAdv = swapVoidFan = null; }
 					// Puck face: 6 sectors, 3 shaded, unit radius (scaled per puck at draw time).
 					sectorPath = new Path2D();
 					for (let k = 0; k < 3; k++) {
@@ -2944,6 +3016,91 @@
 					}
 					path.closePath();
 				}
+				// Swapped board markings: the old holes become circular return zones (plus the
+				// right strip near start, which stays a return zone), and the old return zone
+				// (minus that right strip) becomes the void. Pre-baked so drawWorld allocates nothing.
+				function bakeSwapVoid(mode) {
+					const step = SOFT_GRID;
+					const nx = Math.ceil((cfg.boardW + 2 * SOFT_PAD) / step) + 1, ny = Math.ceil((cfg.boardH + 2 * SOFT_PAD) / step) + 1;
+					const raw = new Float32Array(nx * ny), closed = new Float32Array(nx * ny);
+					let top = 0;
+					for (let j = 0; j < ny; j++) {
+						const y = j * step - SOFT_PAD;
+						for (let i = 0; i < nx; i++) {
+							const x = i * step - SOFT_PAD, f = swapVoidField(cfg, mode, x, y);
+							raw[j * nx + i] = f;
+							if (x > 0.04 && x < cfg.boardW - 0.04 && y > 0.04 && y < cfg.boardH - 0.04 && f > top) top = f;
+						}
+					}
+					if (top <= 0) return null;
+					const inset = Math.min(cfg.puckR * 0.75, top * 0.38);
+					let upBest = -1e9, upX = 0, upY = 0, dnBest = -1e9, dnX = 0, dnY = 0;
+					for (let j = 0; j < ny; j++) {
+						const y = j * step - SOFT_PAD;
+						if (y < 0.06 || y > cfg.boardH - 0.06) continue;
+						for (let i = 0; i < nx; i++) {
+							const x = i * step - SOFT_PAD;
+							if (x < 0.09 || x > cfg.boardW - 0.09) continue;
+							const f = raw[j * nx + i];
+							if (f <= 0.02) continue;
+							const w = Math.min(f - inset, x - 0.09, cfg.boardW - 0.09 - x, y - 0.06, cfg.boardH - 0.06 - y);
+							if (y < cfg.diskY && w > upBest) { upBest = w; upX = x; upY = y; }
+							if (y >= cfg.diskY && w > dnBest) { dnBest = w; dnX = x; dnY = y; }
+						}
+					}
+					const trace = contourTracer(nx, ny, -SOFT_PAD, -SOFT_PAD, step);
+					function closeLoop(lv) {
+						const path = new Path2D();
+						for (let j = 0; j < ny; j++) {
+							const y = j * step - SOFT_PAD;
+							for (let i = 0; i < nx; i++) {
+								const x = i * step - SOFT_PAD;
+								closed[j * nx + i] = Math.min(raw[j * nx + i] - lv, Math.min(x, cfg.boardW - x, y, cfg.boardH - y) + SOFT_PAD / 2);
+							}
+						}
+						trace(path, closed, 0);
+						return path;
+					}
+					const reachOut = closeLoop(-RING_HALF), capture = closeLoop(0), core = closeLoop(inset);
+					const mid = closeLoop(inset + (top - inset) * 0.42), deep = closeLoop(inset + (top - inset) * 0.70);
+					const labels = [];
+					if (upBest > -0.04) labels.push([upX, upY]);
+					if (dnBest > -0.04 && (!labels.length || Math.hypot(dnX - upX, dnY - upY) > 0.25)) labels.push([dnX, dnY]);
+					return { reachOut, capture, core, mid, deep, labels };
+				}
+				function buildSwapPaths() {
+					const v = cfg.advanceZone, z = cfg.returnZone;
+					let hatch;
+					if (isFieldZone(cfg)) {
+						hatch = new Path2D();
+						for (let k = 0; k < cfg.holes.length; k++) {
+							const h = cfg.holes[k], R = h.r + cfg.puckR;
+							for (let r = R - SOFT_LINE_GAP; r > 0.02; r -= SOFT_LINE_GAP) { hatch.moveTo(h.x + r, h.y); hatch.arc(h.x, h.y, r, 0, TAU); }
+						}
+						for (let x = v.lx + SOFT_LINE_GAP; x < cfg.boardW - 0.01; x += SOFT_LINE_GAP) { hatch.moveTo(x, 0); hatch.lineTo(x, cfg.boardH); }
+					} else hatch = cfg.zoneStyle === 'wavy' ? wavyHatch() : straightHatch();
+					const holeLabels = [];
+					for (let k = 0; k < cfg.holes.length; k++) {
+						const h = cfg.holes[k], R = h.r + cfg.puckR;
+						const dy = h.y <= 0.05 ? R * 0.42 : h.y >= cfg.boardH - 0.05 ? -R * 0.42 : 0;
+						holeLabels.push([clamp(h.x, 0.12, cfg.boardW - 0.12), clamp(h.y + dy, 0.08, cfg.boardH - 0.08), 0, true]);
+					}
+					const nonePath = new Path2D(); nonePath.addPath(holeClip);
+					swapZoneNone = { path: nonePath, line: nonePath, hatch, labels: holeLabels };
+					const advPath = new Path2D(); advPath.addPath(holeClip); advPath.rect(v.lx, 0, v.lw, cfg.boardH);
+					swapZoneAdv = { path: advPath, line: advPath, hatch, labels: holeLabels.concat([[v.lx + v.lw / 2, cfg.diskY * 0.75, -Math.PI / 2, false]]) };
+					const fanPath = new Path2D(); fanPath.addPath(holeClip);
+					const fanLabels = holeLabels.slice();
+					if (z.bx > v.lx) {
+						const t = clamp((v.lx - z.ax) / (z.bx - z.ax), 0, 1);
+						const y0 = z.ay + (z.by - z.ay) * t, y1 = z.ay + (z.cy - z.ay) * t;
+						fanPath.moveTo(v.lx, y0); fanPath.lineTo(z.bx, z.by); fanPath.lineTo(z.cx, z.cy); fanPath.lineTo(v.lx, y1); fanPath.closePath();
+						fanLabels.push([0.5 * (v.lx + z.bx), cfg.diskY * 0.75, -Math.PI / 2, false]);
+					}
+					swapZoneFan = { path: fanPath, line: fanPath, hatch, labels: fanLabels };
+					swapVoidAdv = bakeSwapVoid('advance');
+					swapVoidFan = bakeSwapVoid('zones');
+				}
 				function resize(geometryChanged = false) {
 					const box = cv.parentElement;
 					const availW = box.clientWidth || 960;
@@ -2998,13 +3155,31 @@
 					g.globalCompositeOperation = 'destination-in';
 					g.fillStyle = '#ffffff';
 					g.beginPath(); g.arc(tex.width / 2, tex.height / 2, cfg.diskR * ppm, 0, Math.PI * 2); g.fill();
-					texDisk = cut; texSchema = cfg.diskSchema; texRadius = cfg.diskR; texScale = cfg.diskScale; ppmDisk = ppm;
+					texDisk = cut; texSchema = cfg.diskSchema; texRadius = cfg.diskR; texScore = cfg.scoreScale; ppmDisk = ppm;
 				}
 				function toWorld(clientX, clientY) {
 					const r = cv.getBoundingClientRect();
 					return { x: (clientX - r.left) * cfg.boardW / r.width, y: (clientY - r.top) * cfg.boardH / r.height };
 				}
+				function swapZoneFor(mode) { return mode === 'advance' ? swapZoneAdv : mode === 'zones' ? swapZoneFan : swapZoneNone; }
 				function drawZones(mode) {
+					if (cfg.swapZones) {
+						const z = swapZoneFor(mode);
+						if (!z) return;
+						ctx.save();
+						ctx.fillStyle = Z_FILL; ctx.fill(z.path, 'evenodd');
+						ctx.save(); ctx.clip(z.path, 'evenodd');
+						ctx.strokeStyle = Z_HATCH; ctx.lineWidth = 0.012; ctx.stroke(z.hatch);
+						ctx.restore();
+						ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = Z_LINE;
+						ctx.stroke(z.line); ctx.setLineDash([]);
+						for (let i = 0; i < z.labels.length; i++) {
+							const l = z.labels[i];
+							drawZoneLabel(l[0], l[1], l[2], l[3] ? font.holeZone : font.zone);
+						}
+						ctx.restore();
+						return;
+					}
 					if (mode === 'none') return;
 					const z = mode === 'advance' ? zoneAdv : zoneFan;
 					ctx.save();
@@ -3029,33 +3204,69 @@
 					ctx.restore();
 				}
 				const HOLE_DARK = '#090812', HOLE_RIM = '#9b59b6', HOLE_REACH = 'rgba(186, 104, 200, 0.65)';
+				const RING_HALF = 0.006; // half the reach-ring stroke: keeps dashes on the ice outside a black-filled capture disk
+				function drawReachRing(hole, extra) {
+					ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r + cfg.puckR + extra, 0, TAU);
+					ctx.strokeStyle = HOLE_REACH; ctx.lineWidth = 0.012; ctx.setLineDash([0.035, 0.025]); ctx.stroke();
+					ctx.setLineDash([]);
+				}
 				// The black-inside view option fills every hole's capture region — the shape grown
 				// by the puck radius (holeClip) — so a puck visibly slides onto the black and falls
 				// when its centre reaches the dashed ring, not when its edge touches the void rim.
-				function drawBlackHoles(fill) {
+				// Every reach ring goes down before any black fill (and shifted outward by RING_HALF
+				// when filled black) so dashes stay on the ice and never paint over black.
+				function drawBlackHoles(fill, mode) {
+					if (cfg.swapZones) { drawSwappedVoid(fill, mode); return; }
 					ctx.save();
 					ctx.beginPath(); ctx.rect(0, 0, cfg.boardW, cfg.boardH); ctx.clip();
+					if (cfg.holeStyle !== 'triangle' && cfg.holeStyle !== 'rim') {
+						for (let i = 0; i < cfg.holes.length; i++) drawReachRing(cfg.holes[i], fill ? RING_HALF : 0);
+					}
 					if (fill) { ctx.fillStyle = HOLE_DARK; ctx.fill(holeClip); }
 					for (let i = 0; i < cfg.holes.length; i++) {
 						const hole = cfg.holes[i];
-						if (cfg.holeStyle === 'triangle') drawTriangleHole(hole, fill);
-						else drawRoundHole(hole, cfg.holeStyle, fill);
+						if (!fill) {
+							if (cfg.holeStyle === 'triangle') drawTriangleHole(hole);
+							else drawRoundHole(hole, cfg.holeStyle);
+						}
 						ctx.fillStyle = '#e5c3ff'; ctx.font = font.hole;
 						ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('VOID', hole.x, hole.y + (hole.y < cfg.diskY ? 0.055 : -0.055));
 					}
 					ctx.restore();
 				}
-				// 'classic' and 'well' draw the reach ring: the locus of a swallowed puck's centre
-				// (r + puckR), so the ring grows with the puck; 'rim' leaves it implied. 'well'
-				// steps the void down into a core. With the black-inside option the capture disk
-				// is already filled, so only the ring is drawn.
-				function drawRoundHole(hole, style, fill) {
-					if (style !== 'rim') {
-						ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r + cfg.puckR, 0, TAU);
-						ctx.strokeStyle = HOLE_REACH; ctx.lineWidth = 0.012; ctx.setLineDash([0.035, 0.025]); ctx.stroke();
-						ctx.setLineDash([]);
+				function drawSwappedVoid(fill, mode) {
+					const v = mode === 'advance' ? swapVoidAdv : mode === 'zones' ? swapVoidFan : null;
+					if (!v) return;
+					const style = cfg.holeStyle;
+					ctx.save();
+					ctx.beginPath(); ctx.rect(0, 0, cfg.boardW, cfg.boardH); ctx.clip();
+					if (fill) {
+						if (style !== 'rim') {
+							ctx.strokeStyle = HOLE_REACH; ctx.lineWidth = 0.012; ctx.setLineDash([0.035, 0.025]);
+							ctx.stroke(v.reachOut); ctx.setLineDash([]);
+						}
+						ctx.fillStyle = HOLE_DARK; ctx.fill(v.capture, 'evenodd');
+					} else {
+						if (style !== 'rim') {
+							ctx.strokeStyle = HOLE_REACH; ctx.lineWidth = 0.012; ctx.setLineDash([0.035, 0.025]);
+							ctx.stroke(v.capture); ctx.setLineDash([]);
+						}
+						ctx.fillStyle = HOLE_DARK; ctx.fill(v.core, 'evenodd');
+						ctx.strokeStyle = HOLE_RIM; ctx.lineWidth = 0.018; ctx.stroke(v.core);
+						if (style === 'well') {
+							ctx.fillStyle = '#16131f'; ctx.fill(v.mid, 'evenodd');
+							ctx.strokeStyle = 'rgba(155, 89, 182, 0.42)'; ctx.lineWidth = 0.010; ctx.stroke(v.mid);
+							ctx.fillStyle = '#030206'; ctx.fill(v.deep, 'evenodd');
+						} else if (style !== 'rim') {
+							ctx.strokeStyle = 'rgba(155, 89, 182, 0.15)'; ctx.lineWidth = 0.012; ctx.stroke(v.mid);
+						}
 					}
-					if (fill) return;
+					ctx.fillStyle = '#e5c3ff'; ctx.font = font.hole;
+					ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+					for (let i = 0; i < v.labels.length; i++) ctx.fillText('VOID', v.labels[i][0], v.labels[i][1]);
+					ctx.restore();
+				}
+				function drawRoundHole(hole, style) {
 					ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r, 0, TAU);
 					ctx.fillStyle = HOLE_DARK; ctx.fill();
 					ctx.strokeStyle = HOLE_RIM; ctx.lineWidth = 0.018; ctx.stroke();
@@ -3071,10 +3282,8 @@
 					ctx.fillStyle = '#030206'; ctx.fill();
 				}
 				// The triangle and a smaller copy of it on the same wall point, so the inner one
-				// nests toward the wall like the rings of the round void. With the black-inside
-				// option the grown capture triangle is already filled.
-				function drawTriangleHole(hole, fill) {
-					if (fill) return;
+				// nests toward the wall like the rings of the round void.
+				function drawTriangleHole(hole) {
 					const t = holeTriangle(cfg, hole, holeTri);
 					ctx.lineJoin = 'miter';
 					ctx.beginPath(); ctx.moveTo(t[0], t[1]); ctx.lineTo(t[2], t[3]); ctx.lineTo(t[4], t[5]); ctx.closePath();
@@ -3086,10 +3295,10 @@
 					ctx.lineTo(hole.x, hole.y + k * (t[5] - hole.y)); ctx.closePath();
 					ctx.strokeStyle = 'rgba(155, 89, 182, 0.45)'; ctx.lineWidth = 0.012; ctx.stroke();
 				}
-				function drawZoneLabel(x, y, rot) {
+				function drawZoneLabel(x, y, rot, f) {
 					ctx.save();
 					ctx.translate(x, y); ctx.rotate(rot);
-					ctx.fillStyle = Z_LINE; ctx.font = font.zone;
+					ctx.fillStyle = Z_LINE; ctx.font = f || font.zone;
 					ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 					ctx.fillText('RETURN', 0, 0);
 					ctx.restore();
@@ -3124,8 +3333,8 @@
 				function drawWorld(view) {
 					const w = view.w, aim = view.aim, opts = view.opts, pred = view.pred;
 					if (opts.theme !== themeName) applyTheme(opts.theme);
-					if (cfg.diskSchema !== texSchema || cfg.diskR !== texRadius || cfg.diskScale !== texScale) bakeDisk();
-					if (cfg.zoneStyle !== builtZone || cfg.holeStyle !== builtHole) buildZonePaths();
+					if (cfg.diskSchema !== texSchema || cfg.diskR !== texRadius || cfg.scoreScale !== texScore) bakeDisk();
+					if (cfg.zoneStyle !== builtZone || cfg.holeStyle !== builtHole || !!cfg.swapZones !== builtSwap) buildZonePaths();
 					ctx.setTransform(1, 0, 0, 1, 0, 0);
 					ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, cv.width, cv.height);
 					ctx.setTransform(sx, 0, 0, sy, 0, 0);
@@ -3143,7 +3352,8 @@
 					ctx.translate(cfg.diskX, cfg.diskY); ctx.rotate(w.theta);
 					ctx.drawImage(texDisk, -cfg.diskR, -cfg.diskR, 2 * cfg.diskR, 2 * cfg.diskR);
 					if (skin && skin.disk) skin.disk(ctx, view, cfg);
-					ctx.fillStyle = theme.tick; ctx.fillRect(0.55, -0.012, 0.22, 0.024); // spin tick
+					const ts = cfg.diskR / DISK_REF_R;
+					ctx.fillStyle = theme.tick; ctx.fillRect(0.55 * ts, -0.012, 0.22 * ts, 0.024); // spin tick
 					ctx.restore();
 					ctx.lineWidth = 0.015; ctx.strokeStyle = theme.rim;
 					ctx.beginPath(); ctx.arc(cfg.diskX, cfg.diskY, cfg.diskR, 0, Math.PI * 2); ctx.stroke();
@@ -3154,15 +3364,22 @@
 							ctx.beginPath(); ctx.arc(cfg.diskX, cfg.diskY, dh, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
 						}
 					}
-					drawBlackHoles(opts.holeFill);
+					drawBlackHoles(opts.holeFill, opts.mode);
 					// The ice surface: reflections and the frozen veil that sits over the markings.
 					if (skin && skin.surface) {
-						ctx.save();
-						const zone = opts.mode === 'advance' ? zoneAdv : zoneFan;
-						if (opts.mode !== 'none') ctx.clip(zone.path, 'evenodd');
-						if (opts.mode !== 'none') skin.surface(ctx, view, cfg);
-						ctx.restore();
-						ctx.save(); ctx.clip(holeClip); skin.surface(ctx, view, cfg); ctx.restore();
+						if (cfg.swapZones) {
+							const sz = swapZoneFor(opts.mode);
+							if (sz) { ctx.save(); ctx.clip(sz.path, 'evenodd'); skin.surface(ctx, view, cfg); ctx.restore(); }
+							const sv = opts.mode === 'advance' ? swapVoidAdv : opts.mode === 'zones' ? swapVoidFan : null;
+							if (sv) { ctx.save(); ctx.clip(sv.capture, 'evenodd'); skin.surface(ctx, view, cfg); ctx.restore(); }
+						} else {
+							ctx.save();
+							const zone = opts.mode === 'advance' ? zoneAdv : zoneFan;
+							if (opts.mode !== 'none') ctx.clip(zone.path, 'evenodd');
+							if (opts.mode !== 'none') skin.surface(ctx, view, cfg);
+							ctx.restore();
+							ctx.save(); ctx.clip(holeClip); skin.surface(ctx, view, cfg); ctx.restore();
+						}
 					}
 					// Launch zone
 					ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 0.01; ctx.setLineDash([0.04, 0.03]);

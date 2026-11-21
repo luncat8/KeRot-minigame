@@ -77,7 +77,9 @@ function speedStrat(cfg, name) {
 const HOLD_BIN = 0.01, HOLD_RAYS = 72; // m, directions
 const _hold = {};
 function holdProfile(cfg) {
-	if (_hold[cfg.diskSchema]) return _hold[cfg.diskSchema];
+	const key = cfg.diskSchema + '@' + cfg.diskR + '@' + cfg.puckR + '@' + (cfg.scoreScale || 1);
+	if (_hold[key]) return _hold[key];
+	if (Object.keys(_hold).length >= 16) for (const old of Object.keys(_hold)) delete _hold[old];
 	const w = createWorld(cfg), i = spawnPuck(w, cfg.diskX, cfg.diskY, 0), span = cfg.diskR - cfg.puckR;
 	const out = new Float64Array(Math.floor(span / HOLD_BIN) + 1);
 	let sum = 0;
@@ -91,7 +93,7 @@ function holdProfile(cfg) {
 		sum += ring * (k === 0 ? Math.PI * HOLD_BIN * HOLD_BIN / 4 : 2 * Math.PI * k * HOLD_BIN * HOLD_BIN);
 		out[k] = sum / (Math.PI * span * span);
 	}
-	return (_hold[cfg.diskSchema] = out);
+	return (_hold[key] = out);
 }
 function holdableRate(cfg, omega) {
 	const prof = holdProfile(cfg);

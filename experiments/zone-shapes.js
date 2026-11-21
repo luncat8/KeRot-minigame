@@ -244,6 +244,25 @@ rays('classic');
 		}
 	}
 	check(drawn === 72, 'every zone × hole × rule combination draws', drawn + ' frames');
+	let swappedDrawn = 0, overlap = 0;
+	CFG.swapZones = true;
+	for (const zones of ZONE_STYLES) {
+		for (const holes of HOLE_STYLES) {
+			for (const mode of ['none', 'zones', 'advance']) {
+				CFG.zoneStyle = zones; CFG.holeStyle = holes; view.opts.mode = mode;
+				view.opts.holeFill = false; Render.drawWorld(view); swappedDrawn++;
+				view.opts.holeFill = true; Render.drawWorld(view); swappedDrawn++;
+				for (let x = 0.02; x < CFG.boardW; x += 0.08) {
+					for (let y = 0.02; y < CFG.boardH; y += 0.08) {
+						if (inSwapVoid(CFG, mode, x, y) && inSwappedReturnZone(CFG, mode, x, y)) overlap++;
+					}
+				}
+			}
+		}
+	}
+	view.opts.holeFill = false; CFG.swapZones = false;
+	check(swappedDrawn === 144, 'every swapped zone × hole × rule × holeFill combination draws', swappedDrawn + ' frames');
+	check(overlap === 0, 'swapped void and swapped return zones never overlap across any style', overlap + ' points');
 }
 const setup = parseQuery('zones=Arcs&holes=triangle&cards=round');
 applyCfg(setup);

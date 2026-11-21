@@ -42,8 +42,8 @@ const CFG = {
 	// the disk and the holes, outlined by those three circles alone; '6-hemi' — one
 	// circular outline around the disk, the holes inside. holeStyle: 'classic' | 'rim'
 	// | 'well' — the round void, drawn three ways; 'triangle' — a triangular void.
-	zoneStyle: 'hatch', holeStyle: 'classic',
-	zoneCutGap: 0.06, zoneReach: 1, customGeometry: false, diskScale: false, // scale: paint + default speed grow/shrink with the disk radius; crop (default): paint stays in metres
+	zoneStyle: 'hatch', holeStyle: 'classic', swapZones: false,
+	zoneCutGap: 0.06, zoneReach: 1, customGeometry: false, scoreScale: 1, // scoreScale: score-map size relative to diskR (1 = 100%)
 	diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
 	// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel
 	// slider alone; 'turn' — the seats vote before every turn; 'round' — before every

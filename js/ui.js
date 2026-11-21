@@ -9,10 +9,10 @@ const UI = (() => {
 	// preset move CFG — a shared link lists only what differs from this.
 	const SHIPPED = {
 		omega: CFG.omega, muK: CFG.muK, muS: CFG.muS, puckM: CFG.puckM,
-		schema: CFG.diskSchema, recycle: CFG.recycleMode, zones: CFG.zoneStyle, holes: CFG.holeStyle, vote: CFG.speedVote, voteMode: CFG.voteMode, balls: CFG.ballsPerPlayer,
+		schema: CFG.diskSchema, recycle: CFG.recycleMode, zones: CFG.zoneStyle, holes: CFG.holeStyle, swap: CFG.swapZones, scoreScale: CFG.scoreScale,
+		vote: CFG.speedVote, voteMode: CFG.voteMode, balls: CFG.ballsPerPlayer,
 		botspeed: CFG.botSpeed, warp: !!CFG.warp, warpTries: CFG.warpTries, warpTurns: CFG.warpTurns, warpGoal: CFG.warpGoal,
 		theme: 'classic', cards: 'square', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3, seats: 'human,balanced,blackhole,retriever',
-		diskScale: CFG.diskScale,
 	};
 	// The speed bar's select is the same setting as the rule radios in the drawer; it
 	// says who sets the speed, in the words a turn wants.
@@ -31,7 +31,7 @@ const UI = (() => {
 		// are the first controls bound; the rest of the panel is read below.
 		for (const id of ['btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'btnSettings'])
 			els[id] = $(id);
-		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'chkHoleFill', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
+		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'chkHoleFill', 'chkSwap', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
 			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus', 'speedMode',
 			'chkCards', 'fx', 'chkSfx', 'decor', 'face', 'vol', 'volVal', 'result', 'resultWinner', 'resultScores'])
 			els[id] = $(id);
@@ -93,7 +93,16 @@ const UI = (() => {
 		els.btnPause.addEventListener('click', () => { els.btnPause.textContent = Game.togglePause() ? 'Resume' : 'Pause'; });
 		els.btnAdd.addEventListener('click', () => { Game.addPlayer(nextType()); syncRoster(); markCustom(); });
 		for (const r of radios('recycle')) {
-			r.addEventListener('change', () => { if (r.checked) { CFG.recycleMode = r.value; opts.mode = r.value; markCustom(); } });
+			r.addEventListener('change', () => { if (r.checked) { CFG.recycleMode = r.value; opts.mode = r.value; if (CFG.swapZones) absorbBlackHoles(Game.world); Game.invalidateGhost(); markCustom(); } });
+		}
+		if (els.chkSwap) {
+			els.chkSwap.checked = !!CFG.swapZones;
+			els.chkSwap.addEventListener('change', () => {
+				CFG.swapZones = els.chkSwap.checked;
+				absorbBlackHoles(Game.world);
+				Game.invalidateGhost();
+				markCustom();
+			});
 		}
 		// The shapes are live rules too: the renderer rebakes on the next frame, and the
 		// ghost is re-simulated because a void of another shape swallows other paths.
@@ -150,10 +159,11 @@ const UI = (() => {
 		if (Math.abs(CFG.muS - SHIPPED.muS) > 5e-4) parts.push('mus=' + numParam(CFG.muS));
 		if (Math.abs(CFG.puckM - SHIPPED.puckM) > 1e-3) parts.push('mass=' + numParam(CFG.puckM));
 		if (CFG.diskSchema !== SHIPPED.schema) parts.push('schema=' + CFG.diskSchema);
+		if (Math.abs((CFG.scoreScale || 1) - SHIPPED.scoreScale) > 5e-4) parts.push('scorescale=' + numParam(CFG.scoreScale));
 		if (CFG.recycleMode !== SHIPPED.recycle) parts.push('recycle=' + CFG.recycleMode);
 		if (CFG.zoneStyle !== SHIPPED.zones) parts.push('zones=' + CFG.zoneStyle);
 		if (CFG.holeStyle !== SHIPPED.holes) parts.push('holes=' + CFG.holeStyle);
-		if (!!CFG.diskScale !== SHIPPED.diskScale) parts.push('diskscale=' + (CFG.diskScale ? 1 : 0));
+		if (!!CFG.swapZones !== SHIPPED.swap) parts.push('swap=' + (CFG.swapZones ? 1 : 0));
 		if (CFG.speedVote !== SHIPPED.vote) parts.push('vote=' + CFG.speedVote);
 		if (CFG.voteMode !== SHIPPED.voteMode) parts.push('votemode=' + CFG.voteMode);
 		if (CFG.botSpeed !== SHIPPED.botspeed) parts.push('botspeed=' + CFG.botSpeed);
@@ -203,6 +213,7 @@ const UI = (() => {
 		if (els.view) els.view.value = View.isFit() ? 'fit' : 'side';
 		for (const r of radios('recycle')) r.checked = r.value === CFG.recycleMode;
 		opts.mode = CFG.recycleMode;
+		if (els.chkSwap) els.chkSwap.checked = !!CFG.swapZones;
 		for (const r of radios('zoneStyle')) r.checked = r.value === CFG.zoneStyle;
 		for (const r of radios('holeStyle')) r.checked = r.value === CFG.holeStyle;
 		for (const r of radios('speedVote')) r.checked = r.value === CFG.speedVote;
@@ -253,7 +264,8 @@ const UI = (() => {
 		if (setup.holeFill !== undefined) els.chkHoleFill.checked = setup.holeFill;
 		if (setup.seats && setup.seats.length) Game.setSeatTypes(setup.seats); // resets itself
 		else if (setup.omega !== undefined || setup.muK !== undefined || setup.muS !== undefined || setup.puckM !== undefined ||
-			setup.geometry !== undefined || setup.maxThrows !== undefined || setup.autoOmega || setup.balls !== undefined || setup.schema || setup.recycle || setup.vote || setup.voteMode) Game.reset();
+			setup.geometry !== undefined || setup.maxThrows !== undefined || setup.autoOmega || setup.balls !== undefined ||
+			setup.schema || setup.scoreScale !== undefined || setup.recycle || setup.swap !== undefined || setup.vote || setup.voteMode) Game.reset();
 		pullControls();
 		syncFX();
 		syncRoster();

@@ -133,10 +133,24 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(ops.includes(reachArc(CFG.holes[0].r + 0.08)), 'the ring grows with the puck', reachArc(CFG.holes[0].r + 0.08));
 	CFG.puckR = 0.1; Render.resize(true);
 		view.opts.holeFill = true; ops.length = 0; Render.drawWorld(view);
+		check(ops.includes(reachArc(CFG.holes[0].r + CFG.puckR + 0.006)),
+			'the black-inside reach ring shifts out by half its stroke so dashes sit on ice', reachArc(CFG.holes[0].r + CFG.puckR + 0.006));
+		check(ops.indexOf(reachArc(CFG.holes[0].r + CFG.puckR + 0.006)) < ops.lastIndexOf('fill'),
+			'the reach ring strokes before the black capture fill');
 		const captureFills = ops.filter(o => o === 'fill').length;
 		view.opts.holeFill = false; ops.length = 0; Render.drawWorld(view);
 		check(captureFills === ops.filter(o => o === 'fill').length - 1,
 			'the black-inside option replaces the two void fills with one capture-disk fill', captureFills);
+	// Swapped return zones and voids render cleanly across all recycle modes and scoreScale.
+	CFG.swapZones = true; CFG.scoreScale = 1.3;
+	for (const m of ['none', 'zones', 'advance']) {
+		view.opts.mode = m; ops.length = 0; Render.drawWorld(view);
+		check(ops.includes('text:RETURN'), 'swapped mode ' + m + ' draws circular return zones');
+		check(m === 'none' ? !ops.includes('text:VOID') : ops.includes('text:VOID'), 'swapped mode ' + m + ' void labels match rule');
+	}
+	view.opts.holeFill = true; view.opts.mode = 'advance'; ops.length = 0; Render.drawWorld(view);
+	check(ops.includes('text:VOID') && ops.includes('text:RETURN'), 'swapped black-inside mode renders both return zones and void');
+	view.opts.holeFill = false; CFG.swapZones = false; CFG.scoreScale = 1; Render.resize(true);
 	// The board is sized to fit its box, not to the window: it keeps its aspect, never
 	// exceeds the box on either axis, and fills it on the tight one — that is what
 	// keeps the page from ever growing a scrollbar.
@@ -852,18 +866,24 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		// only the keys that differ from the shipped board.
 		UI.applyPreset('default'); // back to the shipped presentation and table first
 		UI.applyPreset('notsobigdisk');
-		check(CFG.diskScale === true && CFG.zoneStyle === '3-rounded' && CFG.holeStyle === 'well' && CFG.customGeometry &&
-			Math.abs(CFG.omega - autoOmega(CFG)) < 1e-6, 'the not-so-big-disk preset applies the small board', CFG.omega.toFixed(6));
+		check(CFG.scoreScale === 1 && CFG.zoneStyle === '3-rounded' && CFG.holeStyle === 'well' && CFG.customGeometry &&
+			Math.abs(CFG.omega - autoOmega(CFG)) < 1e-6, 'the not-so-big-disk preset applies the small board with proportional scoreScale', CFG.omega.toFixed(6));
 		check(Game.seatTypes.join() === 'random,balanced,blackhole,retriever', 'the preset swaps the roster', Game.seatTypes.join());
 		const smallChanges = UI.changesQuery();
 		check(smallChanges.includes('geometry=') && smallChanges.includes('zones=3-rounded') && smallChanges.includes('holes=well') &&
-			smallChanges.includes('diskscale=1') && smallChanges.includes('omega=1.566046') &&
+			smallChanges.includes('omega=1.566046') &&
 			smallChanges.includes('seats=random,balanced,blackhole,retriever'), 'the changes link names every difference', smallChanges);
-		check(!/(?:^|&)(muk|mus|mass|schema|recycle|balls|vote|vol|theme|fx|sfx|decor|face|cards)=/.test(smallChanges),
+		check(!/(?:^|&)(muk|mus|mass|schema|scorescale|recycle|swap|balls|vote|vol|theme|fx|sfx|decor|face|cards)=/.test(smallChanges),
 			'shipped values stay out of the changes link', smallChanges);
 		UI.applySetup(parseQuery('?' + smallChanges));
-		check(CFG.diskScale === true && CFG.zoneStyle === '3-rounded' && CFG.holeStyle === 'well', 'the changes link reopens the board');
+		check(CFG.scoreScale === 1 && CFG.zoneStyle === '3-rounded' && CFG.holeStyle === 'well', 'the changes link reopens the board');
 		UI.applyPreset('default');
+		els.chkSwap.checked = true; els.chkSwap.on.change();
+		check(CFG.swapZones === true && /(?:^|&)swap=1(?:&|$)/.test(UI.changesQuery()), 'chkSwap toggles CFG.swapZones and echoes swap=1');
+		CFG.scoreScale = 1.4; UI.refreshEditor();
+		check(/(?:^|&)scorescale=1\.4(?:&|$)/.test(UI.changesQuery()), 'scoreScale echoes scorescale=1.4');
+		UI.applyPreset('default');
+		check(CFG.swapZones === false && CFG.scoreScale === 1 && els.chkSwap.checked === false, 'default preset resets swapZones and scoreScale');
 			console.log('presets/url smoke: ' + Object.keys(PRESETS).length + ' presets, parameters applied and clamped, sliders pulled, roster swapped, link echoed');
 			els.chkRing.checked = true; els.chkPreview.checked = true; els.chkHoleFill.checked = false;
 	}

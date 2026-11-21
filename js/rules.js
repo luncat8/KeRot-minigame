@@ -67,7 +67,7 @@ function sideGap(ax, ay, bx, by, px, py, x, y) {
 // the holes are far away, so the fan's own sides stay. '6-hemi': the half-board
 // through the disk centre cut by one bigger circle around the disk, so the
 // outline is a circular arc and the holes lie inside, as in 'arcs' but cut sharp.
-function zoneField(cfg, mode, x, y) {
+function zoneWedgeField(cfg, mode, x, y) {
 	const left = mode === 'advance';
 	const gx = x - cfg.diskX, gy = y - cfg.diskY;
 	let d = Math.sqrt(gx * gx + gy * gy) - cfg.diskR - cfg.puckR;
@@ -101,9 +101,56 @@ function zoneField(cfg, mode, x, y) {
 		d = smin(d, sideGap(z.ax, z.ay, z.bx, z.by, z.cx, z.cy, x, y), ZONE_SOFT_K);
 		d = smin(d, sideGap(z.ax, z.ay, z.cx, z.cy, z.bx, z.by, x, y), ZONE_SOFT_K);
 	}
-	if (!left) return d;
+	return d;
+}
+function zoneField(cfg, mode, x, y) {
+	const d = zoneWedgeField(cfg, mode, x, y);
+	if (mode !== 'advance') return d;
 	const v = cfg.advanceZone; // the launch lane joins whatever the shape
 	return Math.max(d, Math.min(x - v.lx, v.lx + v.lw - x));
+}
+const SWAP_HOLE_GAP = 0.03;
+// When return zones and holes swap, the old return zone (except the right strip near
+// start) becomes the void, and the old holes become circular return zones. Signed
+// clearance > 0 inside the void, traced by render.js and tested by absorbBlackHoles.
+function swapVoidField(cfg, mode, x, y) {
+	if (mode === 'none') return -1;
+	let d;
+	if (isFieldZone(cfg)) d = zoneWedgeField(cfg, mode, x, y);
+	else if (mode === 'advance') {
+		const z = cfg.advanceZone;
+		d = Math.hypot(x - cfg.diskX, y - cfg.diskY) - cfg.diskR - cfg.puckR;
+		d = Math.min(d, sideGap(z.cx, z.cy, z.bx, z.by, z.ax, z.ay, x, y));
+		d = Math.min(d, sideGap(z.cx, z.cy, z.ax, z.ay, z.bx, z.by, x, y));
+		if (z.ax > 1e-6) d = Math.min(d, x - z.ax);
+	} else {
+		const z = cfg.returnZone;
+		d = Math.hypot(x - cfg.diskX, y - cfg.diskY) - cfg.diskR - cfg.puckR;
+		d = Math.min(d, sideGap(z.ax, z.ay, z.bx, z.by, z.cx, z.cy, x, y));
+		d = Math.min(d, sideGap(z.ax, z.ay, z.cx, z.cy, z.bx, z.by, x, y));
+		if (z.bx < cfg.boardW - 1e-6) d = Math.min(d, z.bx - x);
+	}
+	d = Math.min(d, cfg.advanceZone.lx - SWAP_HOLE_GAP - x);
+	for (let k = 0; k < cfg.holes.length; k++) {
+		d = Math.min(d, holeGap(cfg, cfg.holes[k], x, y) - cfg.puckR - SWAP_HOLE_GAP);
+	}
+	return d;
+}
+function inSwapVoid(cfg, mode, x, y) {
+	return !!cfg.swapZones && x >= 0 && x <= cfg.boardW && y >= 0 && y <= cfg.boardH && swapVoidField(cfg, mode, x, y) > 0;
+}
+function inHoleZone(cfg, x, y) {
+	for (let k = 0; k < cfg.holes.length; k++) {
+		if (holeGap(cfg, cfg.holes[k], x, y) <= cfg.puckR) return true;
+	}
+	return false;
+}
+function inSwappedReturnZone(cfg, mode, x, y) {
+	if (inHoleZone(cfg, x, y)) return true;
+	const v = cfg.advanceZone;
+	if (mode === 'advance') return x >= v.lx && x <= v.lx + v.lw;
+	if (mode === 'zones') return x >= v.lx && inReturnZone(cfg, 'zones', x, y);
+	return false;
 }
 // 'zones' is the eject fan: inside the triangle apex→far corners. 'advance' is the
 // wedge behind the disk plus the launch lane: a puck has to get past the disk and
@@ -138,14 +185,15 @@ function takePucks(w, test, onTake) {
 }
 let _mode = 'none';
 function puckWouldRecycle(w, i, mode) {
-	return w.st[i] === ST_SLEEP && inReturnZone(w.cfg, mode, w.x[i], w.y[i]);
+	if (w.st[i] !== ST_SLEEP) return false;
+	return w.cfg.swapZones ? inSwappedReturnZone(w.cfg, mode, w.x[i], w.y[i]) : inReturnZone(w.cfg, mode, w.x[i], w.y[i]);
 }
 function isRecyclable(w, i) { return puckWouldRecycle(w, i, _mode); }
 // A return rule only claims a puck that has come to rest inside its zone, and the disk
 // itself is exempt (inGuard), so nothing that still touches it is ever taken.
 function recyclePucks(w, mode, onBack) {
 	_mode = mode;
-	return mode === 'none' ? 0 : takePucks(w, isRecyclable, onBack);
+	return mode === 'none' && !w.cfg.swapZones ? 0 : takePucks(w, isRecyclable, onBack);
 }
 let _dropOwner = -1;
 function isOwnedBy(w, i) { return w.own[i] === _dropOwner; }
@@ -165,4 +213,5 @@ function reindexOwners(w, removed) {
 // Remove one puck by index — the puck waiting on the launch spot, for instance.
 function removePuckAt(w, at) { moveLast(w, at); }
 
-if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, isSoftZone, isCutZone, isFieldZone, ZONE_CUT_GAP, zoneField, inReturnZone, puckWouldRecycle, moveLast, takePucks, recyclePucks, dropOwned, reindexOwners, removePuckAt };
+if (typeof module !== 'undefined') module.exports = { onDisk, inGuard, isSoftZone, isCutZone, isFieldZone, ZONE_CUT_GAP, zoneWedgeField, zoneField, swapVoidField, inSwapVoid, inHoleZone, inSwappedReturnZone, inReturnZone, puckWouldRecycle, moveLast, takePucks, recyclePucks, dropOwned, reindexOwners, removePuckAt };
+if (typeof module !== 'undefined') Object.assign(globalThis, module.exports);

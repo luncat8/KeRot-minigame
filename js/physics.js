@@ -1,7 +1,7 @@
 // Fixed-step physics: area-weighted two-surface friction, co-rotation lock,
 // puck spin (material rotation) and exact time-of-impact circle/wall collisions.
 // Node-safe, no allocation in stepWorld (typed arrays + module scratch only).
-if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'));
+if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'), require('./rules.js'));
 let _evTau = 0, _evKind = 0, _evI = 0, _evJ = 0, _evAxis = 0, _evFound = false;
 function consider(i, j, axis, tau, rem) {
 	if (tau < 0 || tau > rem || (_evFound && tau >= _evTau)) return;
@@ -362,8 +362,8 @@ function findEvent(w, rem) {
 		if (w.vx[i] > 0) consider(i, -1, 0, (cfg.boardW - r - w.x[i]) / w.vx[i], rem);
 		if (w.vy[i] < 0) consider(i, -1, 1, (r - w.y[i]) / w.vy[i], rem);
 		if (w.vy[i] > 0) consider(i, -1, 1, (cfg.boardH - r - w.y[i]) / w.vy[i], rem);
-		for (let k = 0; k < w.cfg.holes.length; k++) {
-			const tau = holeEntryTime(w, i, w.cfg.holes[k], rem);
+		if (!cfg.swapZones) for (let k = 0; k < cfg.holes.length; k++) {
+			const tau = holeEntryTime(w, i, cfg.holes[k], rem);
 			if (tau >= 0) considerHole(i, k, tau, rem);
 		}
 	}
@@ -506,10 +506,14 @@ function isSettled(w) {
 	return true;
 }
 function absorbBlackHoles(w) {
+	const cfg = w.cfg;
 	for (let i = w.n - 1; i >= 0; i--) {
 		let captured = false;
-		for (let k = 0; k < w.cfg.holes.length; k++) {
-			if (holeGap(w.cfg, w.cfg.holes[k], w.x[i], w.y[i]) <= w.r[i]) { captured = true; break; }
+		if (cfg.swapZones) captured = inSwapVoid(cfg, cfg.recycleMode, w.x[i], w.y[i]);
+		else {
+			for (let k = 0; k < cfg.holes.length; k++) {
+				if (holeGap(cfg, cfg.holes[k], w.x[i], w.y[i]) <= w.r[i]) { captured = true; break; }
+			}
 		}
 		if (!captured) continue;
 		const owner = w.own[i];
@@ -525,3 +529,4 @@ function beginSettle(w) {
 	w.settling = true;
 }
 if (typeof module !== 'undefined') module.exports = { holeTriangle, holeGap, holeEntryTime, createWorld, resetWorld, spawnPuck, throwPuck, stepWorld, isSettled, beginSettle, beginSpinRamp, stopSpinRamp, spinNow, diskOverlap, surfVelAt, holdable, wakeOnDisk, swapRemovePuck, absorbBlackHoles, FR_RINGS, FR_RAYS, FR_N, FR_RAD, FR_COS, FR_SIN };
+if (typeof module !== 'undefined') Object.assign(globalThis, module.exports);

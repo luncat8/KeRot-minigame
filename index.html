@@ -260,6 +260,7 @@
 			<label><input type="radio" name="recycle" value="none" id="recNone"> keep all (classic)</label>
 			<label><input type="radio" name="recycle" value="zones" id="recZones"> eject fan (disk centre → far corners)</label>
 			<label><input type="radio" name="recycle" value="advance" id="recAdvance" checked> wedge + lane (behind the disk, launch strip)</label>
+			<label><input type="checkbox" id="chkSwap"> swap return zone and holes (except right return zone)</label>
 		</fieldset>
 		<fieldset><legend>return zone shape</legend>
 			<label><input type="radio" name="zoneStyle" value="hatch" checked> straight wedge, hatched</label>
@@ -449,7 +450,7 @@
 	from the shipped table, which is the link of what you see now.
 	<code>preset</code>, <code>omega</code>, <code>muk</code>, <code>mus</code>,
 	<code>mass</code> (kg), <code>schema</code> (classic | circles | rim6),
-	<code>recycle</code> (none | zones | advance), <code>vote</code> (off | turn | round),
+	<code>scorescale</code>, <code>recycle</code> (none | zones | advance), <code>swap</code> (0|1), <code>vote</code> (off | turn | round),
 	<code>votemode</code> (delta | exact), <code>theme</code> (classic | kerot),
 	<code>fx</code> (plain | glass), <code>sfx</code> (0|1),
 	<code>decor</code> (radial | hex), <code>face</code> (launch | up | bottom),

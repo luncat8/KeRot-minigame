@@ -4,11 +4,9 @@
 // which is why every schema shares the one palette below: its red channel rises with v,
 // so nothing pays more than it looks like it should.
 if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'));
-// Reference radius for scale mode (captured lazily on first use, so it never depends on
-// module load order): the classic score pattern keeps its size relative to the disk, so it
-// grows and shrinks with the radius. At the shipped radius the factor is 1, so toggling
-// scale there is a no-op; the ring schemas already scale via ring().
-let diskRefR = 0;
+// Shipped disk radius the schemas' coordinates are authored at: patternScale(cfg)
+// scales every schema proportionally to cfg.diskR and cfg.scoreScale (1 = 100%).
+const DISK_REF_R = CFG.diskR;
 
 // A circle of a 'rings' schema, given in units of the disk radius like the reference
 // draft: v = 1 inside r − w, 0 at r − w/2, −1 from r outward.
@@ -55,13 +53,12 @@ const DISK_SCHEMAS = {
 	},
 };
 DISK_SCHEMAS.circles.aims = centres(DISK_SCHEMAS.circles.rings);
+function patternScale(cfg) { return (cfg.diskR / DISK_REF_R) * (cfg.scoreScale || 1); }
 function blobField(s, ux, uy) {
 	let v = s.bias;
-	if (diskRefR === 0) diskRefR = CFG.diskR;
-	const f = CFG.diskScale ? CFG.diskR / diskRefR : 1;
 	for (let i = 0; i < s.blobs.length; i++) {
-		const b = s.blobs[i], dx = ux - b.x * f, dy = uy - b.y * f;
-		v += b.w * Math.exp(-(dx * dx + dy * dy) / (2 * (b.sigma * f) * (b.sigma * f)));
+		const b = s.blobs[i], dx = ux - b.x, dy = uy - b.y;
+		v += b.w * Math.exp(-(dx * dx + dy * dy) / (2 * b.sigma * b.sigma));
 	}
 	return v < -1 ? -1 : v > 1 ? 1 : v;
 }
@@ -74,7 +71,8 @@ function ringField(s, ux, uy) {
 	return 2 * (best > 1 ? 1 : best) - 1;
 }
 function fieldLocal(cfg, ux, uy) {
-	const s = DISK_SCHEMAS[cfg.diskSchema];
+	const s = DISK_SCHEMAS[cfg.diskSchema], f = patternScale(cfg);
+	if (f !== 1) { ux /= f; uy /= f; }
 	return s.rings ? ringField(s, ux, uy) : blobField(s, ux, uy);
 }
 // World point -> rotate by -theta into disk-local frame, then evaluate.
@@ -109,4 +107,4 @@ function bakeFieldCanvas(box, ppm, cfg) {
 	return cv;
 }
 
-if (typeof module !== 'undefined') module.exports = { DISK_SCHEMAS, fieldLocal, fieldWorld, fieldColor, bakeFieldCanvas };
+if (typeof module !== 'undefined') module.exports = { DISK_REF_R, DISK_SCHEMAS, patternScale, fieldLocal, fieldWorld, fieldColor, bakeFieldCanvas };

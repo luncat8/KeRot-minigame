@@ -16,7 +16,7 @@ if (typeof module !== 'undefined') Object.assign(globalThis,
 // the bundle's μ and mass are in, so every mass preset keeps its own eject ring.
 const PRESETS = {
 	default: { label: 'classic default', geometry: null, maxThrows: 96, muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'advance',
-		zones: 'hatch', holes: 'classic', vote: 'round', voteMode: 'delta', theme: 'classic', cards: 'square', fx: 'plain', sfx: false, balls: 4,
+		zones: 'hatch', holes: 'classic', swap: false, scoreScale: 1, vote: 'round', voteMode: 'delta', theme: 'classic', cards: 'square', fx: 'plain', sfx: false, balls: 4,
 		decor: 'radial', face: 'launch', vol: 1.3,
 		botspeed: 'auto', warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, seats: ['human', 'balanced', 'blackhole', 'retriever'] },
 	slick: { label: 'slick ice · long slides', muK: 0.012, muS: 0.030, puckM: 4, autoOmega: true },
@@ -28,16 +28,16 @@ const PRESETS = {
 	grinder: { label: 'meat grinder · eject at 0.3 R', muK: 0.030, muS: 0.045, puckM: 4, omega: 1.356 },
 	rimtrap: { label: 'rim traps · 6 hemispheres', schema: 'rim6' },
 	// A wide board with a small disk: the disk keeps a quarter of the default radius
-	// and the contents scale with it (diskScale), so the eject ring and the hold
-	// geometry shrink to match; the wells sit in the two far corners. ω is the
-	// auto-ω of this disk, and the seat order puts the random seat on the left.
+	// and the score pattern scales with it by default (scoreScale = 1), so the eject
+	// ring and hold geometry shrink to match; the wells sit in the two far corners.
+	// ω is the auto-ω of this disk, and the seat order puts the random seat on the left.
 	notsobigdisk: { label: 'not-so-big disk · small disk, well holes',
 		geometry: { boardW: 4.1942140790742535, boardH: 2.2, diskX: 1.1183164735294637, diskY: 1.1, diskR: 0.200000002241845,
 			puckR: 0.08030261092839523, launchX: 3.8442140790742534, launchY: 1.1, launchMinX: 3.644214079074253, launchMaxX: 4.044214079074253,
 			launchMinY: 0.95, launchMaxY: 1.25, zoneCutGap: 0.06, zoneReach: 1,
 			holes: [{ x: 0, y: 0, r: 0.46692223924468396 }, { x: 0, y: 2.2, r: 0.46692223924468396 }] },
 		omega: 1.5660459675595018, muK: 0.030, muS: 0.045, puckM: 4, zones: '3-rounded', holes: 'well',
-		diskScale: true, seats: ['random', 'balanced', 'blackhole', 'retriever'] },
+		seats: ['random', 'balanced', 'blackhole', 'retriever'] },
 	crystal: { label: 'crystal ice · glass skin + sounds', fx: 'glass', sfx: true },
 	// Two tables built to show the two bot settings off: the same profiles, one set to
 	// play the disk with its votes, one set to look ahead before it throws.
@@ -48,7 +48,7 @@ const PRESETS = {
 };
 // The slider ranges of index.html; URL values are clamped to them.
 const NUM_RANGES = { maxThrows: [1, 512], omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.5], puckM: [CFG.massMin, CFG.massMax], balls: [1, 8],
-	warpTries: [1, 16], warpTurns: [0, 6], warpGoal: [0, 3], vol: [0, 2] };
+	scoreScale: [0.25, 3], warpTries: [1, 16], warpTurns: [0, 6], warpGoal: [0, 3], vol: [0, 2] };
 const RECYCLES = ['none', 'zones', 'advance'];
 const ZONE_STYLES = ['hatch', 'wavy', 'rounded', 'arcs', '3-rounded', '6-hemi'], HOLE_STYLES = ['classic', 'rim', 'well', 'triangle']; // CFG.zoneStyle, CFG.holeStyle
 const CARD_STYLES = ['square', 'round']; // the score cards' corners; page state, not CFG
@@ -80,7 +80,8 @@ function applyCfg(setup) {
 	if (RECYCLES.includes(setup.recycle)) CFG.recycleMode = setup.recycle;
 	if (ZONE_STYLES.includes(setup.zones)) CFG.zoneStyle = setup.zones;
 	if (HOLE_STYLES.includes(setup.holes)) CFG.holeStyle = setup.holes;
-	if (setup.diskScale !== undefined) CFG.diskScale = !!setup.diskScale;
+	if (setup.swap !== undefined) CFG.swapZones = !!setup.swap;
+	if (setup.scoreScale !== undefined) CFG.scoreScale = clamp(setup.scoreScale, NUM_RANGES.scoreScale[0], NUM_RANGES.scoreScale[1]);
 	if (SPEED_RULES.includes(setup.vote)) CFG.speedVote = setup.vote;
 	if (VOTE_MODES.includes(setup.voteMode)) CFG.voteMode = setup.voteMode;
 	if (SPEED_STRATS[setup.botspeed]) CFG.botSpeed = setup.botspeed;
@@ -137,8 +138,9 @@ function parseQuery(search) {
 		const v = q[key] && q[key].toLowerCase();
 		if (list.includes(v)) { out[key] = v; found = true; }
 	}
-	const ds = q.diskscale && q.diskscale.toLowerCase();
-	if (ds !== undefined) { out.diskScale = ds === '1' || ds === 'true' || ds === 'on'; found = true; }
+	const sw = q.swap && q.swap.toLowerCase();
+	if (sw !== undefined) { out.swap = sw === '1' || sw === 'true' || sw === 'on'; found = true; }
+	found = numKey(q, out, 'scorescale', 'scoreScale') || found;
 	const vote = q.vote && q.vote.toLowerCase(), voteMode = q.votemode && q.votemode.toLowerCase();
 	if (SPEED_RULES.includes(vote)) { out.vote = vote; found = true; }
 	if (VOTE_MODES.includes(voteMode)) { out.voteMode = voteMode; found = true; }

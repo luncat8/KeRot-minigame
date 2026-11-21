@@ -23,7 +23,7 @@ const RED_MAX = 255; // fieldColor's ceiling (v = +1); the display reference use
 const _luts = {}; // per disk schema and radius
 const _means = {}; // same key: mean red of the baked grid inside the disk circle
 const _rgb = [0, 0, 0];
-function lutKey(cfg) { return cfg.diskSchema + '@' + cfg.diskR; }
+function lutKey(cfg) { return cfg.diskSchema + '@' + cfg.diskR + '@' + (cfg.scoreScale || 1); }
 // Red channel over the disk, in disk-local metres, baked once per paint and radius. The
 // field is fixed in the disk's frame, so turning never rebuilds it: the disk's rotation
 // is applied to the sample point, never to the grid.

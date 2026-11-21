@@ -11,7 +11,7 @@ const GlassFX = (() => {
 		? !!window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
 	let visual = false, soundOn = false, pageHidden = false, audio = null, needsReset = true;
 	let floorTex = null, diskTex = null, grainTex = null, glossTex = null, shadowTex = null, bakedCfg = null;
-	let bakedW = 0, bakedH = 0, softRadius = 0;
+	let bakedW = 0, bakedH = 0, softRadius = 0, softScale = 1;
 	let glazeTex = null, veilTex = null, softTex = null, softSchema = '';
 	// Page-controlled options (pushed by FX.set): the disk's etched finish, the
 	// listener's placement and facing, and the volume in units of VOL.
@@ -297,7 +297,7 @@ const GlassFX = (() => {
 		g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
 		g.drawImage(small, 0, 0, S, S);
 		cutCircle(g, S, S * 0.5 - 1);
-		softSchema = cfg.diskSchema; softRadius = cfg.diskR;
+		softSchema = cfg.diskSchema; softRadius = cfg.diskR; softScale = cfg.scoreScale || 1;
 		return cv;
 	}
 	// Hex decor: a honeycomb etched into the polish. Baked at 192 and drawn upscaled
@@ -460,7 +460,7 @@ const GlassFX = (() => {
 		// Depth first: the scattered copy of the paint, then the ice above it, then the
 		// brushed polish of the surface. Below three sprites nothing is drawn, so the
 		// softened paint never washes a shadow or a stone.
-		if (softSchema !== cfg.diskSchema || softRadius !== cfg.diskR) softTex = bakeSoftField(cfg);
+		if (softSchema !== cfg.diskSchema || softRadius !== cfg.diskR || softScale !== (cfg.scoreScale || 1)) softTex = bakeSoftField(cfg);
 		if (softTex) {
 			ctx.globalAlpha = dark ? 0.82 : 0.76;
 			ctx.drawImage(softTex, -cfg.diskR, -cfg.diskR, 2 * cfg.diskR, 2 * cfg.diskR);

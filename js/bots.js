@@ -63,17 +63,20 @@ function strategicTargets(w, cfg, i) {
 	// equivalent lobes (rim6) the lead matters modulo one lobe period: any lobe
 	// parks a puck as well as the next.
 	const schema = DISK_SCHEMAS[cfg.diskSchema], aims = schema.aims, lobes = schema.lobes || 1, period = 2 * Math.PI / lobes;
+	const sc = patternScale(cfg), maxAim = Math.max(0, cfg.diskR - cfg.puckR);
 	const c = Math.cos(w.theta), s = Math.sin(w.theta);
 	let best = Infinity;
 	for (let k = 0; k < aims.length; k++) {
-		const awx = cfg.diskX + c * aims[k].x - s * aims[k].y, awy = cfg.diskY + s * aims[k].x + c * aims[k].y;
+		let ax = aims[k].x * sc, ay = aims[k].y * sc;
+		if (sc !== 1) { const ar = Math.hypot(ax, ay); if (ar > maxAim && ar > 0) { ax *= maxAim / ar; ay *= maxAim / ar; } }
+		const awx = cfg.diskX + c * ax - s * ay, awy = cfg.diskY + s * ax + c * ay;
 		const dist = Math.hypot(awx - w.x[i], awy - w.y[i]);
 		if (dist >= best) continue;
 		best = dist;
 		let lead = w.omegaCur * flightTime(cfg, dist);
 		if (lobes > 1) lead %= period;
 		const cl = Math.cos(lead), sl = Math.sin(lead);
-		const lx = aims[k].x * cl - aims[k].y * sl, ly = aims[k].x * sl + aims[k].y * cl;
+		const lx = ax * cl - ay * sl, ly = ax * sl + ay * cl;
 		setTarget(1, cfg.diskX + c * lx - s * ly, cfg.diskY + s * lx + c * ly);
 	}
 	// Group 4 records the middle feed so a microscope can see it. The decision itself
@@ -98,7 +101,19 @@ function strategicTargets(w, cfg, i) {
 	if (recoverD > 1e-6) { targetX -= recoverDX / recoverD * 2 * cfg.puckR; targetY -= recoverDY / recoverD * 2 * cfg.puckR; }
 	setTarget(2, targetX, targetY);
 	best = Infinity; targetX = cfg.diskX; targetY = cfg.diskY;
-	for (let j = 0; j < w.n; j++) {
+	if (cfg.swapZones) {
+		if (cfg.recycleMode !== 'none') for (let j = 0; j < w.n; j++) {
+			if (j === i || w.own[j] === owner) continue;
+			const d = -swapVoidField(cfg, cfg.recycleMode, w.x[j], w.y[j]);
+			if (d >= best) continue;
+			best = d;
+			const vx = cfg.recycleMode === 'advance' ? 0 : 0.5 * (cfg.diskX + cfg.diskR + cfg.launchMinX);
+			const vy = w.y[j] < cfg.diskY ? 0.15 : cfg.boardH - 0.15;
+			const pushX = vx - w.x[j], pushY = vy - w.y[j], pushD = Math.hypot(pushX, pushY) || 1;
+			targetX = w.x[j] - pushX / pushD * 2 * cfg.puckR;
+			targetY = w.y[j] - pushY / pushD * 2 * cfg.puckR;
+		}
+	} else for (let j = 0; j < w.n; j++) {
 		if (j === i || w.own[j] === owner) continue;
 		let holeDistance = Infinity, holeIndex = 0;
 		for (let k = 0; k < cfg.holes.length; k++) {

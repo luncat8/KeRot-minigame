@@ -1,5 +1,5 @@
 // Optional standalone-page editor. No DOM work until open().
-if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'));
+if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'), require('./field.js'), require('./presets.js'), require('./rules.js'));
 const ZoneEditor = (() => {
 	let session = null;
 	const labels = {
@@ -26,7 +26,7 @@ const ZoneEditor = (() => {
 	function setupOf(cfg, game, opts) {
 		return {
 			geometry: boardGeometry(cfg), omega: game.omegaStart, muK: cfg.muK, muS: cfg.muS, puckM: cfg.puckM,
-			schema: cfg.diskSchema, recycle: cfg.recycleMode, zones: cfg.zoneStyle, holes: cfg.holeStyle, diskScale: cfg.diskScale,
+			schema: cfg.diskSchema, scoreScale: cfg.scoreScale, recycle: cfg.recycleMode, zones: cfg.zoneStyle, holes: cfg.holeStyle, swap: cfg.swapZones,
 			balls: cfg.ballsPerPlayer, maxThrows: cfg.maxThrows, vote: cfg.speedVote, voteMode: cfg.voteMode,
 			botspeed: cfg.botSpeed, warp: cfg.warp, warpTries: cfg.warpTries, warpTurns: cfg.warpTurns, warpGoal: cfg.warpGoal,
 			seats: game.seatTypes, theme: opts.theme, cards: opts.cards, fx: opts.fx, sfx: opts.sfx,
@@ -135,9 +135,8 @@ const ZoneEditor = (() => {
 		select('Return shape', 'zoneStyle', ZONE_STYLES);
 		select('Hole shape', 'holeStyle', HOLE_STYLES);
 		checkbox('Symmetry mirror (half-Y)', () => symmetry, setSymmetry);
-		checkbox('Big-disk scales contents (scale | crop)', () => cfg.diskScale, on => {
-			cfg.diskScale = on;
-			if (on) game.setOmega(clamp(autoOmega(cfg), 0, cfg.omegaMax));
+		checkbox('Swap return zone and holes (except right return zone)', () => cfg.swapZones, on => {
+			cfg.swapZones = on;
 			changed();
 		});
 		number(rulesGroup, 'Disk speed (rad/s)', 'omega', () => game.omegaStart, value => { game.setOmega(clamp(value, 0, cfg.omegaMax)); changed(); }, '0.001');
@@ -201,12 +200,21 @@ const ZoneEditor = (() => {
 				return;
 			}
 			status.textContent = 'Board updated. Close to play, or copy this setup.';
-			if (cfg.diskScale && cfg.diskR !== oldR) game.setOmega(clamp(autoOmega(cfg), 0, cfg.omegaMax));
+			if (cfg.diskR !== oldR) game.setOmega(clamp(autoOmega(cfg), 0, cfg.omegaMax));
 			changed();
 		}
-		function handle(label, get, set, visible = () => true) { handles.push({ label, get, set, visible }); }
+		const SCORE_COS = Math.cos(0.38), SCORE_SIN = Math.sin(0.38);
+		function handle(label, get, set, visible = () => true, direct = null) { handles.push({ label, get, set, visible, direct }); }
 		handle('disk', () => [cfg.diskX, cfg.diskY], (b, x, y) => { b.diskX = x; b.diskY = y; });
-		handle('disk radius', () => [cfg.diskX + cfg.diskR, cfg.diskY], (b, x, y) => { b.diskR = Math.max(0.15, Math.hypot(x - b.diskX, y - b.diskY)); });
+		handle('disk size', () => [cfg.diskX + cfg.diskR, cfg.diskY], (b, x, y) => { b.diskR = Math.max(0.15, Math.hypot(x - b.diskX, y - b.diskY)); });
+		handle(() => 'score pattern ' + Math.round((cfg.scoreScale || 1) * 100) + '%', () => {
+			const r = cfg.diskR * (cfg.scoreScale || 1);
+			return [clamp(cfg.diskX + r * SCORE_COS, 0.05, cfg.boardW - 0.05), clamp(cfg.diskY + r * SCORE_SIN, 0.05, cfg.boardH - 0.05)];
+		}, null, () => true, (x, y) => {
+			cfg.scoreScale = Math.round(clamp(Math.hypot(x - cfg.diskX, y - cfg.diskY) / cfg.diskR, 0.25, 3) * 1e6) / 1e6;
+			status.textContent = 'Score pattern scaled to ' + Math.round(cfg.scoreScale * 100) + '% of the big disk.';
+			changed();
+		});
 		for (let i = 0; i < 2; i++) {
 			const vis = () => i === 0 || !symmetry;
 			handle('hole ' + (i + 1), () => [cfg.holes[i].x, cfg.holes[i].y], (b, x, y) => { b.holes[i].x = x; b.holes[i].y = y; }, vis);
@@ -229,16 +237,26 @@ const ZoneEditor = (() => {
 			ctx.save(); ctx.scale(overlay.width / cfg.boardW, overlay.height / cfg.boardH);
 			ctx.strokeStyle = '#ffdc88'; ctx.lineWidth = cfg.boardW / rect.width;
 			ctx.strokeRect(cfg.launchMinX, cfg.launchMinY, cfg.launchMaxX - cfg.launchMinX, cfg.launchMaxY - cfg.launchMinY);
+			if (Math.abs((cfg.scoreScale || 1) - 1) > 5e-3) {
+				ctx.save();
+				ctx.lineWidth = 1.8 * cfg.boardW / rect.width;
+				ctx.strokeStyle = 'rgba(18, 48, 67, 0.65)'; ctx.setLineDash([0.04, 0.03]);
+				ctx.beginPath(); ctx.arc(cfg.diskX, cfg.diskY, cfg.diskR * (cfg.scoreScale || 1), 0, 2 * Math.PI); ctx.stroke();
+				ctx.restore();
+			}
 			ctx.restore();
 			const dpr = overlay.width / rect.width;
-			ctx.save(); ctx.scale(dpr, dpr); ctx.font = '11px sans-serif';
+			ctx.save(); ctx.scale(dpr, dpr); ctx.font = '11px sans-serif'; ctx.lineJoin = 'round';
 			for (const h of handles) {
 				if (!h.visible()) continue;
+				const label = typeof h.label === 'function' ? h.label() : h.label;
 				const p = h.get(), x = p[0] / cfg.boardW * rect.width, y = p[1] / cfg.boardH * rect.height;
-				ctx.fillStyle = '#123043'; ctx.strokeStyle = '#ffdc88'; ctx.lineWidth = 2;
+				ctx.fillStyle = '#123043'; ctx.strokeStyle = h.direct ? '#8ee8ff' : '#ffdc88'; ctx.lineWidth = 2;
 				ctx.beginPath(); ctx.arc(x, y, 7, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
-				ctx.fillStyle = '#fff4cf'; ctx.textAlign = x > rect.width * 0.75 ? 'right' : 'left';
-				ctx.fillText(h.label, x + (x > rect.width * 0.75 ? -10 : 10), clamp(y + (h.label === 'launch' ? 24 : -10), 12, rect.height - 4));
+				const lx = x + (x > rect.width * 0.75 ? -10 : 10), ly = clamp(y + (label === 'launch' ? 24 : h.direct ? 16 : -10), 12, rect.height - 4);
+				ctx.textAlign = x > rect.width * 0.75 ? 'right' : 'left';
+				ctx.strokeStyle = 'rgba(10, 20, 32, 0.85)'; ctx.lineWidth = 3; ctx.strokeText(label, lx, ly);
+				ctx.fillStyle = h.direct ? '#c8f4ff' : '#fff4cf'; ctx.fillText(label, lx, ly);
 			}
 			ctx.restore();
 		}
@@ -261,17 +279,23 @@ const ZoneEditor = (() => {
 			}
 			if (!best) return;
 			e.preventDefault(); overlay.setPointerCapture(e.pointerId);
-			drag = { id: e.pointerId, handle: best, start: boardGeometry(cfg) };
+			drag = { id: e.pointerId, handle: best, start: boardGeometry(cfg), startCustom: cfg.customGeometry, startScore: cfg.scoreScale, startOmega: game.omegaStart };
 		}
 		function pointerMove(e) {
 			if (!drag || drag.id !== e.pointerId) return;
-			const b = boardGeometry(cfg), p = render.toWorld(e.clientX, e.clientY);
-			drag.handle.set(b, clamp(p.x, 0, cfg.boardW), clamp(p.y, 0, cfg.boardH));
+			const p = render.toWorld(e.clientX, e.clientY);
+			const wx = clamp(p.x, 0, cfg.boardW), wy = clamp(p.y, 0, cfg.boardH);
+			if (drag.handle.direct) { drag.handle.direct(wx, wy); return; }
+			const b = boardGeometry(cfg);
+			drag.handle.set(b, wx, wy);
 			changeGeometry(b, true);
 		}
 		function pointerEnd(e) {
 			if (!drag || drag.id !== e.pointerId) return;
-			if (e.type === 'pointercancel') changeGeometry(drag.start, false);
+			if (e.type === 'pointercancel') {
+				if (drag.handle.direct) { cfg.scoreScale = drag.startScore; changed(); }
+				else { changeGeometry(drag.start, false); cfg.customGeometry = drag.startCustom; game.setOmega(drag.startOmega); changed(); }
+			}
 			overlay.releasePointerCapture(e.pointerId); drag = null;
 		}
 		overlay.addEventListener('pointerdown', pointerDown);
