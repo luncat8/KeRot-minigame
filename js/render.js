@@ -11,7 +11,11 @@ function createRenderer() {
 	// the aim ghost and the stones.
 	let skin = null;
 	let texDisk = null, texSchema = '', ppmDisk = 0, puckGrad = null, wallPath = null, gridPath = null;
-	let zoneFan = null, zoneAdv = null, hatchPath = null, sectorPath = null, bandPath = null;
+	let zoneFan = null, zoneAdv = null, hatchPath = null, wavyPath = null, zoneArcFan = null, zoneArcAdv = null;
+	let sectorPath = null, bandPath = null;
+	// Dome gradients for the 'hemis' holes, baked once per hole geometry (setup, a
+	// geometry change, or a hole-shape switch) — never per frame.
+	let holeStyleKey = '', holeDomes = [];
 	const Z_FILL = 'rgba(32,178,170,0.16)', Z_LINE = 'rgba(46,204,196,0.55)', Z_HATCH = 'rgba(46,204,196,0.16)';
 	const SECTOR_SHADE = 'rgba(45,52,54,0.42)'; // 3 of the 6 face sectors
 	let labelRot = 0;
@@ -21,6 +25,15 @@ function createRenderer() {
 	const MAX_BACKING = 6e6; // device px the canvas may ask for, however big the window
 	const TAU = 2 * Math.PI, GOLDEN = 2.399963; // golden angle: per-puck rim marks never line up
 	const GHOST_CHUNKS = 6;
+	// Rounded holes cut the zone marking away from the voids and the big disk with
+	// this gap, so the marking never hugs them.
+	const ZONE_GAP = 0.06;
+	// The 'arc' zone outline bulges toward the disk by this much at its chord's
+	// middle — one line that reads as part of a very big circle.
+	const ZONE_ARC_BULGE = 0.2;
+	// Wavy fill: horizontal waves across the board — step between lines, amplitude,
+	// wavelength.
+	const WAVY_STEP = 0.075, WAVY_AMP = 0.014, WAVY_WAVE = 0.30;
 	// Every per-frame string, made once: puck numbers and the kerot-s rate tags.
 	const NUM = [], PCT = [];
 	for (let k = 0; k <= MAX_PUCKS; k++) NUM.push(String(k + 1));
@@ -59,6 +72,7 @@ function createRenderer() {
 		buildFloorFills();
 		applyTheme('classic');
 		buildZonePaths();
+		buildHoleStyle();
 		resize();
 		if (skin && skin.setup) skin.setup(cfg, sx, sy, dpr);
 	}
@@ -87,13 +101,25 @@ function createRenderer() {
 		const z = cfg.returnZone, v = cfg.advanceZone;
 		// Both return rules: a fill with the on-disk guard (diskR + puckR) punched
 		// out of it, so the exemption is drawn instead of implied, plus the outline
-		// to stroke. The 'advance' rule adds the launch lane to its wedge.
-		zoneFan = bakeZone(z, null);
-		zoneAdv = bakeZone(v, [v.lx, 0, v.lw, cfg.boardH]);
+		// to stroke. The 'advance' rule adds the launch lane to its wedge. Rounded
+		// holes punch the voids out of the marking too, each with its own guard.
+		const cuts = cfg.holeShape === 'rounded'
+			? cfg.holes.map(h => ({ x: h.x, y: h.y, r: h.r + cfg.puckR + ZONE_GAP }))
+			: null;
+		zoneFan = bakeZone(z, null, cuts);
+		zoneAdv = bakeZone(v, [v.lx, 0, v.lw, cfg.boardH], cuts);
 		hatchPath = new Path2D();
 		for (let s = -cfg.boardH; s < cfg.boardW; s += 0.14) { // 45° stripes across the board
 			hatchPath.moveTo(s, 0); hatchPath.lineTo(s + cfg.boardH, cfg.boardH);
 		}
+		wavyPath = new Path2D();
+		for (let k = -1; k * WAVY_STEP < 2 * cfg.boardH + WAVY_STEP; k++) { // waves flow horizontally
+			const y0 = k * WAVY_STEP;
+			wavyPath.moveTo(-cfg.boardW, y0 + WAVY_AMP * Math.sin(-TAU * cfg.boardW / WAVY_WAVE));
+			for (let x = -cfg.boardW; x <= 2 * cfg.boardW; x += 0.02) wavyPath.lineTo(x, y0 + WAVY_AMP * Math.sin(TAU * x / WAVY_WAVE));
+		}
+		zoneArcFan = zoneArc(cfg.boardW, 0, cfg.boardW, cfg.boardH);
+		zoneArcAdv = zoneArc(0, 0, 0, cfg.boardH);
 		// Puck face: 6 sectors, 3 shaded, unit radius (scaled per puck at draw time).
 		sectorPath = new Path2D();
 		for (let k = 0; k < 3; k++) {
@@ -126,8 +152,8 @@ function createRenderer() {
 	// outside the triangle is covered once, so it drew as a strange teal halo hugging
 	// the disk. The outline strokes the wedge's true boundary: its two sides, cut where
 	// they enter the guard, then the arc that closes the fill on the interior side.
-	function bakeZone(t, rect) {
-		const Rg = cfg.diskR + cfg.puckR;
+	function bakeZone(t, rect, cuts) {
+		const Rg = cfg.diskR + cfg.puckR + (cfg.holeShape === 'rounded' ? ZONE_GAP : 0);
 		// The apex is the table vertex that sits on the disk centre; the other two give
 		// the wedge's two edge directions.
 		const dx = t.ax - cfg.diskX, dy = t.ay - cfg.diskY;
@@ -148,6 +174,7 @@ function createRenderer() {
 		const p1x = cfg.diskX + Rg * d1x / l1, p1y = cfg.diskY + Rg * d1y / l1;
 		const p2x = cfg.diskX + Rg * d2x / l2, p2y = cfg.diskY + Rg * d2y / l2;
 		const fill = new Path2D(), line = new Path2D();
+		let lane = null;
 		fill.moveTo(t.ax, t.ay); fill.lineTo(t.bx, t.by); fill.lineTo(t.cx, t.cy); fill.closePath();
 		// Outline: the wedge's true boundary — out along the first side to its vertex, the
 		// edge between the two vertices, back along the second side, then the guard arc
@@ -156,7 +183,11 @@ function createRenderer() {
 		line.moveTo(p1x, p1y); line.lineTo(v1x, v1y); line.lineTo(v2x, v2y); line.lineTo(p2x, p2y);
 		line.arc(cfg.diskX, cfg.diskY, Rg, a1, a0, !ccw);
 		line.closePath();
-		if (rect) { fill.rect(rect[0], rect[1], rect[2], rect[3]); line.rect(rect[0], rect[1], rect[2], rect[3]); }
+		if (rect) {
+			fill.rect(rect[0], rect[1], rect[2], rect[3]);
+			lane = new Path2D(); // the launch box keeps its own rect outline, never clipped
+			lane.rect(rect[0], rect[1], rect[2], rect[3]);
+		}
 		const hole = new Path2D();
 		hole.moveTo(cfg.diskX, cfg.diskY);
 		hole.lineTo(p1x, p1y);
@@ -164,7 +195,47 @@ function createRenderer() {
 		hole.closePath();
 		const path = new Path2D();
 		path.addPath(fill); path.addPath(hole);
-		return { path: path, line: line };
+		let clip = null;
+		if (cuts) { // the outline is interrupted where it crosses a void's guard
+			for (let k = 0; k < cuts.length; k++) {
+				const c = cuts[k];
+				path.arc(c.x, c.y, c.r, 0, TAU);
+				if (!clip) clip = new Path2D();
+				clip.addPath(fill); // the guard hole stays out of the clip: its arc is the outline
+				clip.arc(c.x, c.y, c.r, 0, TAU);
+			}
+		}
+		return { path: path, line: line, lane: lane, clip: clip };
+	}
+	// One big circular arc through two points, bulging toward the disk by
+	// ZONE_ARC_BULGE at the chord's middle — a single line that reads as part of a
+	// very big circle.
+	function zoneArc(x1, y1, x2, y2) {
+		const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+		let ux = mx - cfg.diskX, uy = my - cfg.diskY;
+		const ul = Math.hypot(ux, uy);
+		ux /= ul; uy /= ul; // disk -> chord middle
+		const c = Math.hypot(x2 - x1, y2 - y1) / 2;
+		const R = (c * c + ZONE_ARC_BULGE * ZONE_ARC_BULGE) / (2 * ZONE_ARC_BULGE);
+		const cx = mx + ux * (R - ZONE_ARC_BULGE), cy = my + uy * (R - ZONE_ARC_BULGE);
+		const a1 = Math.atan2(y1 - cy, x1 - cx), a2 = Math.atan2(y2 - cy, x2 - cx);
+		const am = Math.atan2(my - uy * ZONE_ARC_BULGE - cy, mx - ux * ZONE_ARC_BULGE - cx);
+		const sweep = (a2 - a1 + TAU) % TAU;
+		const p = new Path2D();
+		p.arc(cx, cy, R, a1, a2, (am - a1 + TAU) % TAU > sweep);
+		return p;
+	}
+	// The 'hemis' dome gradients: light at the dome's top, black at its rim, baked
+	// once per hole geometry so the frame loop never allocates.
+	function buildHoleStyle() {
+		const key = cfg.holeShape + '|' + cfg.puckR + '|' + cfg.holes.map(h => h.x + ',' + h.y + ',' + h.r).join(';');
+		if (key === holeStyleKey) return;
+		holeStyleKey = key;
+		holeDomes = cfg.holes.map(h => {
+			const g = ctx.createRadialGradient(h.x, h.y + h.r * 0.25, h.r * 0.12, h.x, h.y, h.r);
+			g.addColorStop(0, '#6a558f'); g.addColorStop(0.6, '#2c2140'); g.addColorStop(1, '#090812');
+			return g;
+		});
 	}
 	function resize(geometryChanged = false) {
 		const box = cv.parentElement;
@@ -183,7 +254,7 @@ function createRenderer() {
 		if (cv.style.height !== cssH) cv.style.height = cssH;
 		const bw = Math.round(wpx * dpr), bh = Math.round(hpx * dpr);
 		if (!geometryChanged && bw === cv.width && bh === cv.height) return;
-		if (geometryChanged) { buildZonePaths(); buildFloorFills(); }
+		if (geometryChanged) { buildZonePaths(); buildFloorFills(); buildHoleStyle(); }
 		cv.width = bw; cv.height = bh;
 		sx = cv.width / cfg.boardW;
 		sy = cv.height / cfg.boardH;
@@ -229,10 +300,16 @@ function createRenderer() {
 		ctx.fillStyle = Z_FILL;
 		ctx.fill(z.path, 'evenodd');
 		ctx.save(); ctx.clip(z.path, 'evenodd');
-		ctx.strokeStyle = Z_HATCH; ctx.lineWidth = 0.012; ctx.stroke(hatchPath);
+		ctx.strokeStyle = Z_HATCH; ctx.lineWidth = 0.012; ctx.stroke(cfg.zoneStyle === 'wavy' ? wavyPath : hatchPath);
 		ctx.restore();
 		ctx.setLineDash([0.05, 0.04]); ctx.lineWidth = 0.012; ctx.strokeStyle = Z_LINE;
-		ctx.stroke(z.line); ctx.setLineDash([]);
+		ctx.save();
+		if (z.clip) ctx.clip(z.clip, 'evenodd'); // voids cut the outline where it crosses them
+		if (cfg.zoneStyle === 'arc') ctx.stroke(mode === 'advance' ? zoneArcAdv : zoneArcFan);
+		else ctx.stroke(z.line);
+		ctx.restore();
+		if (z.lane) ctx.stroke(z.lane); // the launch box: clear of the voids, no clip
+		ctx.setLineDash([]);
 		if (mode === 'advance') {
 			const v = cfg.advanceZone;
 			// upright in both halves: the wedge's live part is its left edge, the only
@@ -254,7 +331,8 @@ function createRenderer() {
 			ctx.strokeStyle = 'rgba(186, 104, 200, 0.65)'; ctx.lineWidth = 0.012; ctx.setLineDash([0.035, 0.025]); ctx.stroke();
 			ctx.setLineDash([]);
 			ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r, 0, 2 * Math.PI);
-			ctx.fillStyle = '#090812'; ctx.fill();
+			ctx.fillStyle = cfg.holeShape === 'hemis' ? holeDomes[i] : '#090812'; // dome gradient or flat void
+			ctx.fill();
 			ctx.strokeStyle = '#9b59b6'; ctx.lineWidth = 0.018; ctx.stroke();
 			// The inner ring: a true violet, deliberately very faint — it marks the
 			// middle of the void without lifting it out of the ice.

@@ -249,6 +249,8 @@
 		<div class="row dim">When not aiming, swipe the board right for rules or left for the menu. Swipe the menu right to hide it.</div>
 		<div class="row"><label>preset <select id="preset"></select></label></div>
 		<div class="row"><label>view <select id="view"></select></label></div>
+		<div class="row"><label>zone marking <select id="zoneStyle"></select></label>
+			<label>hole shape <select id="holeShape"></select></label></div>
 		<fieldset><legend id="ballsLegend">players — 4 balls each, one push per turn</legend>
 			<div id="roster"></div>
 			<div class="row"><button id="btnAdd">+ add player</button><span class="dim">remove with × — both take effect at once, no restart</span></div>
@@ -342,7 +344,8 @@
 	slider acts on every puck on the board.</p>
 	<h2>return pucks</h2>
 	<p>The shaded eject fan and the <b>wedge + lane</b> rule return spent pucks to their
-	owner's stock — pick one in the side panel.</p>
+	owner's stock — pick one in the side panel. The zone's marking rides next to it:
+	a diagonal hatch, wavy lines, or a single big arc outline.</p>
 	<h2>disk speed in play</h2>
 	<p>With a vote rule on, the seats set the disk speed during the game. Every seat
 	holds one vote, settable at any time: <b>don't care</b> (the default — it abstains),
@@ -359,7 +362,8 @@
 	same rule as the radios in the drawer, and your vote row sits right under it.</p>
 	<h2>black holes</h2>
 	<p>The two half-circles above and below the disk are black holes: entering one
-	permanently removes a puck.</p>
+	permanently removes a puck. The side panel shapes them: flush half-discs on the
+	edges, rounded circles inset from them, or lit domes.</p>
 	<h2>bots</h2>
 	<p>Try the retriever, black-hole, or balanced bots to compare recovery and attack
 	strategies. A seat can be switched between human and bot at any time.</p>

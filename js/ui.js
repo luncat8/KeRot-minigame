@@ -10,6 +10,7 @@ const UI = (() => {
 	const SHIPPED = {
 		omega: CFG.omega, muK: CFG.muK, muS: CFG.muS, puckM: CFG.puckM,
 		schema: CFG.diskSchema, recycle: CFG.recycleMode, vote: CFG.speedVote, voteMode: CFG.voteMode, balls: CFG.ballsPerPlayer,
+		zoneStyle: CFG.zoneStyle, holeShape: CFG.holeShape,
 		botspeed: CFG.botSpeed, warp: !!CFG.warp, warpTries: CFG.warpTries, warpTurns: CFG.warpTurns, warpGoal: CFG.warpGoal,
 		theme: 'classic', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3, seats: 'human,balanced,blackhole,retriever',
 	};
@@ -19,6 +20,17 @@ const UI = (() => {
 		off: { label: 'panel ω' }, // short enough for the 66 px rail
 		turn: { label: 'vote: turn' },
 		round: { label: 'vote: round' },
+	};
+	// The zone marking and the hole shape, in the words the panel wants.
+	const ZONE_STYLE_LABELS = {
+		straight: { label: 'diagonal hatch' },
+		wavy: { label: 'wavy lines' },
+		arc: { label: 'big arc outline' },
+	};
+	const HOLE_SHAPE_LABELS = {
+		flush: { label: 'flush half-discs' },
+		rounded: { label: 'rounded circles' },
+		hemis: { label: 'domes' },
 	};
 	const rows = []; // one per seat: {root, sel, balls, score, rm}
 	const voteRows = []; // one per human seat: {seat, root, none, keep, range, val}
@@ -30,7 +42,7 @@ const UI = (() => {
 		// are the first controls bound; the rest of the panel is read below.
 		for (const id of ['btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'btnSettings'])
 			els[id] = $(id);
-		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
+		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'roster', 'btnAdd', 'diskSchema', 'zoneStyle', 'holeShape', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
 			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus', 'speedMode',
 			'fx', 'chkSfx', 'decor', 'face', 'vol', 'volVal', 'result', 'resultWinner', 'resultScores'])
 			els[id] = $(id);
@@ -66,6 +78,12 @@ const UI = (() => {
 		syncWarp();
 		fillSelect(els.diskSchema, DISK_SCHEMAS, CFG.diskSchema);
 		els.diskSchema.addEventListener('change', () => { Game.setDiskSchema(els.diskSchema.value); markCustom(); });
+		// The marking and the hole shape are renderer state: a switch rebakes the zone
+		// paths and the dome gradients in place (Render.resize(true)), no game reset.
+		fillSelect(els.zoneStyle, ZONE_STYLE_LABELS, CFG.zoneStyle);
+		els.zoneStyle.addEventListener('change', () => { CFG.zoneStyle = els.zoneStyle.value; Render.resize(true); markCustom(); });
+		fillSelect(els.holeShape, HOLE_SHAPE_LABELS, CFG.holeShape);
+		els.holeShape.addEventListener('change', () => { CFG.holeShape = els.holeShape.value; CFG.holes = holePositions(CFG); Render.resize(true); markCustom(); });
 		els.view = $('view'); // the view switch: layout, not a game setting, so no CFG key
 		fillSelect(els.view, View.modes, View.isFit() ? 'fit' : 'side');
 		els.view.addEventListener('change', () => { View.set(els.view.value); markCustom(); });
@@ -141,6 +159,8 @@ const UI = (() => {
 		if (Math.abs(CFG.muS - SHIPPED.muS) > 5e-4) parts.push('mus=' + numParam(CFG.muS));
 		if (Math.abs(CFG.puckM - SHIPPED.puckM) > 1e-3) parts.push('mass=' + numParam(CFG.puckM));
 		if (CFG.diskSchema !== SHIPPED.schema) parts.push('schema=' + CFG.diskSchema);
+		if (CFG.zoneStyle !== SHIPPED.zoneStyle) parts.push('zone=' + CFG.zoneStyle);
+		if (CFG.holeShape !== SHIPPED.holeShape) parts.push('hole=' + CFG.holeShape);
 		if (CFG.recycleMode !== SHIPPED.recycle) parts.push('recycle=' + CFG.recycleMode);
 		if (CFG.speedVote !== SHIPPED.vote) parts.push('vote=' + CFG.speedVote);
 		if (CFG.voteMode !== SHIPPED.voteMode) parts.push('votemode=' + CFG.voteMode);
@@ -179,6 +199,8 @@ const UI = (() => {
 		els.muS.min = String(CFG.muK);
 		els.mass.value = String(Math.log10(CFG.puckM));
 		els.diskSchema.value = CFG.diskSchema;
+		els.zoneStyle.value = CFG.zoneStyle;
+		els.holeShape.value = CFG.holeShape;
 		els.theme.value = opts.theme;
 		els.fx.value = opts.fx;
 		els.chkSfx.checked = opts.sfx;

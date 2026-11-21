@@ -17,7 +17,7 @@ if (typeof module !== 'undefined') Object.assign(globalThis,
 const PRESETS = {
 	default: { label: 'classic default', muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'advance',
 		vote: 'round', voteMode: 'delta', theme: 'classic', fx: 'plain', sfx: false, balls: 4,
-		decor: 'radial', face: 'launch', vol: 1.3,
+		decor: 'radial', face: 'launch', vol: 1.3, zoneStyle: 'straight', holeShape: 'flush',
 		botspeed: 'auto', warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, seats: ['human', 'balanced', 'blackhole', 'retriever'] },
 	slick: { label: 'slick ice · long slides', muK: 0.012, muS: 0.030, puckM: 4, autoOmega: true },
 	grippy: { label: 'grippy ice · short stops', muK: 0.080, muS: 0.120, puckM: 4, autoOmega: true },
@@ -39,6 +39,8 @@ const PRESETS = {
 const NUM_RANGES = { omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.5], puckM: [CFG.massMin, CFG.massMax], balls: [1, 8],
 	warpTries: [1, 16], warpTurns: [0, 6], warpGoal: [0, 3], vol: [0, 2] };
 const RECYCLES = ['none', 'zones', 'advance'];
+const ZONE_STYLES = ['straight', 'wavy', 'arc']; // CFG.zoneStyle, js/render.js
+const HOLE_SHAPES = ['flush', 'rounded', 'hemis']; // CFG.holeShape, js/render.js
 const SPEED_RULES = ['off', 'turn', 'round'], VOTE_MODES = ['delta', 'exact']; // CFG.speedVote, CFG.voteMode
 const VIEWS = ['fit', 'side']; // the layout keys of index.html; fit is the shipped one
 const FX_MODES = ['plain', 'glass']; // presentation; not CFG, js/ui.js loads the add-on
@@ -61,6 +63,8 @@ function applyCfg(setup) {
 	if (setup.omega !== undefined) CFG.omega = clamp(setup.omega, NUM_RANGES.omega[0], NUM_RANGES.omega[1]);
 	if (setup.balls !== undefined) CFG.ballsPerPlayer = Math.round(clamp(setup.balls, NUM_RANGES.balls[0], NUM_RANGES.balls[1]));
 	if (setup.schema && DISK_SCHEMAS[setup.schema]) CFG.diskSchema = setup.schema;
+	if (ZONE_STYLES.includes(setup.zoneStyle)) CFG.zoneStyle = setup.zoneStyle;
+	if (HOLE_SHAPES.includes(setup.holeShape)) { CFG.holeShape = setup.holeShape; CFG.holes = holePositions(CFG); }
 	if (RECYCLES.includes(setup.recycle)) CFG.recycleMode = setup.recycle;
 	if (SPEED_RULES.includes(setup.vote)) CFG.speedVote = setup.vote;
 	if (VOTE_MODES.includes(setup.voteMode)) CFG.voteMode = setup.voteMode;
@@ -107,6 +111,10 @@ function parseQuery(search) {
 	if (DISK_SCHEMAS[schema]) { out.schema = schema; found = true; }
 	const recycle = q.recycle && q.recycle.toLowerCase();
 	if (RECYCLES.includes(recycle)) { out.recycle = recycle; found = true; }
+	const zone = q.zone && q.zone.toLowerCase();
+	if (ZONE_STYLES.includes(zone)) { out.zoneStyle = zone; found = true; }
+	const hole = q.hole && q.hole.toLowerCase();
+	if (HOLE_SHAPES.includes(hole)) { out.holeShape = hole; found = true; }
 	const vote = q.vote && q.vote.toLowerCase(), voteMode = q.votemode && q.votemode.toLowerCase();
 	if (SPEED_RULES.includes(vote)) { out.vote = vote; found = true; }
 	if (VOTE_MODES.includes(voteMode)) { out.voteMode = voteMode; found = true; }
@@ -142,4 +150,4 @@ function parseQuery(search) {
 // and the same page state comes back when it is opened.
 function presetQuery(name) { return 'preset=' + name; }
 
-if (typeof module !== 'undefined') module.exports = { PRESETS, SPEED_RULES, VOTE_MODES, VIEWS, FX_MODES, DECOR_MODES, FACE_MODES, parseQuery, applyCfg, presetQuery };
+if (typeof module !== 'undefined') module.exports = { PRESETS, SPEED_RULES, VOTE_MODES, VIEWS, FX_MODES, DECOR_MODES, FACE_MODES, ZONE_STYLES, HOLE_SHAPES, parseQuery, applyCfg, presetQuery };

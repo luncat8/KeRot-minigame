@@ -639,6 +639,24 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		rateClassic.toFixed(2) + ' -> ' + rateRim.toFixed(2));
 	els.diskSchema.value = 'classic'; els.diskSchema.on.change();
 	check(puckRate(probe, pi) === rateClassic, 'switching back restores the original score map exactly');
+	// Zone marking and hole shape: the two field-marking selects of this round.
+	const zoneKeys = els.zoneStyle.children.map(o => o.value), holeKeys = els.holeShape.children.map(o => o.value);
+	check(zoneKeys.join() === ZONE_STYLES.join(), 'the zone marking select lists every style', zoneKeys.join());
+	check(holeKeys.join() === HOLE_SHAPES.join(), 'the hole shape select lists every shape', holeKeys.join());
+	els.zoneStyle.value = 'wavy'; els.zoneStyle.on.change();
+	check(CFG.zoneStyle === 'wavy', 'picking a marking sets the zone style');
+	els.zoneStyle.value = 'arc'; els.zoneStyle.on.change();
+	check(CFG.zoneStyle === 'arc', 'the arc marking applies');
+	els.zoneStyle.value = 'straight'; els.zoneStyle.on.change();
+	check(CFG.zoneStyle === 'straight', 'back to the straight marking');
+	const holeY0 = CFG.holes[0].y, holeR = CFG.holes[0].r;
+	els.holeShape.value = 'rounded'; els.holeShape.on.change();
+	check(CFG.holeShape === 'rounded' && CFG.holes[0].y === holeR && CFG.holes[1].y === CFG.boardH - holeR,
+		'rounded holes move in from the edges to full circles', JSON.stringify(CFG.holes));
+	els.holeShape.value = 'hemis'; els.holeShape.on.change();
+	check(CFG.holeShape === 'hemis' && CFG.holes[0].y === holeY0, 'the dome shape keeps the voids on the edges');
+	els.holeShape.value = 'flush'; els.holeShape.on.change();
+	check(CFG.holeShape === 'flush' && CFG.holes[0].y === holeY0 && CFG.holes[1].y === CFG.boardH, 'flush restores the edge voids exactly');
 	els.theme.value = 'kerot'; els.theme.on.change();
 	check(document.body.dataset.theme === 'kerot' && UI.opts().theme === 'kerot', 'picking a scheme restyles the page and the board');
 	els.theme.value = 'classic'; els.theme.on.change();
@@ -653,7 +671,8 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		'the readouts show the mass and the coefficients it runs on', els.massVal.textContent + ' | ' + els.muKVal.textContent);
 	Game.setPuckMass(m0); UI.update(Game.world);
 	check(holdRadius(CFG) === holdRef && !els.muKVal.textContent.includes('→'), 'back at the reference mass nothing is rescaled');
-	console.log('controls smoke: ' + schemaKeys.length + ' patterns, ' + themeKeys.length + ' schemes, mass 4 → 20 kg moves d_hold ' +
+	console.log('controls smoke: ' + schemaKeys.length + ' patterns, ' + themeKeys.length + ' schemes, ' +
+		zoneKeys.length + ' zone markings, ' + holeKeys.length + ' hole shapes, mass 4 → 20 kg moves d_hold ' +
 		holdRef.toFixed(3) + ' → ' + (holdRef * Math.cbrt(m0 / 20)).toFixed(3) + ' m');
 	// Speed votes in the panel: the rule radios mirror CFG, a row per human seat, and
 	// a real tally moves the ω slider while the link keeps the configured speed.
@@ -744,6 +763,8 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		const mixed = parseQuery('?Preset=Stones&Schema=RIM6&seats=Human, Hunter&recycle=ZONES');
 		check(mixed && mixed.preset === 'stones' && mixed.schema === 'rim6' && mixed.recycle === 'zones' && mixed.seats.join() === 'human,hunter',
 			'names in a link are case-insensitive and seats tolerate a space', mixed && mixed.seats && mixed.seats.join());
+		const marks = parseQuery('?zone=wavy&hole=hemis');
+		check(marks && marks.zoneStyle === 'wavy' && marks.holeShape === 'hemis', 'a link names the zone marking and the hole shape', JSON.stringify(marks));
 		UI.applySetup(parseQuery('?preset=stones&omega=2'));
 		check(historyCalls.length === 0, 'opening a link does not rewrite it, so preset overrides survive a refresh');
 		check(CFG.omega === 2 && Math.abs(CFG.puckM - 20) < 1e-9, 'a named preset applies first and individual keys override it', CFG.omega + '/' + CFG.puckM);
@@ -767,6 +788,11 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		check(CFG.omega === 1.5 && els.preset.value === '', 'a manual touch marks the bundle as custom');
 		check(historyCalls[historyCalls.length - 1].indexOf('preset=') < 0 && historyCalls[historyCalls.length - 1].indexOf('omega=1.5') >= 0,
 			'leaving a preset rewrites the link to the settings that differ, not the stale bundle', historyCalls[historyCalls.length - 1]);
+		els.zoneStyle.value = 'arc'; els.zoneStyle.on.change();
+		els.holeShape.value = 'rounded'; els.holeShape.on.change();
+		check(CFG.zoneStyle === 'arc' && CFG.holeShape === 'rounded', 'a marking pick applies live');
+		check(historyCalls[historyCalls.length - 1].indexOf('zone=arc') >= 0 && historyCalls[historyCalls.length - 1].indexOf('hole=rounded') >= 0,
+			'the link echoes the zone marking and the hole shape', historyCalls[historyCalls.length - 1]);
 		UI.applyPreset('speedplay');
 		UI.applyPreset('foresight');
 		check(CFG.botSpeed === 'park' && CFG.warp && CFG.warpTries === 8, 'special presets enable their bot settings');
@@ -774,6 +800,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		UI.applyPreset('default');
 		UI.update(Game.world);
 		check(Math.abs(CFG.puckM - 4) < 1e-9 && Math.abs(CFG.muK - 0.03) < 1e-9 && CFG.diskSchema === 'classic' && CFG.recycleMode === 'advance' &&
+			CFG.zoneStyle === 'straight' && CFG.holeShape === 'flush' && CFG.holes[0].y === 0 && CFG.holes[1].y === CFG.boardH &&
 			Game.seatTypes.join() === 'human,balanced,blackhole,retriever', 'the default preset restores the shipped table', Game.seatTypes.join());
 		check(document.body.dataset.theme === 'classic' && historyCalls[historyCalls.length - 1] === '?preset=default&ring=0&ghost=0', 'scheme and link follow the default preset');
 		check(CFG.botSpeed === 'auto' && !CFG.warp && CFG.warpTries === 6 && CFG.warpTurns === 3 && CFG.warpGoal === 0.5,

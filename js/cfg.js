@@ -35,6 +35,13 @@ const CFG = {
 	scoreDisplayMax: 999, // scores are shown as 0..scoreDisplayMax per game
 	recycleMode: 'advance', // 'none' | 'zones' | 'advance' (radio group)
 	diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
+	// Return zone marking (js/render.js): 'straight' diagonal hatch + wedge outline,
+	// 'wavy' horizontal wave fill, 'arc' diagonal hatch + a single big circular arc
+	// outline. Marking only — the rule geometry in the zone tables is untouched.
+	zoneStyle: 'straight',
+	// Black hole look (js/render.js): 'flush' half-discs on the board edges,
+	// 'rounded' full circles inset from them, 'hemis' lit domes against the edges.
+	holeShape: 'flush',
 	// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel
 	// slider alone; 'turn' — the seats vote before every turn; 'round' — before every
 	// round. A vote is a change of up to ±voteDeltaMax ('delta') or an exact speed
@@ -91,6 +98,15 @@ const BLACK_HOLES = [
 	{ x: 0.48, y: CFG.boardH, r: 0.18 },
 ];
 Object.assign(CFG, { returnZone: RETURN_ZONES, advanceZone: ADVANCE_ZONES, holes: BLACK_HOLES });
+// The two hole positions for the current hole shape. 'flush' and 'hemis' keep the
+// voids centred on the board edges — the wall cuts them to half-discs; 'rounded'
+// moves them inward so the full circles sit on the ice. One place, so the physics
+// capture, the bots' target table, the glass clip and the renderer all agree.
+function holePositions(cfg) {
+	const r = BLACK_HOLES[0].r;
+	if (cfg.holeShape === 'rounded') return [{ x: BLACK_HOLES[0].x, y: r, r: r }, { x: BLACK_HOLES[1].x, y: cfg.boardH - r, r: r }];
+	return [BLACK_HOLES[0], { x: BLACK_HOLES[1].x, y: cfg.boardH, r: r }];
+}
 const MAX_PUCKS = 40;
 const ST_SLIDE = 0, ST_LOCKED = 1, ST_SLEEP = 2;
 
@@ -109,4 +125,4 @@ function autoOmega(cfg) { return Math.sqrt(muSEff(cfg) * cfg.g / (0.9 * cfg.disk
 function aimGrab(cfg) { return cfg.puckR + cfg.aimGrabMargin; }
 function stopDistance(cfg, v) { return v * v / (2 * muKEff(cfg) * cfg.g); } // on bare ice
 
-if (typeof module !== 'undefined') module.exports = { CFG, aimGrab, RETURN_ZONES, ADVANCE_ZONES, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, loadFactor, muKEff, muSEff, holdRadius, autoOmega, stopDistance, clamp };
+if (typeof module !== 'undefined') module.exports = { CFG, aimGrab, RETURN_ZONES, ADVANCE_ZONES, BLACK_HOLES, holePositions, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, loadFactor, muKEff, muSEff, holdRadius, autoOmega, stopDistance, clamp };

@@ -379,7 +379,7 @@ function createGame(env) {
 		cfg.launchMinY += dy; cfg.launchMaxY += dy;
 		cfg.returnZone = { ax: cfg.diskX, ay: cfg.diskY, bx: width, by: 0, cx: width, cy: height };
 		cfg.advanceZone = { ax: 0, ay: height, bx: 0, by: 0, cx: cfg.diskX, cy: cfg.diskY, lx: cfg.launchMinX, lw: width - cfg.launchMinX };
-		cfg.holes = [BLACK_HOLES[0], { ...BLACK_HOLES[1], y: height }];
+		cfg.holes = holePositions(cfg);
 		cancelPlan(); invalidateGhost();
 		return true;
 	}
