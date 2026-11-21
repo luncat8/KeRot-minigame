@@ -15,7 +15,7 @@ if (typeof module !== 'undefined') Object.assign(globalThis,
 // purpose — the way back from anywhere. `autoOmega` re-solves the 90 % rule after
 // the bundle's μ and mass are in, so every mass preset keeps its own eject ring.
 const PRESETS = {
-	default: { label: 'classic default', muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'advance',
+	default: { label: 'classic default', geometry: null, maxThrows: 96, muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'advance',
 		zones: 'hatch', holes: 'classic', vote: 'round', voteMode: 'delta', theme: 'classic', cards: 'square', fx: 'plain', sfx: false, balls: 4,
 		decor: 'radial', face: 'launch', vol: 1.3,
 		botspeed: 'auto', warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, seats: ['human', 'balanced', 'blackhole', 'retriever'] },
@@ -36,7 +36,7 @@ const PRESETS = {
 	bots: { label: 'bot league · all six profiles', seats: ['keeper', 'hunter', 'balanced', 'retriever', 'blackhole', 'random'] },
 };
 // The slider ranges of index.html; URL values are clamped to them.
-const NUM_RANGES = { omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.5], puckM: [CFG.massMin, CFG.massMax], balls: [1, 8],
+const NUM_RANGES = { maxThrows: [1, 512], omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.5], puckM: [CFG.massMin, CFG.massMax], balls: [1, 8],
 	warpTries: [1, 16], warpTurns: [0, 6], warpGoal: [0, 3], vol: [0, 2] };
 const RECYCLES = ['none', 'zones', 'advance'];
 const ZONE_STYLES = ['hatch', 'wavy', 'rounded', 'arcs', '3-rounded', '6-hemi'], HOLE_STYLES = ['classic', 'rim', 'well', 'triangle']; // CFG.zoneStyle, CFG.holeStyle
@@ -51,6 +51,9 @@ const FACE_MODES = ['launch', 'up', 'bottom']; // where the sound listener sits 
 // by the boot path before the first deal and by the panel preset. Theme, seats and
 // the view toggles are not CFG — the caller applies those.
 function applyCfg(setup) {
+	if (setup.geometry === null) resetBoardGeometry(CFG);
+	else if (setup.geometry) applyBoardGeometry(CFG, setup.geometry);
+	if (Number.isFinite(setup.maxThrows)) CFG.maxThrows = Math.round(clamp(setup.maxThrows, 1, 512));
 	// μ and mass first — autoOmega solves from them; an explicit omega goes last,
 	// so `?preset=stones&omega=2` really means omega 2.
 	for (const key of ['muK', 'muS', 'puckM']) {
@@ -101,6 +104,13 @@ function parseQuery(search) {
 		if (preset.seats) out.seats = preset.seats.slice(); // the bundle's array is not the caller's to mutate
 		out.preset = presetName;
 		found = true;
+	}
+	found = numKey(q, out, 'maxthrows', 'maxThrows') || found;
+	if (q.geometry) {
+		try {
+			const b = JSON.parse(q.geometry);
+			if (validBoardGeometry(b)) { out.geometry = b; found = true; }
+		} catch (e) { /* Ignore malformed geometry, not the rest of the link. */ }
 	}
 	found = numKey(q, out, 'omega', 'omega') || found;
 	found = numKey(q, out, 'muk', 'muK') || found;

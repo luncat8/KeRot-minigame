@@ -537,6 +537,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 			addEventListener(type, fn) { (this.handlers[type] = this.handlers[type] || []).push(fn); (this.on = this.on || {})[type] = fn; },
 			click() { for (const fn of this.handlers.click || []) fn(); },
 		};
+		if (id === 'c') el.parentElement = { clientWidth: 900, clientHeight: 550 };
 		return el;
 	}
 	// The radio groups of index.html, by name; pick() is a user click on one.

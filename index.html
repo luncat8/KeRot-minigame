@@ -209,11 +209,14 @@
 	#panel[hidden], #menuTab[hidden] { display: none; }
 	#panel, #help { touch-action: pan-y; }
 	#menuTab { position: absolute; right: 0; top: 50%; transform: translateY(-50%); z-index: 16; }
+	#btnEdit { position: absolute; left: 8px; bottom: 8px; z-index: 26; }
+	body[data-editing] #result { display: none; }
 </style>
 </head>
 <body data-fit="1">
 <div id="app">
 	<div id="boardWrap" data-fit="1"><canvas id="c"></canvas>
+		<button id="btnEdit" aria-expanded="false" title="Pause and edit board geometry">Edit board</button>
 		<div id="result" hidden role="status" aria-live="polite">
 			<div id="resultCard">
 				<p id="resultKicker">game over</p>

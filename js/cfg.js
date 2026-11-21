@@ -43,6 +43,7 @@ const CFG = {
 	// circular outline around the disk, the holes inside. holeStyle: 'classic' | 'rim'
 	// | 'well' — the round void, drawn three ways; 'triangle' — a triangular void.
 	zoneStyle: 'hatch', holeStyle: 'classic',
+	zoneCutGap: 0.06, zoneReach: 1, customGeometry: false,
 	diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
 	// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel
 	// slider alone; 'turn' — the seats vote before every turn; 'round' — before every
@@ -118,4 +119,53 @@ function autoOmega(cfg) { return Math.sqrt(muSEff(cfg) * cfg.g / (0.9 * cfg.disk
 function aimGrab(cfg) { return cfg.puckR + cfg.aimGrabMargin; }
 function stopDistance(cfg, v) { return v * v / (2 * muKEff(cfg) * cfg.g); } // on bare ice
 
-if (typeof module !== 'undefined') module.exports = { CFG, aimGrab, RETURN_ZONES, ADVANCE_ZONES, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, loadFactor, muKEff, muSEff, holdRadius, autoOmega, stopDistance, clamp };
+// Explicit board geometry is shared by presets and the optional editor.
+const GEOMETRY_KEYS = ['boardW', 'boardH', 'diskX', 'diskY', 'diskR', 'puckR',
+	'launchX', 'launchY', 'launchMinX', 'launchMaxX', 'launchMinY', 'launchMaxY', 'zoneCutGap', 'zoneReach'];
+function boardGeometry(cfg) {
+	const out = {};
+	for (const key of GEOMETRY_KEYS) out[key] = cfg[key];
+	out.holes = cfg.holes.map(h => ({ x: h.x, y: h.y, r: h.r }));
+	return out;
+}
+function validBoardGeometry(b) {
+	if (!b || !GEOMETRY_KEYS.every(k => typeof b[k] === 'number' && Number.isFinite(b[k]))) return false;
+	const { boardW: W, boardH: H, diskX: x, diskY: y, diskR: R, puckR: r } = b;
+	if (W < 2 || W > 20 || H < 1 || H > 20 || r < 0.02 || r > 0.25 || R < 2 * r || R < 0.15) return false;
+	if (x < R || x > W - R || y < R || y > H - R) return false;
+	if (b.zoneCutGap < 0 || b.zoneCutGap > 0.5 || b.zoneReach < 0.1 || b.zoneReach > 1) return false;
+	if (b.launchMinX < x + R + 2 * r || b.launchMaxX > W - r || b.launchMaxX - b.launchMinX < 2 * r - 1e-9) return false;
+	if (b.launchMinY < r || b.launchMaxY > H - r || b.launchMaxY - b.launchMinY < 2 * r - 1e-9) return false;
+	if (b.launchX < b.launchMinX || b.launchX > b.launchMaxX || b.launchY < b.launchMinY || b.launchY > b.launchMaxY) return false;
+	if (!Array.isArray(b.holes) || b.holes.length !== 2) return false;
+	const triangleScale = Math.sqrt(Math.PI / 2 * Math.max(y / x, x / y));
+	const reach = h => h.r * Math.max(1, triangleScale);
+	for (const h of b.holes) {
+		if (!h || !['x', 'y', 'r'].every(k => typeof h[k] === 'number' && Number.isFinite(h[k]))) return false;
+		if (h.r < 0.02 || h.r > 0.6 || h.x < 0 || h.x > W || h.y < 0 || h.y > H) return false;
+		if (Math.hypot(h.x - x, h.y - y) < R + reach(h) + r) return false;
+		const dx = Math.max(b.launchMinX - h.x, 0, h.x - b.launchMaxX), dy = Math.max(b.launchMinY - h.y, 0, h.y - b.launchMaxY);
+		if (Math.hypot(dx, dy) < reach(h) + r) return false;
+	}
+	return Math.hypot(b.holes[0].x - b.holes[1].x, b.holes[0].y - b.holes[1].y) >= reach(b.holes[0]) + reach(b.holes[1]) + 2 * r;
+}
+function rebuildZones(cfg) {
+	const x = cfg.diskX, y = cfg.diskY, W = cfg.boardW, H = cfg.boardH, t = cfg.zoneReach;
+	cfg.returnZone = { ax: x, ay: y, bx: x + (W - x) * t, by: y * (1 - t), cx: x + (W - x) * t, cy: y + (H - y) * t };
+	cfg.advanceZone = { ax: x * (1 - t), ay: y + (H - y) * t, bx: x * (1 - t), by: y * (1 - t), cx: x, cy: y,
+		lx: cfg.launchMinX, lw: W - cfg.launchMinX };
+}
+function applyBoardGeometry(cfg, geometry) {
+	if (!validBoardGeometry(geometry)) return false;
+	for (const key of GEOMETRY_KEYS) cfg[key] = geometry[key];
+	cfg.holes = geometry.holes.map(h => ({ x: h.x, y: h.y, r: h.r }));
+	cfg.customGeometry = true;
+	rebuildZones(cfg);
+	return true;
+}
+const DEFAULT_BOARD_GEOMETRY = boardGeometry(CFG);
+function resetBoardGeometry(cfg) {
+	applyBoardGeometry(cfg, DEFAULT_BOARD_GEOMETRY);
+	cfg.customGeometry = false;
+}
+if (typeof module !== 'undefined') module.exports = { GEOMETRY_KEYS, boardGeometry, validBoardGeometry, applyBoardGeometry, rebuildZones, resetBoardGeometry, CFG, aimGrab, RETURN_ZONES, ADVANCE_ZONES, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, loadFactor, muKEff, muSEff, holdRadius, autoOmega, stopDistance, clamp };

@@ -32,6 +32,7 @@ function createGame(env) {
 	// Default table: one human against the three profiles that differ the most — a
 	// scorer, an attacker and a recoverer — so the first game shows the whole spread.
 	const roster = env.roster || createRoster(['human', 'balanced', 'blackhole', 'retriever'], cfg.ballsPerPlayer);
+	let editing = false;
 	let state = 'aim', turn = 0, pending = -1, resolveT = 0, voteT = 0, paused = false;
 	// The armed puck's uid. `pending` is a board index, and a removal (a hole, a black
 	// hole) swap-moves the last puck into the freed slot, so the armed puck — the last
@@ -240,6 +241,7 @@ function createGame(env) {
 		if (state === 'vote' && rule === 'off') armTurn();
 	}
 	function commitThrow() {
+		if (editing) return false;
 		syncPending();
 		if (state !== 'aim' || pending < 0 || !aim.hasStroke) return;
 		// The rule at the throat: a throw must move the puck. A sub-floor stroke is
@@ -347,7 +349,7 @@ function createGame(env) {
 		predT -= dt;
 		// A copy needs no stroke in hand to start its turn: it is aimed and thrown in
 		// the same tick, which is what lets a rollout run its later seats at all.
-		if (paused || state !== 'aim' || pending < 0 || !playsItself() || (!sim && !aim.hasStroke)) return;
+		if (editing || paused || state !== 'aim' || pending < 0 || !playsItself() || (!sim && !aim.hasStroke)) return;
 		if (planning) { stepPlan(); return; }
 		botT += dt;
 		if (!sim && botT < cfg.botDelay) return;
@@ -361,10 +363,11 @@ function createGame(env) {
 		if (sim) { botPrep(); commitThrow(); return; }
 		startPlan();
 	}
-	const canAim = () => state === 'aim' && pending >= 0 && !isBot(roster[turn]) && !paused;
+	const canAim = () => !editing && state === 'aim' && pending >= 0 && !isBot(roster[turn]) && !paused;
 	// Expand the ice, not the pieces. Keep the disk left, the launch lane right,
 	// and the playing line halfway down the available pane.
 	function fitBoard(aspect = baseW / baseH) {
+		if (cfg.customGeometry) return false;
 		const width = Math.max(baseW, baseH * aspect), height = Math.max(baseH, baseW / aspect);
 		if (Math.abs(width - cfg.boardW) + Math.abs(height - cfg.boardH) < 1e-6) return false;
 		const dy = height / 2 - cfg.diskY, dx = width - cfg.boardW;
@@ -377,8 +380,7 @@ function createGame(env) {
 		cfg.diskY = cfg.launchY = height / 2;
 		cfg.launchX += dx; cfg.launchMinX += dx; cfg.launchMaxX += dx;
 		cfg.launchMinY += dy; cfg.launchMaxY += dy;
-		cfg.returnZone = { ax: cfg.diskX, ay: cfg.diskY, bx: width, by: 0, cx: width, cy: height };
-		cfg.advanceZone = { ax: 0, ay: height, bx: 0, by: 0, cx: cfg.diskX, cy: cfg.diskY, lx: cfg.launchMinX, lw: width - cfg.launchMinX };
+		rebuildZones(cfg);
 		cfg.holes = [BLACK_HOLES[0], { ...BLACK_HOLES[1], y: height }];
 		cancelPlan(); invalidateGhost();
 		return true;
@@ -464,7 +466,7 @@ function createGame(env) {
 	function bindRestart(canvas) {
 		let lastT = -Infinity, lastX = 0, lastY = 0;
 		canvas.addEventListener('pointerup', e => {
-			if (e.button > 0 || (state !== 'settle' && state !== 'scored')) return;
+			if (editing || e.button > 0 || (state !== 'settle' && state !== 'scored')) return;
 			const t = e.timeStamp || performance.now();
 			const near = Math.abs(e.clientX - lastX) <= RESTART_SLOP && Math.abs(e.clientY - lastY) <= RESTART_SLOP;
 			if (near && t - lastT <= RESTART_TAP_MS) { lastT = -Infinity; reset(); return; }
@@ -475,6 +477,7 @@ function createGame(env) {
 		bindPointer(canvas, Render);
 		bindRestart(canvas);
 		window.addEventListener('keydown', e => {
+			if (editing) return;
 			// Space and the arrows belong to the control that has focus (a slider, a
 			// select, a button); the game reads them only from the board and the page.
 			const owned = e.target && e.target.closest && e.target.closest('button, input, select, textarea');
@@ -569,7 +572,11 @@ function createGame(env) {
 		get turn() { return turn; },
 		get seatTypes() { return roster.map(s => s.type); },
 		get winner() { return state === 'scored' ? leader(roster) : -1; },
-		get paused() { return paused; },
+		get paused() { return paused || editing; },
+		get editing() { return editing; },
+		setEditing(on) {
+			editing = !!on; cancelPlan(); queue.length = 0; aim.dragging = false;
+		},
 		togglePause: () => { paused = !paused; return paused; },
 		// The warp hooks: what js/warp.js drives a copy through, and what the panel
 		// reads. `planning` freezes the real board for the length of the look-ahead.

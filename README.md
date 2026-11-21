@@ -28,6 +28,34 @@ rounds the score cards.
 URL keys: `zones=hatch|wavy|rounded|arcs|3-rounded|6-hemi`, `holes=classic|rim|well|triangle`,
 `cards=round`. Validate with `node experiments/zone-shapes.js`.
 
+## Board editor
+
+**Edit board** pauses the game and loads the editor only on demand. Drag the labelled
+handles to move/resize the disk and holes, tune wedge/fan reach or the cut-zone gap,
+resize pucks, and adjust the launch lane. Expand **Geometry · exact values** for numeric
+editing, including board dimensions. The drawer also offers score/return/hole shapes,
+disk speed, pucks per seat and the throw cap. Invalid placements stop at the boundary;
+numeric edits that would overlap the disk, holes or launch area are rejected.
+
+**Done · play** (or Escape / the entry button) starts a fresh game on the edited board.
+**Revert edits** restores the setup captured on entry. Ordinary Reset keeps your edits;
+the **classic default** preset restores stock geometry and responsive board fitting.
+Custom boards keep their explicit world dimensions when the window changes size. Disk
+paint stays in physical metres: changing radius clips/reveals the existing scoring map.
+
+**Copy preset** exports a playable URL, full setup JSON and a short summary to paste into
+chat when requesting a named preset. If clipboard access is blocked (including some
+`file://` browsers), select/copy the provided text manually. Geometry is carried in the
+validated `geometry` query key; the throw cap uses `maxthrows`. Other settings-panel
+changes preserve those keys. No overlay, editor listeners or editor download on an
+ordinary visit; the Snowfall artifact does not include the editor.
+
+Validate with `node experiments/zone-edit.js`; the optional real-browser gate is
+`experiments/zone-editor-browser.js` (Playwright Core + a Chromium executable; see its
+header). Design: [`archive/0.7.0-plan.md`](archive/0.7.0-plan.md). The motion-ended turn
+mode and separate **Staller** character remain deferred in
+[`0.6.9-plan.md`](0.6.9-plan.md); **Timing** still plays the existing fixed-window rule.
+
 ## Optional glass presentation
 
 The shipped page stays lightweight. **Plain** loads only the classic scripts below; the

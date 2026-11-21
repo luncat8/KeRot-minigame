@@ -10,7 +10,7 @@ function createRenderer() {
 	// is the top of the ice — over every marking already painted, including the voids,
 	// the aim ghost and the stones.
 	let skin = null;
-	let texDisk = null, texSchema = '', ppmDisk = 0, puckGrad = null, wallPath = null, gridPath = null;
+	let texDisk = null, texSchema = '', texRadius = 0, ppmDisk = 0, puckGrad = null, wallPath = null, gridPath = null;
 	let zoneFan = null, zoneAdv = null, sectorPath = null, bandPath = null, holeClip = null;
 	let builtZone = '', builtHole = ''; // the shape styles the zone and hole paths were baked for
 	const holeTri = new Float64Array(6);
@@ -56,8 +56,7 @@ function createRenderer() {
 		cv = canvas; ctx = cv.getContext('2d');
 		ctx.imageSmoothingEnabled = true;
 		ctx.imageSmoothingQuality = 'high';
-		puckGrad = ctx.createRadialGradient(-0.03, -0.03, 0.01, 0, 0, cfg.puckR);
-		puckGrad.addColorStop(0, '#f5f6fa'); puckGrad.addColorStop(0.7, '#b2bec3'); puckGrad.addColorStop(1, '#636e72');
+		buildPuckGradient();
 		buildFloorFills();
 		applyTheme('classic');
 		buildZonePaths();
@@ -67,6 +66,10 @@ function createRenderer() {
 	function attach(addon) {
 		skin = addon || null;
 		if (skin && cv && skin.setup) skin.setup(cfg, sx, sy, dpr);
+	}
+	function buildPuckGradient() {
+		puckGrad = ctx.createRadialGradient(-0.03, -0.03, 0.01, 0, 0, cfg.puckR);
+		puckGrad.addColorStop(0, '#f5f6fa'); puckGrad.addColorStop(0.7, '#b2bec3'); puckGrad.addColorStop(1, '#636e72');
 	}
 	function buildFloorFills() {
 		for (const name in THEMES) {
@@ -168,7 +171,11 @@ function createRenderer() {
 		hole.closePath();
 		const path = new Path2D();
 		path.addPath(fill); path.addPath(hole);
-		return { path: path, line: line, hatch: hatch };
+		// A shortened wedge can end inside the guard; clip both sides of the subtraction.
+		const guardClip = new Path2D();
+		guardClip.rect(0, 0, cfg.boardW, cfg.boardH);
+		guardClip.moveTo(cfg.diskX + Rg, cfg.diskY); guardClip.arc(cfg.diskX, cfg.diskY, Rg, 0, TAU);
+		return { path: path, line: line, hatch: hatch, clip: fill, guardClip };
 	}
 	const HATCH_STEP = 0.14;
 	function straightHatch() {
@@ -322,7 +329,11 @@ function createRenderer() {
 		if (cv.style.height !== cssH) cv.style.height = cssH;
 		const bw = Math.round(wpx * dpr), bh = Math.round(hpx * dpr);
 		if (!geometryChanged && bw === cv.width && bh === cv.height) return;
-		if (geometryChanged) { buildZonePaths(); buildFloorFills(); }
+		if (geometryChanged) {
+			buildZonePaths(); buildFloorFills(); applyTheme(themeName);
+			buildPuckGradient();
+			if (skin && skin.setup) skin.setup(cfg, sx, sy, dpr);
+		}
 		cv.width = bw; cv.height = bh;
 		sx = cv.width / cfg.boardW;
 		sy = cv.height / cfg.boardH;
@@ -355,7 +366,7 @@ function createRenderer() {
 		g.globalCompositeOperation = 'destination-in';
 		g.fillStyle = '#ffffff';
 		g.beginPath(); g.arc(tex.width / 2, tex.height / 2, cfg.diskR * ppm, 0, Math.PI * 2); g.fill();
-		texDisk = cut; texSchema = cfg.diskSchema; ppmDisk = ppm;
+		texDisk = cut; texSchema = cfg.diskSchema; texRadius = cfg.diskR; ppmDisk = ppm;
 	}
 	function toWorld(clientX, clientY) {
 		const r = cv.getBoundingClientRect();
@@ -365,6 +376,7 @@ function createRenderer() {
 		if (mode === 'none') return;
 		const z = mode === 'advance' ? zoneAdv : zoneFan;
 		ctx.save();
+		if (z.clip) { ctx.clip(z.clip); ctx.clip(z.guardClip, 'evenodd'); }
 		ctx.fillStyle = Z_FILL;
 		ctx.fill(z.path, 'evenodd');
 		ctx.save(); ctx.clip(z.path, 'evenodd');
@@ -471,7 +483,7 @@ function createRenderer() {
 	function drawWorld(view) {
 		const w = view.w, aim = view.aim, opts = view.opts, pred = view.pred;
 		if (opts.theme !== themeName) applyTheme(opts.theme);
-		if (cfg.diskSchema !== texSchema) bakeDisk();
+		if (cfg.diskSchema !== texSchema || cfg.diskR !== texRadius) bakeDisk();
 		if (cfg.zoneStyle !== builtZone || cfg.holeStyle !== builtHole) buildZonePaths();
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, cv.width, cv.height);

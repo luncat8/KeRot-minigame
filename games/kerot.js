@@ -59,6 +59,7 @@
 				// circular outline around the disk, the holes inside. holeStyle: 'classic' | 'rim'
 				// | 'well' — the round void, drawn three ways; 'triangle' — a triangular void.
 				zoneStyle: 'hatch', holeStyle: 'classic',
+				zoneCutGap: 0.06, zoneReach: 1, customGeometry: false,
 				diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
 				// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel
 				// slider alone; 'turn' — the seats vote before every turn; 'round' — before every
@@ -134,7 +135,56 @@
 			function aimGrab(cfg) { return cfg.puckR + cfg.aimGrabMargin; }
 			function stopDistance(cfg, v) { return v * v / (2 * muKEff(cfg) * cfg.g); } // on bare ice
 			
-			if (typeof module !== 'undefined') module.exports = { CFG, aimGrab, RETURN_ZONES, ADVANCE_ZONES, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, loadFactor, muKEff, muSEff, holdRadius, autoOmega, stopDistance, clamp };
+			// Explicit board geometry is shared by presets and the optional editor.
+			const GEOMETRY_KEYS = ['boardW', 'boardH', 'diskX', 'diskY', 'diskR', 'puckR',
+				'launchX', 'launchY', 'launchMinX', 'launchMaxX', 'launchMinY', 'launchMaxY', 'zoneCutGap', 'zoneReach'];
+			function boardGeometry(cfg) {
+				const out = {};
+				for (const key of GEOMETRY_KEYS) out[key] = cfg[key];
+				out.holes = cfg.holes.map(h => ({ x: h.x, y: h.y, r: h.r }));
+				return out;
+			}
+			function validBoardGeometry(b) {
+				if (!b || !GEOMETRY_KEYS.every(k => typeof b[k] === 'number' && Number.isFinite(b[k]))) return false;
+				const { boardW: W, boardH: H, diskX: x, diskY: y, diskR: R, puckR: r } = b;
+				if (W < 2 || W > 20 || H < 1 || H > 20 || r < 0.02 || r > 0.25 || R < 2 * r || R < 0.15) return false;
+				if (x < R || x > W - R || y < R || y > H - R) return false;
+				if (b.zoneCutGap < 0 || b.zoneCutGap > 0.5 || b.zoneReach < 0.1 || b.zoneReach > 1) return false;
+				if (b.launchMinX < x + R + 2 * r || b.launchMaxX > W - r || b.launchMaxX - b.launchMinX < 2 * r - 1e-9) return false;
+				if (b.launchMinY < r || b.launchMaxY > H - r || b.launchMaxY - b.launchMinY < 2 * r - 1e-9) return false;
+				if (b.launchX < b.launchMinX || b.launchX > b.launchMaxX || b.launchY < b.launchMinY || b.launchY > b.launchMaxY) return false;
+				if (!Array.isArray(b.holes) || b.holes.length !== 2) return false;
+				const triangleScale = Math.sqrt(Math.PI / 2 * Math.max(y / x, x / y));
+				const reach = h => h.r * Math.max(1, triangleScale);
+				for (const h of b.holes) {
+					if (!h || !['x', 'y', 'r'].every(k => typeof h[k] === 'number' && Number.isFinite(h[k]))) return false;
+					if (h.r < 0.02 || h.r > 0.6 || h.x < 0 || h.x > W || h.y < 0 || h.y > H) return false;
+					if (Math.hypot(h.x - x, h.y - y) < R + reach(h) + r) return false;
+					const dx = Math.max(b.launchMinX - h.x, 0, h.x - b.launchMaxX), dy = Math.max(b.launchMinY - h.y, 0, h.y - b.launchMaxY);
+					if (Math.hypot(dx, dy) < reach(h) + r) return false;
+				}
+				return Math.hypot(b.holes[0].x - b.holes[1].x, b.holes[0].y - b.holes[1].y) >= reach(b.holes[0]) + reach(b.holes[1]) + 2 * r;
+			}
+			function rebuildZones(cfg) {
+				const x = cfg.diskX, y = cfg.diskY, W = cfg.boardW, H = cfg.boardH, t = cfg.zoneReach;
+				cfg.returnZone = { ax: x, ay: y, bx: x + (W - x) * t, by: y * (1 - t), cx: x + (W - x) * t, cy: y + (H - y) * t };
+				cfg.advanceZone = { ax: x * (1 - t), ay: y + (H - y) * t, bx: x * (1 - t), by: y * (1 - t), cx: x, cy: y,
+					lx: cfg.launchMinX, lw: W - cfg.launchMinX };
+			}
+			function applyBoardGeometry(cfg, geometry) {
+				if (!validBoardGeometry(geometry)) return false;
+				for (const key of GEOMETRY_KEYS) cfg[key] = geometry[key];
+				cfg.holes = geometry.holes.map(h => ({ x: h.x, y: h.y, r: h.r }));
+				cfg.customGeometry = true;
+				rebuildZones(cfg);
+				return true;
+			}
+			const DEFAULT_BOARD_GEOMETRY = boardGeometry(CFG);
+			function resetBoardGeometry(cfg) {
+				applyBoardGeometry(cfg, DEFAULT_BOARD_GEOMETRY);
+				cfg.customGeometry = false;
+			}
+			if (typeof module !== 'undefined') module.exports = { GEOMETRY_KEYS, boardGeometry, validBoardGeometry, applyBoardGeometry, rebuildZones, resetBoardGeometry, CFG, aimGrab, RETURN_ZONES, ADVANCE_ZONES, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, loadFactor, muKEff, muSEff, holdRadius, autoOmega, stopDistance, clamp };
 			}
 		},
 		"js/field.js": function(module, exports, require, globalThis) {
@@ -810,6 +860,10 @@
 			// is applied to the sample point, never to the grid.
 			function bakeScoreLUT(cfg) {
 				const key = lutKey(cfg);
+				// A radius drag must not retain a new grid for every pointer sample.
+				if (Object.keys(_luts).length >= 16) {
+					for (const old of Object.keys(_luts)) { delete _luts[old]; delete _means[old]; }
+				}
 				const out = new Float32Array(SC_LUT_W * SC_LUT_W), step = 2 * cfg.diskR / SC_LUT_N;
 				let mean = 0, inside = 0;
 				for (let j = 0; j < SC_LUT_W; j++) {
@@ -999,10 +1053,11 @@
 			// not a restart. Node-safe: no DOM access.
 			if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'));
 			
-			const SEAT_TYPES = ['human', 'random', 'keeper', 'hunter', 'retriever', 'blackhole', 'balanced'];
+			const SEAT_TYPES = ['human', 'random', 'keeper', 'hunter', 'retriever', 'blackhole', 'balanced', 'timing'];
 			const SEAT_LABELS = {
 				human: 'human', random: 'bot — random', keeper: 'bot — keeper', hunter: 'bot — hunter',
 				retriever: 'bot — retriever', blackhole: 'bot — black hole', balanced: 'bot — balanced',
+				timing: 'bot — timing',
 			};
 			// One colour per seat, shared by the board HUD, the panel and the puck rings, so a
 			// puck on the board always reads as its owner's.
@@ -1119,12 +1174,12 @@
 				const gx = x - cfg.diskX, gy = y - cfg.diskY;
 				let d = Math.sqrt(gx * gx + gy * gy) - cfg.diskR - cfg.puckR;
 				if (isCutZone(cfg)) {
-					d -= ZONE_CUT_GAP;
+					d -= cfg.zoneCutGap ?? ZONE_CUT_GAP;
 					if (cfg.zoneStyle === '6-hemi') d = Math.min(d, left ? cfg.diskX - x : x - cfg.diskX);
 					else if (left) {
 						for (let k = 0; k < cfg.holes.length; k++) {
 							const hole = cfg.holes[k], hx = x - hole.x, hy = y - hole.y;
-							d = Math.min(d, Math.sqrt(hx * hx + hy * hy) - hole.r - cfg.puckR - ZONE_CUT_GAP);
+							d = Math.min(d, Math.sqrt(hx * hx + hy * hy) - hole.r - cfg.puckR - (cfg.zoneCutGap ?? ZONE_CUT_GAP));
 							d = Math.min(d, sideGap(hole.x, hole.y, cfg.diskX, cfg.diskY, 0, cfg.diskY, x, y));
 						}
 					} else {
@@ -1133,7 +1188,7 @@
 						d = Math.min(d, sideGap(z.ax, z.ay, z.cx, z.cy, z.bx, z.by, x, y));
 						for (let k = 0; k < cfg.holes.length; k++) {
 							const hole = cfg.holes[k], hx = x - hole.x, hy = y - hole.y;
-							d = Math.min(d, Math.sqrt(hx * hx + hy * hy) - hole.r - cfg.puckR - ZONE_CUT_GAP);
+							d = Math.min(d, Math.sqrt(hx * hx + hy * hy) - hole.r - cfg.puckR - (cfg.zoneCutGap ?? ZONE_CUT_GAP));
 						}
 					}
 				} else if (cfg.zoneStyle === 'arcs') d = smin(d, left ? cfg.diskX - x : x - cfg.diskX, ZONE_SOFT_K);
@@ -1380,6 +1435,11 @@
 			// worth barely a window (recPrice), so extending a game by recycling is a tactical
 			// fallback, never a scoring plan. Opportunity is the locked rate, not the rate at the
 			// sample instant: a puck crossing red at handoff pays for the window and then leaves.
+			// The turn's score window is hard-capped (handoffT), so a bot cannot score more by
+			// stretching its turn — it can only spend the window it is given well. The timing bot
+			// does exactly that: it weights the *within-turn* red-time (score) far above the
+			// far-future lock (opportunity), so it throws to get pucks dwelling in red (and
+			// double-passing the zone) instead of merely building the best end-state.
 			const BOT_PROFILES = {
 				random: { score: 0.10, opportunity: 0.10, denial: 0.05, recovery: 0.30, reserve: 0.20, risk: 0.30, kill: 0.05, noise: 8.0 },
 				keeper: { score: 1.00, opportunity: 1.20, denial: 0.15, recovery: 0.20, reserve: 0.15, risk: 1.30, kill: 0.10, noise: 0.00 },
@@ -1387,6 +1447,10 @@
 				retriever: { score: 0.60, opportunity: 0.70, denial: 0.10, recovery: 0.50, reserve: 0.90, risk: 1.00, kill: 0.10, noise: 0.05 },
 				blackhole: { score: 0.40, opportunity: 0.50, denial: 0.70, recovery: 0.20, reserve: 0.10, risk: 0.60, kill: 1.60, noise: 0.05 },
 				balanced: { score: 0.90, opportunity: 1.00, denial: 0.35, recovery: 0.30, reserve: 0.40, risk: 1.00, kill: 0.40, noise: 0.05 },
+				// patience: when this seat is already ahead from pucks parked on the scoring disk,
+				// how strongly it votes to slow the disk, so its lead keeps dwelling in red for the
+				// window it is given. 0 for every shipped profile; only the timing bot leans on it.
+				timing: { score: 1.70, opportunity: 0.55, denial: 0.35, recovery: 0.30, reserve: 0.30, risk: 1.35, kill: 0.15, noise: 0.05, patience: 1.2 },
 			};
 			const BOT_SPREAD = [0.78, 0.36, 0.48, 0.48, 0.10];
 			// One record per target group; v0 is a solved launch speed (0 = sample the whole
@@ -1686,7 +1750,7 @@
 				return null;
 			}
 			
-			if (typeof module !== 'undefined') module.exports = { makeRng, chooseStroke, botOut, botTargets, strategicTargets, feedTangent, makeStrokeRank, rankFinish, BOT_SAMPLES, BOT_PROFILES, BOT_GROUPS };
+			if (typeof module !== 'undefined') module.exports = { makeRng, chooseStroke, evaluateStroke, botOut, botTargets, strategicTargets, feedTangent, makeStrokeRank, rankFinish, BOT_SAMPLES, BOT_PROFILES, BOT_GROUPS };
 			}
 		},
 		"js/vote.js": function(module, exports, require, globalThis) {
@@ -1831,6 +1895,7 @@
 			const VOTE_MOVE = 0.01; // × the mean parked rate per rad/s of change: the tie-break
 			const _vote = { kind: VOTE_NONE, value: 0 };
 			const _riderD = new Float64Array(MAX_PUCKS), _riderPay = new Float64Array(MAX_PUCKS);
+			const _stable8 = new Float64Array(8); // a seat-by-seat stable-rate scratch for the staller's lead check
 			let _speeds = new Float64Array(256), _worth = new Float64Array(256), _currentK = 0;
 			
 			// The riders on the disk: how far out each rides, and what it pays seat s — an own
@@ -1917,12 +1982,26 @@
 				_vote.kind = VOTE_NONE; _vote.value = 0;
 				if (st.none) return _vote;
 				const p = BOT_PROFILES[name] || BOT_PROFILES.balanced, om0 = cfg.omega, exact = cfg.voteMode === 'exact';
+				// "use the time you have": a seat already ahead from pucks parked on the scoring disk
+				// asks for a slower disk, so its lead keeps dwelling in red for the window it is given
+				// (a slower disk rotates less, so a parked puck does not rotate off its red lobe).
+				// Only profiles with patience > 0 (the timing bot) do this, and only when actually
+				// ahead — a seat that is behind plays the board straight. Added before the flat
+				// check, so an ahead timing bot votes to slow even when the bare economics say "don't care".
+				let lead = 0;
+				if (p.patience) {
+					_stable8.fill(0); stableRates(w, _stable8);
+					let own = 0, enemy = 0;
+					for (let k = 0; k < _stable8.length; k++) if (k === s) own += _stable8[k]; else enemy += _stable8[k];
+					lead = own - enemy;
+				}
 				const riders = gatherRiders(w, cfg, s, p, st), throwW = throwWeight(cfg, s, roster, next, p, st);
 				const omFrom = voteStartSpeed(w, cfg), n = fillVoteSpeeds(cfg, om0, exact);
 				if (_worth.length < n) _worth = new Float64Array(n);
 				let vMin = Infinity, vMax = -Infinity;
 				for (let k = 0; k < n; k++) {
-					const v = speedWorth(cfg, om0, _speeds[k], riders, throwW, omFrom);
+					let v = speedWorth(cfg, om0, _speeds[k], riders, throwW, omFrom);
+					if (lead > 0) v += p.patience * lead * (om0 - _speeds[k]) / cfg.omegaMax; // slower (ω < ω0) pays more
 					_worth[k] = v; vMin = Math.min(vMin, v); vMax = Math.max(vMax, v);
 				}
 				const r0 = Math.PI * cfg.puckR * cfg.puckR * diskMeanRed(cfg), flat = VOTE_FLAT * r0; // r0: the mean parked rate
@@ -1983,6 +2062,7 @@
 				// Default table: one human against the three profiles that differ the most — a
 				// scorer, an attacker and a recoverer — so the first game shows the whole spread.
 				const roster = env.roster || createRoster(['human', 'balanced', 'blackhole', 'retriever'], cfg.ballsPerPlayer);
+				let editing = false;
 				let state = 'aim', turn = 0, pending = -1, resolveT = 0, voteT = 0, paused = false;
 				// The armed puck's uid. `pending` is a board index, and a removal (a hole, a black
 				// hole) swap-moves the last puck into the freed slot, so the armed puck — the last
@@ -2191,6 +2271,7 @@
 					if (state === 'vote' && rule === 'off') armTurn();
 				}
 				function commitThrow() {
+					if (editing) return false;
 					syncPending();
 					if (state !== 'aim' || pending < 0 || !aim.hasStroke) return;
 					// The rule at the throat: a throw must move the puck. A sub-floor stroke is
@@ -2298,7 +2379,7 @@
 					predT -= dt;
 					// A copy needs no stroke in hand to start its turn: it is aimed and thrown in
 					// the same tick, which is what lets a rollout run its later seats at all.
-					if (paused || state !== 'aim' || pending < 0 || !playsItself() || (!sim && !aim.hasStroke)) return;
+					if (editing || paused || state !== 'aim' || pending < 0 || !playsItself() || (!sim && !aim.hasStroke)) return;
 					if (planning) { stepPlan(); return; }
 					botT += dt;
 					if (!sim && botT < cfg.botDelay) return;
@@ -2312,10 +2393,11 @@
 					if (sim) { botPrep(); commitThrow(); return; }
 					startPlan();
 				}
-				const canAim = () => state === 'aim' && pending >= 0 && !isBot(roster[turn]) && !paused;
+				const canAim = () => !editing && state === 'aim' && pending >= 0 && !isBot(roster[turn]) && !paused;
 				// Expand the ice, not the pieces. Keep the disk left, the launch lane right,
 				// and the playing line halfway down the available pane.
 				function fitBoard(aspect = baseW / baseH) {
+					if (cfg.customGeometry) return false;
 					const width = Math.max(baseW, baseH * aspect), height = Math.max(baseH, baseW / aspect);
 					if (Math.abs(width - cfg.boardW) + Math.abs(height - cfg.boardH) < 1e-6) return false;
 					const dy = height / 2 - cfg.diskY, dx = width - cfg.boardW;
@@ -2328,8 +2410,7 @@
 					cfg.diskY = cfg.launchY = height / 2;
 					cfg.launchX += dx; cfg.launchMinX += dx; cfg.launchMaxX += dx;
 					cfg.launchMinY += dy; cfg.launchMaxY += dy;
-					cfg.returnZone = { ax: cfg.diskX, ay: cfg.diskY, bx: width, by: 0, cx: width, cy: height };
-					cfg.advanceZone = { ax: 0, ay: height, bx: 0, by: 0, cx: cfg.diskX, cy: cfg.diskY, lx: cfg.launchMinX, lw: width - cfg.launchMinX };
+					rebuildZones(cfg);
 					cfg.holes = [BLACK_HOLES[0], { ...BLACK_HOLES[1], y: height }];
 					cancelPlan(); invalidateGhost();
 					return true;
@@ -2415,7 +2496,7 @@
 				function bindRestart(canvas) {
 					let lastT = -Infinity, lastX = 0, lastY = 0;
 					canvas.addEventListener('pointerup', e => {
-						if (e.button > 0 || (state !== 'settle' && state !== 'scored')) return;
+						if (editing || e.button > 0 || (state !== 'settle' && state !== 'scored')) return;
 						const t = e.timeStamp || performance.now();
 						const near = Math.abs(e.clientX - lastX) <= RESTART_SLOP && Math.abs(e.clientY - lastY) <= RESTART_SLOP;
 						if (near && t - lastT <= RESTART_TAP_MS) { lastT = -Infinity; reset(); return; }
@@ -2426,6 +2507,7 @@
 					bindPointer(canvas, Render);
 					bindRestart(canvas);
 					window.addEventListener('keydown', e => {
+						if (editing) return;
 						// Space and the arrows belong to the control that has focus (a slider, a
 						// select, a button); the game reads them only from the board and the page.
 						const owned = e.target && e.target.closest && e.target.closest('button, input, select, textarea');
@@ -2520,7 +2602,11 @@
 					get turn() { return turn; },
 					get seatTypes() { return roster.map(s => s.type); },
 					get winner() { return state === 'scored' ? leader(roster) : -1; },
-					get paused() { return paused; },
+					get paused() { return paused || editing; },
+					get editing() { return editing; },
+					setEditing(on) {
+						editing = !!on; cancelPlan(); queue.length = 0; aim.dragging = false;
+					},
 					togglePause: () => { paused = !paused; return paused; },
 					// The warp hooks: what js/warp.js drives a copy through, and what the panel
 					// reads. `planning` freezes the real board for the length of the look-ahead.
@@ -2549,7 +2635,7 @@
 				// is the top of the ice — over every marking already painted, including the voids,
 				// the aim ghost and the stones.
 				let skin = null;
-				let texDisk = null, texSchema = '', ppmDisk = 0, puckGrad = null, wallPath = null, gridPath = null;
+				let texDisk = null, texSchema = '', texRadius = 0, ppmDisk = 0, puckGrad = null, wallPath = null, gridPath = null;
 				let zoneFan = null, zoneAdv = null, sectorPath = null, bandPath = null, holeClip = null;
 				let builtZone = '', builtHole = ''; // the shape styles the zone and hole paths were baked for
 				const holeTri = new Float64Array(6);
@@ -2595,8 +2681,7 @@
 					cv = canvas; ctx = cv.getContext('2d');
 					ctx.imageSmoothingEnabled = true;
 					ctx.imageSmoothingQuality = 'high';
-					puckGrad = ctx.createRadialGradient(-0.03, -0.03, 0.01, 0, 0, cfg.puckR);
-					puckGrad.addColorStop(0, '#f5f6fa'); puckGrad.addColorStop(0.7, '#b2bec3'); puckGrad.addColorStop(1, '#636e72');
+					buildPuckGradient();
 					buildFloorFills();
 					applyTheme('classic');
 					buildZonePaths();
@@ -2606,6 +2691,10 @@
 				function attach(addon) {
 					skin = addon || null;
 					if (skin && cv && skin.setup) skin.setup(cfg, sx, sy, dpr);
+				}
+				function buildPuckGradient() {
+					puckGrad = ctx.createRadialGradient(-0.03, -0.03, 0.01, 0, 0, cfg.puckR);
+					puckGrad.addColorStop(0, '#f5f6fa'); puckGrad.addColorStop(0.7, '#b2bec3'); puckGrad.addColorStop(1, '#636e72');
 				}
 				function buildFloorFills() {
 					for (const name in THEMES) {
@@ -2707,7 +2796,11 @@
 					hole.closePath();
 					const path = new Path2D();
 					path.addPath(fill); path.addPath(hole);
-					return { path: path, line: line, hatch: hatch };
+					// A shortened wedge can end inside the guard; clip both sides of the subtraction.
+					const guardClip = new Path2D();
+					guardClip.rect(0, 0, cfg.boardW, cfg.boardH);
+					guardClip.moveTo(cfg.diskX + Rg, cfg.diskY); guardClip.arc(cfg.diskX, cfg.diskY, Rg, 0, TAU);
+					return { path: path, line: line, hatch: hatch, clip: fill, guardClip };
 				}
 				const HATCH_STEP = 0.14;
 				function straightHatch() {
@@ -2861,7 +2954,11 @@
 					if (cv.style.height !== cssH) cv.style.height = cssH;
 					const bw = Math.round(wpx * dpr), bh = Math.round(hpx * dpr);
 					if (!geometryChanged && bw === cv.width && bh === cv.height) return;
-					if (geometryChanged) { buildZonePaths(); buildFloorFills(); }
+					if (geometryChanged) {
+						buildZonePaths(); buildFloorFills(); applyTheme(themeName);
+						buildPuckGradient();
+						if (skin && skin.setup) skin.setup(cfg, sx, sy, dpr);
+					}
 					cv.width = bw; cv.height = bh;
 					sx = cv.width / cfg.boardW;
 					sy = cv.height / cfg.boardH;
@@ -2894,7 +2991,7 @@
 					g.globalCompositeOperation = 'destination-in';
 					g.fillStyle = '#ffffff';
 					g.beginPath(); g.arc(tex.width / 2, tex.height / 2, cfg.diskR * ppm, 0, Math.PI * 2); g.fill();
-					texDisk = cut; texSchema = cfg.diskSchema; ppmDisk = ppm;
+					texDisk = cut; texSchema = cfg.diskSchema; texRadius = cfg.diskR; ppmDisk = ppm;
 				}
 				function toWorld(clientX, clientY) {
 					const r = cv.getBoundingClientRect();
@@ -2904,6 +3001,7 @@
 					if (mode === 'none') return;
 					const z = mode === 'advance' ? zoneAdv : zoneFan;
 					ctx.save();
+					if (z.clip) { ctx.clip(z.clip); ctx.clip(z.guardClip, 'evenodd'); }
 					ctx.fillStyle = Z_FILL;
 					ctx.fill(z.path, 'evenodd');
 					ctx.save(); ctx.clip(z.path, 'evenodd');
@@ -3010,7 +3108,7 @@
 				function drawWorld(view) {
 					const w = view.w, aim = view.aim, opts = view.opts, pred = view.pred;
 					if (opts.theme !== themeName) applyTheme(opts.theme);
-					if (cfg.diskSchema !== texSchema) bakeDisk();
+					if (cfg.diskSchema !== texSchema || cfg.diskR !== texRadius) bakeDisk();
 					if (cfg.zoneStyle !== builtZone || cfg.holeStyle !== builtHole) buildZonePaths();
 					ctx.setTransform(1, 0, 0, 1, 0, 0);
 					ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, cv.width, cv.height);

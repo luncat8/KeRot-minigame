@@ -29,6 +29,10 @@ function lutKey(cfg) { return cfg.diskSchema + '@' + cfg.diskR; }
 // is applied to the sample point, never to the grid.
 function bakeScoreLUT(cfg) {
 	const key = lutKey(cfg);
+	// A radius drag must not retain a new grid for every pointer sample.
+	if (Object.keys(_luts).length >= 16) {
+		for (const old of Object.keys(_luts)) { delete _luts[old]; delete _means[old]; }
+	}
 	const out = new Float32Array(SC_LUT_W * SC_LUT_W), step = 2 * cfg.diskR / SC_LUT_N;
 	let mean = 0, inside = 0;
 	for (let j = 0; j < SC_LUT_W; j++) {

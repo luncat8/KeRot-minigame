@@ -47,6 +47,33 @@
 		window.visualViewport.addEventListener('resize', refit);
 		window.visualViewport.addEventListener('scroll', refit);
 	}
+	const editButton = document.getElementById('btnEdit');
+	let editorLoad = null;
+	function loadEditor() {
+		if (typeof ZoneEditor !== 'undefined') return Promise.resolve();
+		if (editorLoad) return editorLoad;
+		editorLoad = new Promise((resolve, reject) => {
+			const script = document.createElement('script');
+			script.src = 'js/zone-editor.js';
+			script.onload = resolve;
+			script.onerror = () => { script.remove(); editorLoad = null; reject(new Error('Editor could not load')); };
+			document.head.appendChild(script);
+		});
+		return editorLoad;
+	}
+	editButton.addEventListener('click', async () => {
+		if (typeof ZoneEditor !== 'undefined' && ZoneEditor.active) { ZoneEditor.close(); return; }
+		editButton.disabled = true;
+		editButton.textContent = 'Loading…';
+		try {
+			await loadEditor();
+			ZoneEditor.open({ canvas: cv, game: Game, render: Render, ui: UI, refit, button: editButton });
+		} catch (e) {
+			editButton.textContent = 'Retry editor';
+			editButton.title = 'Could not load editor. Click to retry.';
+		} finally { editButton.disabled = false; }
+	});
+
 	document.addEventListener('visibilitychange', () => { last = performance.now(); });
 	// Everything the renderer needs about the game, in one object main mutates in
 	// place: the draw call itself allocates nothing.

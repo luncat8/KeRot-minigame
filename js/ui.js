@@ -140,6 +140,8 @@ const UI = (() => {
 	// table, so a refresh opens this page and not the bundle the select has left.
 	function liveQuery() {
 		const parts = [];
+		if (CFG.customGeometry) parts.push('geometry=' + encodeURIComponent(JSON.stringify(boardGeometry(CFG))));
+		if (CFG.maxThrows !== 96) parts.push('maxthrows=' + CFG.maxThrows);
 		const omega = Game.omegaStart; // what games start at: a voted speed belongs to the game, not the link
 		if (Math.abs(omega - SHIPPED.omega) > 5e-4) parts.push('omega=' + numParam(omega));
 		if (Math.abs(CFG.muK - SHIPPED.muK) > 5e-4) parts.push('muk=' + numParam(CFG.muK));
@@ -228,6 +230,11 @@ const UI = (() => {
 	function applySetup(setup) {
 		if (!setup) return;
 		applyCfg(setup);
+		if (setup.geometry === null) {
+			const box = $('c').parentElement;
+			Game.fitBoard(View.isFit() && box.clientHeight ? box.clientWidth / box.clientHeight : undefined);
+		}
+		if (setup.geometry !== undefined) Render.resize(true);
 		if (setup.omega !== undefined || setup.autoOmega) Game.setOmega(CFG.omega); // a set speed, not a voted one
 		if (CARD_STYLES.includes(setup.cards)) opts.cards = setup.cards;
 		if (setup.fx && FX_MODES.includes(setup.fx)) opts.fx = setup.fx;
@@ -241,7 +248,7 @@ const UI = (() => {
 		if (setup.ghost !== undefined) els.chkPreview.checked = setup.ghost;
 		if (setup.seats && setup.seats.length) Game.setSeatTypes(setup.seats); // resets itself
 		else if (setup.omega !== undefined || setup.muK !== undefined || setup.muS !== undefined || setup.puckM !== undefined ||
-			setup.autoOmega || setup.balls !== undefined || setup.schema || setup.recycle || setup.vote || setup.voteMode) Game.reset();
+			setup.geometry !== undefined || setup.maxThrows !== undefined || setup.autoOmega || setup.balls !== undefined || setup.schema || setup.recycle || setup.vote || setup.voteMode) Game.reset();
 		pullControls();
 		syncFX();
 		syncRoster();
@@ -497,5 +504,6 @@ const UI = (() => {
 		opts.sfx = !!els.chkSfx.checked;
 		return opts;
 	}
-	return { bind, update, actions, opts: optsNow, applySetup, applyPreset };
+	return { bind, update, actions, opts: optsNow, applySetup, applyPreset,
+		refreshEditor() { pullControls(); sync(); markCustom(); } };
 })();

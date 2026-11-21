@@ -72,12 +72,12 @@ function zoneField(cfg, mode, x, y) {
 	const gx = x - cfg.diskX, gy = y - cfg.diskY;
 	let d = Math.sqrt(gx * gx + gy * gy) - cfg.diskR - cfg.puckR;
 	if (isCutZone(cfg)) {
-		d -= ZONE_CUT_GAP;
+		d -= cfg.zoneCutGap ?? ZONE_CUT_GAP;
 		if (cfg.zoneStyle === '6-hemi') d = Math.min(d, left ? cfg.diskX - x : x - cfg.diskX);
 		else if (left) {
 			for (let k = 0; k < cfg.holes.length; k++) {
 				const hole = cfg.holes[k], hx = x - hole.x, hy = y - hole.y;
-				d = Math.min(d, Math.sqrt(hx * hx + hy * hy) - hole.r - cfg.puckR - ZONE_CUT_GAP);
+				d = Math.min(d, Math.sqrt(hx * hx + hy * hy) - hole.r - cfg.puckR - (cfg.zoneCutGap ?? ZONE_CUT_GAP));
 				d = Math.min(d, sideGap(hole.x, hole.y, cfg.diskX, cfg.diskY, 0, cfg.diskY, x, y));
 			}
 		} else {
@@ -86,7 +86,7 @@ function zoneField(cfg, mode, x, y) {
 			d = Math.min(d, sideGap(z.ax, z.ay, z.cx, z.cy, z.bx, z.by, x, y));
 			for (let k = 0; k < cfg.holes.length; k++) {
 				const hole = cfg.holes[k], hx = x - hole.x, hy = y - hole.y;
-				d = Math.min(d, Math.sqrt(hx * hx + hy * hy) - hole.r - cfg.puckR - ZONE_CUT_GAP);
+				d = Math.min(d, Math.sqrt(hx * hx + hy * hy) - hole.r - cfg.puckR - (cfg.zoneCutGap ?? ZONE_CUT_GAP));
 			}
 		}
 	} else if (cfg.zoneStyle === 'arcs') d = smin(d, left ? cfg.diskX - x : x - cfg.diskX, ZONE_SOFT_K);
