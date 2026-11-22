@@ -49,6 +49,7 @@
 	#resultKicker { margin: 0 0 3px; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--acc); }
 	#resultWinner { margin: 0; font-size: 21px; font-weight: 600; line-height: 1.2; }
 	#resultScores { margin: 7px 0 0; font-size: var(--fs); line-height: 1.5; color: var(--soft); font-variant-numeric: tabular-nums; }
+	#resultEma { margin: 6px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--dim); font-variant-numeric: tabular-nums; }
 	#resultHint { margin: 11px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--dim); }
 	#resultHint kbd { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font: inherit; }
 	@keyframes result-in { from { opacity: 0; transform: scale(0.96); } }
@@ -120,7 +121,7 @@
 		#boardWrap { flex: 0 0 auto; width: 100%; aspect-ratio: 3.6 / 2.2; max-height: 54%; }
 		#panel { flex: 1 1 0; width: 100%; min-height: 0; max-height: none; }
 	}
-	/* The action bar: throw, clear, reset, pause and the settings switch, all
+	/* The action bar: throw, clear, reset, pause, autoplay and the settings switch, all
 	   together at the top of the panel, so a phone reaches the throw without scrolling.
 	   In the fit view the panel itself becomes a narrow rail down the right edge (a bar
 	   under the board in portrait) and the settings slide out of it as a drawer. */
@@ -130,6 +131,7 @@
 	#actions button.go { padding: 8px 12px; }
 	#btnSettings { display: none; } /* the side layout keeps its settings in sight */
 	#btnSettings.on { background: var(--btn-hi); color: var(--btn-hi-txt); }
+	#btnAutoPlay.on { background: var(--btn-hi); color: var(--btn-hi-txt); }
 	/* The speed bar: the game's speed control, under the transport bar and just as
 	   sticky. It keeps what a turn needs — who sets the speed, the speed itself with a
 	   one-tap auto-ω, and the votes (a row per human seat while a vote rule is on) —
@@ -222,6 +224,7 @@
 				<p id="resultKicker">game over</p>
 				<p id="resultWinner"></p>
 				<p id="resultScores"></p>
+				<p id="resultEma" hidden></p>
 				<p id="resultHint">double-click the board for a new game · or press <kbd>R</kbd></p>
 			</div>
 		</div>
@@ -231,6 +234,7 @@
 		<div id="actions">
 			<button id="btnThrow" class="go">Throw ␣</button><button id="btnClear">Clear</button>
 			<button id="btnReset">Reset</button><button id="btnPause">Pause</button>
+			<button id="btnAutoPlay" aria-pressed="false" title="autoplay random games — a shuffled all-bot table, played as fast as it can">Auto ▶</button>
 			<button id="btnCollapse" aria-controls="panel" title="Collapse menu" aria-label="Collapse menu">›</button>
 			<button id="btnSettings" title="the settings panel" aria-expanded="false">☰</button>
 		</div>
@@ -471,6 +475,22 @@
 	<code>ring</code>, <code>ghost</code> (0|1). Names are case-insensitive. Unknown
 	keys are ignored and numbers are clamped to the slider ranges — a hand-typed link
 	always opens.</p>
+	<h2>the shuffle, autoplay and the bot record</h2>
+	<p>The <b>random</b> preset names no fixed bundle: every game rule a link can name —
+	ice and puck mass, the disk pattern, the return and zone shapes, the speed and turn
+	rules, the bot brains, and a drawn table of 2–4 profiles — is shuffled each time it
+	applies, while the looks (colour scheme, presentation, cards, decor) and the board's
+	geometry are left alone, so a shuffled game still looks like yours. It is a table to
+	watch: no human seat is dealt.</p>
+	<p><b>Auto ▶</b> (transport bar) plays that shuffle on loop, every seat a bot, as
+	fast as the browser can: the bot think delay is dropped and the frame spends its
+	time on the game instead of one turn per frame. The finished board holds for a
+	brief moment — its result card names the winner in his seat colour and type — and
+	the next game is dealt; <b>■ Stop</b> ends the run. Every finished game, standing or
+	autoplayed, writes the share of the whole points each bot type earned into local
+	storage as an exponential moving average: <code>retriever: 0.6</code> reads "the
+	retriever takes 60 % of the points in a typical game". The result card shows that
+	record for the types that just played.</p>
 </aside>
 <script src="js/cfg.js"></script>
 <script src="js/field.js"></script>
@@ -485,10 +505,12 @@
 <script src="js/render.js"></script>
 <script src="js/game.js"></script>
 <script src="js/warp.js"></script>
+<script src="js/record.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/help.js"></script>
 <script src="js/view.js"></script>
 <script src="js/fx.js"></script>
+<script src="js/auto.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

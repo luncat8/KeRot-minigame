@@ -23,9 +23,19 @@ const UI = (() => {
 	};
 	const rows = []; // one per seat: {root, sel, balls, score, rm}
 	const voteRows = []; // one per human seat: {seat, root, none, keep, range, val}
-	let voteKey = '', shownOmega = NaN, resultKey = '', lastText = {};
+	let voteKey = '', shownOmega = NaN, resultKey = '', recorded = false, lastText = {};
 	function setText(id, txt) { if (lastText[id] !== txt) { lastText[id] = txt; els[id].textContent = txt; } }
 	function setNode(el, txt) { if (el.textContent !== txt) el.textContent = txt; }
+	// The winner line, painted: the seat's colour on his name and his type in brackets,
+	// so a spectator reads who — and what — took the game. The words go in as text
+	// first and the markup after: a browser keeps the paint, the headless smoke keeps
+	// the text, and both read the same sentence.
+	function setWinner(plain, html) {
+		if (lastText.resultWinner === plain) return;
+		lastText.resultWinner = plain;
+		els.resultWinner.textContent = plain;
+		els.resultWinner.innerHTML = html;
+	}
 	function bind(onReset) {
 		// The transport bar and the settings switch sit at the top of the panel, so they
 		// are the first controls bound; the rest of the panel is read below.
@@ -33,7 +43,7 @@ const UI = (() => {
 			els[id] = $(id);
 		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'chkHoleFill', 'chkSwap', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
 			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus', 'speedMode',
-			'chkCards', 'fx', 'chkSfx', 'decor', 'face', 'vol', 'volVal', 'result', 'resultWinner', 'resultScores'])
+			'chkCards', 'fx', 'chkSfx', 'decor', 'face', 'vol', 'volVal', 'result', 'resultWinner', 'resultScores', 'resultEma'])
 			els[id] = $(id);
 		els.canvas = $('c');
 		// Every physics input invalidates the ghost: it is only valid for the settings
@@ -248,6 +258,11 @@ const UI = (() => {
 	// named bundle is echoed into the address bar as its shareable link.
 	function applySetup(setup) {
 		if (!setup) return;
+		// The shuffle draws its settings here, once per applied game: `random` is a
+		// bundle that names no keys of its own (js/presets.js). The draw goes in
+		// first, so anything else the setup carries — `?preset=random&seats=human,…`,
+		// a panel bundle's own keys — overrides it, like any other preset's.
+		if (setup.random) setup = Object.assign(randomSetup(), setup);
 		applyCfg(setup);
 		if (setup.geometry === null) {
 			const box = $('c').parentElement;
@@ -450,7 +465,9 @@ const UI = (() => {
 			: 'resolving… scoring window closes in ' + Math.max(0, CFG.handoffT - Game.resolveT).toFixed(1) + ' s';
 		if (Game.state === 'vote') return 'speed vote — P' + (Game.turn + 1) + ' throws when it closes';
 		if (Game.state === 'settle') return 'disk spinning down…';
-		return 'game over — ' + (tied(Game.roster) ? 'a draw' : seatName(Game.winner) + ' wins') + ' · double-click the board for a new game';
+		return 'game over — ' + (tied(Game.roster) ? 'a draw'
+			: seatName(Game.winner) + ' wins (' + SEAT_LABELS[Game.roster[Game.winner].type] + ')')
+			+ ' · double-click the board for a new game';
 	}
 	// A tie is the seats' raw scores being equal; the display rounds, so comparing the
 	// numbers on the board instead would call a win a draw.
@@ -464,6 +481,7 @@ const UI = (() => {
 	// rewritten when the winner or any score changes — a seat can still be removed.
 	function syncResult() {
 		if (Game.state !== 'scored') {
+			recorded = false; // the next finished game takes its own step of the record
 			if (resultKey !== '') { els.result.hidden = true; resultKey = ''; }
 			return;
 		}
@@ -474,15 +492,26 @@ const UI = (() => {
 		if (style.width !== w + 'px') style.width = w + 'px';
 		if (style.height !== h + 'px') style.height = h + 'px';
 		const roster = Game.roster, n = roster.length;
+		if (!recorded) { recorded = true; BotRecord.update(roster); } // one EMA step per finished game
 		let key = Game.winner + '|' + n;
 		for (let i = 0; i < n; i++) key += '|' + roster[i].score;
 		if (key === resultKey) return;
 		resultKey = key;
 		els.result.hidden = false;
-		setText('resultWinner', tied(roster) ? 'draw' : seatName(Game.winner) + ' wins');
+		if (tied(roster)) setWinner('draw', 'draw');
+		else {
+			const name = seatName(Game.winner), type = SEAT_LABELS[roster[Game.winner].type];
+			setWinner(name + ' wins (' + type + ')',
+				'<span style="color:' + seatColor(Game.winner) + '">' + name + '</span> wins <span style="opacity:.72">(' + type + ')</span>');
+		}
 		let line = '';
 		for (let i = 0; i < n; i++) line += (i ? ' · ' : '') + 'P' + (i + 1) + ' ' + displayScore(CFG, n, roster[i].score);
 		setText('resultScores', line);
+		// The standing of the types that just played: their share of the whole points,
+		// as the record in local storage has it after this game (js/record.js).
+		const record = BotRecord.line(roster);
+		setText('resultEma', record);
+		els.resultEma.hidden = record === '';
 	}
 	function update(w) {
 		const roster = Game.roster, n = roster.length;

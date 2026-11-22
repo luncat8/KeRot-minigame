@@ -80,6 +80,29 @@ index.html?preset=staller
 Validate with `node experiments/motion-turns.js` (`--bench N` for seeded leagues, `--span`
 for the turn-length fit). Design: [`archive/0.6.9-plan.md`](archive/0.6.9-plan.md).
 
+## Autoplay, the shuffle and the bot record
+
+**Auto ▶** in the transport bar plays games without you. Every game is dealt by the
+**random** preset — a shuffle of the game settings a link can name (ice and puck mass,
+the disk pattern, the return rule and zone shapes, the speed and turn rules, the bot
+brains, and a drawn table of 2–4 distinct profiles, no human) while the looks and the
+board's geometry are left alone, so a shuffled game still looks like yours. While it
+runs the bot think delay is dropped and each frame spends a wall-clock budget on the
+game itself — several tick + step slices instead of one — so the board plays well past
+realtime; the finished board holds for a beat with its result card up, then the next
+shuffle is dealt. **■ Stop** ends the run (the button reports it with `aria-pressed`),
+and Pause or the board editor freezes it in place. `index.html?preset=random` applies
+one shuffle at boot.
+
+The result card paints the winner's seat colour and names what played him —
+`P2 amber wins (bot — balanced)` — and every finished game, played or autoplayed,
+writes each bot type's share of the whole points into `localStorage` as an exponential
+moving average (α = 0.25): `retriever: 0.6` reads "the retriever takes 60 % of the
+points in a typical game". The card shows that standing, best first, for the types
+that just played (`bot record · retriever 0.60 · …`).
+
+Validate with `node experiments/client-smoke.js` (the record/autoplay block).
+
 ## Optional glass presentation
 
 The shipped page stays lightweight. **Plain** loads only the classic scripts below; the

@@ -29,6 +29,7 @@
 	Game.reset();
 	Game.bindInput(cv);
 	UI.bind(() => Game.reset());
+	Auto.bind(); // the autoplay button of js/auto.js: random all-bot games, back to back
 	// The fit drawer's switch and open/close, and the board refit a layout change needs.
 	View.bind(refit);
 	// URL parameters configure the boot (?schema=rim6&seats=human,hunter, see
@@ -84,19 +85,30 @@
 		let dt = (now - last) / 1000;
 		last = now;
 		if (dt > 0.25) dt = 0.25; // clamped; backlog beyond the cap is dropped, never one huge step
+		Auto.frame(dt); // a finished board holds, then the next random game is dealt
 		if (!Game.paused) {
-			Game.tick(dt); // the bots think here, a time-warp search included
-			Game.beforeSteps();
-			// The board holds still while a bot is looking ahead (js/warp.js): its plan
-			// is computed on this exact state, so nothing may move under it. The frame
-			// is spent on the search instead of on stepping, and no backlog builds up.
-			if (!Game.planning) {
-				acc += dt;
-				let steps = 0;
-				while (acc >= CFG.h && steps < 96) { stepWorld(Game.world, CFG.h); acc -= CFG.h; steps++; }
-				if (steps === 96) acc = 0;
-				if (steps) Game.afterSteps(steps * CFG.h);
-			}
+			// Autoplay buys extra slices of the frame for the game: each slice is one
+			// tick plus one batch of fixed steps, so a page that only watches plays
+			// several turns per frame and the board runs well past realtime. The budget
+			// is wall time — a bot search inside a slice spends it and ends the loop.
+			const cap = Auto.on ? 480 : 96;
+			let slices = Auto.on ? 8 : 1;
+			const stop = Auto.on ? performance.now() + 20 : 0;
+			do {
+				Game.tick(dt); // the bots think here, a time-warp search included
+				Game.beforeSteps();
+				// The board holds still while a bot is looking ahead (js/warp.js): its plan
+				// is computed on this exact state, so nothing may move under it. The frame
+				// is spent on the search instead of on stepping, and no backlog builds up.
+				if (!Game.planning) {
+					acc += dt;
+					let steps = 0;
+					while (acc >= CFG.h && steps < cap) { stepWorld(Game.world, CFG.h); acc -= CFG.h; steps++; }
+					if (steps === cap) acc = 0;
+					if (steps) Game.afterSteps(steps * CFG.h);
+				}
+				slices--;
+			} while (slices && performance.now() < stop && Game.state !== 'scored');
 		}
 		// The optional sound layer reads the world after the frame's steps. With the
 		// add-on absent this is one guarded call and the shipped loop is unchanged.

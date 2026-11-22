@@ -48,6 +48,9 @@ const PRESETS = {
 	staller: { label: 'motion turns · staller keeps it sliding', turns: 'motion', seats: ['human', 'staller', 'keeper', 'timing'] },
 	solo: { label: 'practice · human alone', seats: ['human'], vote: 'off' }, // a vote of one is the slider
 	bots: { label: 'bot league · all six profiles', seats: ['keeper', 'hunter', 'balanced', 'retriever', 'blackhole', 'random'] },
+	// A bundle drawn at apply time (randomSetup below), not a fixed one: the looks
+	// stay where they are and only the game is shuffled.
+	random: { label: 'random · shuffled game, bot table', random: true },
 };
 // The slider ranges of index.html; URL values are clamped to them.
 const NUM_RANGES = { maxThrows: [1, 512], omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.5], puckM: [CFG.massMin, CFG.massMax], balls: [1, 8],
@@ -61,6 +64,42 @@ const VIEWS = ['fit', 'side']; // the layout keys of index.html; fit is the ship
 const FX_MODES = ['plain', 'glass']; // presentation; not CFG, js/ui.js loads the add-on
 const DECOR_MODES = ['radial', 'hex']; // the glass disk's etched finish
 const FACE_MODES = ['launch', 'up', 'bottom']; // where the sound listener sits and faces
+
+// The shuffle behind the `random` preset: every game rule a link can name is drawn
+// fresh — ice and mass, disk paint, return rule, zone shapes, speed and turn rules,
+// the bot brains and the table itself — while the looks stay put: theme, presentation,
+// cards, decor and the board's geometry are not in the draw, so a shuffled game still
+// looks like the one you were watching. One draw per applied game, never per frame.
+function randomPick(list) { return list[(Math.random() * list.length) | 0]; }
+function randomNum(lo, hi) { return lo + Math.random() * (hi - lo); }
+// A table of 2..4 bots, each profile once — the shuffle is a table to watch, so no
+// human seat is dealt (js/auto.js runs these games back to back).
+function randomTable() {
+	const pool = SEAT_TYPES.slice(1); // every seat type but the human
+	for (let i = pool.length - 1; i > 0; i--) {
+		const j = (Math.random() * (i + 1)) | 0, t = pool[i];
+		pool[i] = pool[j]; pool[j] = t;
+	}
+	return pool.slice(0, 2 + ((Math.random() * 3) | 0));
+}
+function randomSetup() {
+	const muK = Math.round(randomNum(0.01, 0.09) * 1000) / 1000;
+	const muS = Math.max(muK, Math.round(randomNum(muK, 0.16) * 1000) / 1000); // the panel's μs ≥ μk rule
+	return {
+		muK: muK, muS: muS,
+		puckM: Math.round(10 ** randomNum(Math.log10(CFG.massMin), Math.log10(CFG.massMax)) * 100) / 100,
+		autoOmega: true, // the drawn mass and ice re-solve the disk's speed
+		balls: randomPick([1, 2, 3, 4]), // a shuffled game is short enough to watch to the end
+		schema: randomPick(Object.keys(DISK_SCHEMAS)), // the score map is the rule, not only the paint
+		zones: randomPick(ZONE_STYLES), holes: randomPick(HOLE_STYLES), recycle: randomPick(RECYCLES), swap: Math.random() < 0.5,
+		scoreScale: randomPick([0.75, 1, 1, 1, 1.25, 1.5]),
+		vote: randomPick(SPEED_RULES), voteMode: randomPick(VOTE_MODES), turns: randomPick(TURN_ENDS),
+		botspeed: randomPick(Object.keys(SPEED_STRATS)),
+		warp: Math.random() < 0.25, warpTries: 2 + ((Math.random() * 5) | 0),
+		warpTurns: (Math.random() * 4) | 0, warpGoal: Math.round(randomNum(0.3, 1) * 20) / 20,
+		seats: randomTable(),
+	};
+}
 
 // The CFG-level share of a setup: numbers, disk schema, return rule, speed rule, balls. Called
 // by the boot path before the first deal and by the panel preset. Theme, seats and
@@ -183,4 +222,4 @@ function parseQuery(search) {
 // and the same page state comes back when it is opened.
 function presetQuery(name) { return 'preset=' + name; }
 
-if (typeof module !== 'undefined') module.exports = { PRESETS, ZONE_STYLES, HOLE_STYLES, CARD_STYLES, SPEED_RULES, VOTE_MODES, TURN_ENDS, VIEWS, FX_MODES, DECOR_MODES, FACE_MODES, parseQuery, applyCfg, presetQuery };
+if (typeof module !== 'undefined') module.exports = { PRESETS, ZONE_STYLES, HOLE_STYLES, CARD_STYLES, SPEED_RULES, VOTE_MODES, TURN_ENDS, VIEWS, FX_MODES, DECOR_MODES, FACE_MODES, parseQuery, applyCfg, presetQuery, randomSetup };

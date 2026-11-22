@@ -9,6 +9,15 @@ const path = require('path');
 let fail = 0;
 function check(ok, name, extra) { if (!ok) { console.log('FAIL ' + name + (extra ? ' — ' + extra : '')); fail = 1; } }
 
+// The bot-type record (js/record.js) persists through this page's localStorage; node
+// has none, so hand it one — the record checks below read the same store back.
+const storage = {};
+globalThis.localStorage = {
+	getItem: k => (Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null),
+	setItem: (k, v) => { storage[k] = String(v); },
+	removeItem: k => { delete storage[k]; },
+};
+
 const ops = [];
 const linearGradients = []; // floor fills: recreated when the board's geometry changes
 let bakes = 0; // createImageData calls: one per field texture baked
@@ -59,10 +68,10 @@ globalThis.document = { createElement: () => makeCanvas(), getElementById: () =>
 // top-level consts become real globals (node would keep them module-local). Strict
 // mode turns an assignment to an undeclared name — a silent implicit global in a
 // classic script — into a ReferenceError the moment the code runs.
-for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/render.js', '../js/game.js', '../js/warp.js', '../js/ui.js', '../js/help.js', '../js/view.js']) {
+for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/render.js', '../js/game.js', '../js/warp.js', '../js/record.js', '../js/ui.js', '../js/help.js', '../js/view.js', '../js/auto.js']) {
 	const src = fs.readFileSync(require('path').join(__dirname, f), 'utf8')
 		.replace(/^if \(typeof module !== 'undefined'\).*$/gm, '') // node-only require/export guards
-		.replace(/\bconst (Render|Game|UI|Help|View|SEAT_COLORS|SEAT_TYPES|SEAT_LABELS|SEAT_NAMES|SC_LUT_N|SC_LUT_W|RED_MAX|WARP_MAX_TRIES) =/, 'globalThis.$1 =')
+		.replace(/\bconst (Render|Game|UI|Help|View|Auto|BotRecord|SEAT_COLORS|SEAT_TYPES|SEAT_LABELS|SEAT_NAMES|SC_LUT_N|SC_LUT_W|RED_MAX|WARP_MAX_TRIES) =/, 'globalThis.$1 =')
 		.replace(/\bfunction (bakeFieldCanvas|createGame|createWarp)/, 'globalThis.$1 = function $1');
 	eval('"use strict";' + src);
 }
@@ -1077,6 +1086,8 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	// Mobile layout + live visualViewport sync: #app avoids 100vh overflow, #boardWrap
 	// top-aligns the canvas without wasted centering gap, horizontal widescreen phones
 	// stay in row layout, and main.js pins #app to visualViewport height when unzoomed.
+	// The frame loop is captured, not run: the autoplay block below drives it by hand.
+	let frameCb = 0;
 	{
 		check(!/#app\s*\{[^}]*100vh/.test(html) && /#app\s*\{[^}]*position:\s*fixed/.test(html),
 			'#app avoids 100vh overflow and pins to the layout viewport');
@@ -1093,7 +1104,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		const appEl = els.app || (els.app = makeEl('app'));
 		els.c = makeCanvas();
 		globalThis.performance = { now: () => 0 };
-		globalThis.requestAnimationFrame = () => 1;
+		globalThis.requestAnimationFrame = cb => { frameCb = cb; return 1; };
 		globalThis.window.innerHeight = 360;
 		globalThis.window.visualViewport = {
 			height: 284, offsetTop: 12, scale: 1,
@@ -1108,6 +1119,113 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		check(appEl.style.height === '360px' && appEl.style.top === '0px',
 			'pinch-zoom does not crush #app to the zoomed visualViewport slice', appEl.style.top + '+' + appEl.style.height);
 		globalThis.document.createElement = prevCreate;
+	}
+	// The winner's paint, the bot-type record and autoplay: the card names the type in
+	// his seat colour, one finished game moves each type's stored share exactly once,
+	// and the Auto button shuffles an all-bot table and deals the next game when the
+	// finished board's hold is up.
+	{
+		globalThis.history = { replaceState() { } };
+		globalThis.location = { pathname: '/index.html', hash: '', search: '' };
+		const shuffled = parseQuery('?preset=random');
+		check(shuffled && shuffled.preset === 'random' && shuffled.random === true, 'the random preset parses from a link');
+		// Link keys override the shuffle on the same terms as any other bundle: draw
+		// with a pinned rng, then name two keys after it and read the un-named one back.
+		const rnd0 = Math.random;
+		Math.random = () => 0;
+		UI.applySetup(parseQuery('?preset=random&balls=7&seats=human,hunter'));
+		Math.random = rnd0;
+		check(CFG.ballsPerPlayer === 7 && Game.seatTypes.join() === 'human,hunter',
+			'link keys override the shuffle, like any other preset', CFG.ballsPerPlayer + ' ' + Game.seatTypes.join());
+		check(Math.abs(CFG.muK - 0.01) < 1e-9 && els.preset.value === 'random',
+			'the keys the link does not name still come from the draw', String(CFG.muK));
+		UI.applyPreset('default');
+		CFG.maxThrows = 1; // one throw ends a game, so driving one costs no bot search
+		// One game, the way js/main.js runs it: a human's stroke is thrown for him, a
+		// search holds the board, everything else is eight fixed steps a frame.
+		const drive = () => {
+			let k = 0;
+			while (Game.state !== 'scored' && k++ < 60000) {
+				if (Game.state === 'aim' && Game.roster[Game.turn].type === 'human') { Game.setStroke(-CFG.dragFull, 0.05, false); Game.commitThrow(); }
+				Game.tick(1 / 60);
+				Game.beforeSteps();
+				if (Game.planning) continue;
+				for (let s = 0; s < 8; s++) stepWorld(Game.world, CFG.h);
+				Game.afterSteps(8 * CFG.h);
+			}
+			return Game.state === 'scored';
+		};
+		const split = scores => { for (let i = 0; i < scores.length; i++) Game.roster[i].score = scores[i]; };
+		// A finished game: the winner painted with his type, and his bots' shares of the
+		// whole 200 points written to storage as the standing they start from.
+		delete storage['kerot.botShare'];
+		check(drive(), 'a one-throw game is driven to SCORED');
+		split([10, 100, 60, 30]); // human · balanced · blackhole · retriever
+		UI.update(Game.world);
+		const win = Game.winner;
+		check(String(els.resultWinner.textContent).includes('wins (' + SEAT_LABELS[Game.roster[win].type] + ')'),
+			'the winner line names his type', els.resultWinner.textContent);
+		check(String(els.resultWinner.innerHTML).includes('style="color:' + seatColor(win) + '"'),
+			'the winner is painted in his seat colour', els.resultWinner.innerHTML);
+		check(String(els.state.textContent).includes('(' + SEAT_LABELS[Game.roster[win].type] + ')'),
+			'the status line names the winner\u2019s type too', els.state.textContent);
+		const share1 = JSON.parse(storage['kerot.botShare']);
+		check(Math.abs(share1.balanced - 0.5) < 1e-6 && Math.abs(share1.blackhole - 0.3) < 1e-6 && Math.abs(share1.retriever - 0.15) < 1e-6,
+			'each bot type stores its share of the whole points', JSON.stringify(share1));
+		check(!els.resultEma.hidden && /bot record · balanced 0\.50 · blackhole 0\.30 · retriever 0\.15/.test(String(els.resultEma.textContent)),
+			'the card shows the record of the types that played', els.resultEma.textContent);
+		for (let i = 0; i < 3; i++) UI.update(Game.world);
+		check(JSON.stringify(JSON.parse(storage['kerot.botShare'])) === JSON.stringify(share1),
+			'one game moves every standing once, not once per frame');
+		// The next game eases each standing a quarter of the way to its new share.
+		Game.reset();
+		UI.update(Game.world); // the page updates at ~5 Hz, which is what clears the once-per-game gate
+		check(drive(), 'the second game is driven to SCORED');
+		split([100, 40, 40, 20]); // shares: human .5, balanced .2, blackhole .2, retriever .1
+		UI.update(Game.world);
+		const share2 = JSON.parse(storage['kerot.botShare']);
+		check(Math.abs(share2.balanced - (0.75 * 0.5 + 0.25 * 0.2)) < 1e-6 && Math.abs(share2.retriever - (0.75 * 0.15 + 0.25 * 0.1)) < 1e-6,
+			'the next game moves each standing a quarter of the way to its share', JSON.stringify(share2));
+		// Autoplay: the button arms a shuffled bot table with no think delay and the
+		// looks untouched, holds the finished board, then deals the next random game.
+		const think0 = CFG.botDelay, theme0 = UI.opts().theme, fx0 = UI.opts().fx;
+		els.btnAutoPlay.click();
+		check(Auto.on && CFG.botDelay === 0, 'the button arms autoplay and drops the think delay', String(CFG.botDelay));
+		check(String(els.btnAutoPlay.textContent).includes('Stop') && els.btnAutoPlay.attrs['aria-pressed'] === 'true',
+			'the button says how to stop it and reports the armed state', els.btnAutoPlay.textContent);
+		check(Game.seatTypes.every(t => t !== 'human') && Game.roster.length >= 2 && Game.roster.length <= 4 &&
+			new Set(Game.seatTypes).size === Game.roster.length,
+			'the shuffle deals 2..4 distinct bot profiles', Game.seatTypes.join());
+		const tableLen = Game.roster.length;
+		check(UI.opts().theme === theme0 && UI.opts().fx === fx0, 'the shuffle leaves the looks where they were');
+		// One frame of the page's own loop with autoplay armed: the turbo slices play
+		// the armed bot and step his turn inside that frame, where the shipped loop
+		// would still be waiting out the think delay.
+		check(typeof frameCb === 'function', 'main.js scheduled the frame loop');
+		CFG.warp = false; // keep this frame out of a look-ahead search
+		// The frame draws, and the draw bakes its field on a fresh canvas: hand the
+		// loop the canvas factory the render smoke uses, then put the panel's back.
+		const frameCreate = globalThis.document.createElement;
+		globalThis.document.createElement = tag => tag === 'canvas' ? makeCanvas() : makeEl(tag);
+		if (typeof frameCb === 'function') frameCb(16);
+		globalThis.document.createElement = frameCreate;
+		check(Game.world.thrown >= 1 && Game.state === 'resolve' && Game.resolveT > 0,
+			'turbo frame: the armed bot throws and the board steps in the frame that arms him',
+			Game.state + ' · thrown ' + Game.world.thrown + ' · resolveT ' + Game.resolveT.toFixed(3));
+		check(drive(), 'the autoplayed game is driven to SCORED');
+		UI.update(Game.world);
+		Auto.frame(0.4);
+		check(Game.state === 'scored', 'the result card gets its hold time', Game.state);
+		Auto.frame(0.5);
+		check(Game.state === 'aim' && Game.seatTypes.every(t => t !== 'human'),
+			'once the hold is up the next random game is dealt', Game.state + ' ' + Game.seatTypes.join());
+		els.btnAutoPlay.click();
+		check(!Auto.on && CFG.botDelay === think0 && String(els.btnAutoPlay.textContent).includes('Auto'),
+			'the button stops autoplay and puts the think delay back', String(CFG.botDelay));
+		CFG.maxThrows = 96;
+		UI.applyPreset('default');
+		console.log('record/autoplay smoke: winner painted with his type, EMA shares stored once per game, ' +
+			'random preset shuffled a ' + tableLen + '-bot table with the looks kept, hold then redeal');
 	}
 }
 console.log(fail ? 'FAIL' : 'OK (render + score + seats + ui smoke)');
