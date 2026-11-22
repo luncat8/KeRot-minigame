@@ -1648,11 +1648,17 @@
 			const BOT_REFINE_DA = [-0.05, -0.025, 0, 0.025, 0.05];
 			const BOT_REFINE_KV = [0.82, 0.88, 0.94, 1, 1.06, 1.12, 1.18];
 			// Rim capture is a band a few centimetres per second wide around the co-rotating tangent
-			// (measured: launch-lane locks sit near 0.90 of the floor-friction solve, a degree or
-			// two off the geometric tangent, and which hold-circle radius lands on red depends on
-			// the disk's phase). A jittered 4-sample sweep strides over it. This grid does not.
+			// (measured: launch-lane locks sit a degree or two off the geometric tangent, and which
+			// hold-circle radius lands on red depends on the disk's phase). The band's centre is not
+			// a constant: feedTangent's floor-friction solve charges the whole launch chord at μk·g,
+			// while the stretch that crosses the disk rubs a co-moving surface and loses less speed —
+			// so the true capture speed sits well below the solve where much of the chord crosses the
+			// disk (the reference board: ~33 %, band ≈ 0.90) and close to it where little does (the
+			// notsobigdisk preset: ~10 %, band ≈ 1.00). One hardcoded grid fits only the board it was
+			// measured on; feedTangent.kv computes the centre from the actual chord, and this spread
+			// straddles it for arrival-phase diversity.
 			const FEED_FRAC = [0.70, 0.82, 0.92]; // of d_hold, the three radii that cover a lobe period
-			const FEED_KV = [0.86, 0.90, 0.94]; // of the floor-friction solve; on-disk drag makes the true speed lower
+			const FEED_DKV = [-0.04, 0, 0.04]; // around f.kv, the geometry-aware band centre
 			const FEED_DA = [-0.02618, 0, 0.02618, 0.05236]; // rad around the tangent, about −1.5°..+3°
 			// --- The shortlist a deeper search can work through --------------------------------
 			// chooseStroke weighs ~90 strokes and keeps the best. A look-ahead (js/warp.js) wants
@@ -1772,8 +1778,8 @@
 						if (rf <= cfg.puckR) continue;
 						const f = feedTangent(cfg, w.x[i], w.y[i], rf);
 						if (!f) continue;
-						for (let s = 0; s < FEED_KV.length; s++) {
-							const speed = clamp(f.v0 * FEED_KV[s], cfg.vMin, cfg.vMax);
+						for (let s = 0; s < FEED_DKV.length; s++) {
+							const speed = clamp(f.v0 * (f.kv + FEED_DKV[s]), cfg.vMin, cfg.vMax);
 							for (let a = 0; a < FEED_DA.length; a += step) {
 								const ang = f.ang + FEED_DA[a];
 								consider(Math.cos(ang) * speed, Math.sin(ang) * speed, 4);
@@ -1804,11 +1810,33 @@
 				if (rank) rankFinish(rank);
 				return botOut;
 			}
+			// Fraction of full floor friction the puck keeps while its body rides the moving
+			// disk: the surface co-moves with it, so that stretch of the chord bleeds far less
+			// speed than μk·g. Fitted once against the reference board, whose measured capture
+			// band sits at 0.90 of the whole-chord solve with ~33 % of the chord over the disk;
+			// the same law then puts the notsobigdisk band (~10 % over the disk) near 1.00.
+			const ON_DISK_KAPPA = 0.3202;
+			// The band centre for this geometry: v0's solve with the on-disk stretch of the
+			// chord charged at κ instead of 1 — sqrt((vs² + 2μk·g·(L_floor + κ·L_disk)) / v0²).
+			// The entry parameter solves |P + tD − C|² = (diskR + puckR)²; distance to the
+			// centre falls monotonically along the chord (the tangent point is its closest
+			// point), so the smaller root is where the puck's edge first touches the disk.
+			function feedKv(cfg, x, y, tx, ty, chord, vs) {
+				const dx = tx - x, dy = ty - y, px = x - cfg.diskX, py = y - cfg.diskY;
+				const edge = cfg.diskR + cfg.puckR;
+				const a = dx * dx + dy * dy, b = px * dx + py * dy, c = px * px + py * py - edge * edge;
+				const disc = b * b - a * c;
+				let t = disc > 0 ? (-b - Math.sqrt(disc)) / a : 0;
+				if (!(t > 0)) t = 0; else if (t > 1) t = 1;
+				const over = chord * (1 - t);
+				const mu = muKEff(cfg) * cfg.g, vs2 = vs * vs;
+				return Math.sqrt((vs2 + 2 * mu * (chord - over + ON_DISK_KAPPA * over)) / (vs2 + 2 * mu * chord));
+			}
 			// Tangent from (x, y) to the circle of radius rf about the disk, on the side whose
 			// chord agrees with the surface velocity — the only side a capture works. v0 is the
 			// launch speed that would leave exactly that surface speed after floor friction over
-			// the whole chord; the true capture is a little slower (the disk drags less than the
-			// floor once the puck is on it), which is why the feed grid scales v0 down.
+			// the whole chord; kv scales it to the true capture band centre once the on-disk
+			// stretch of that chord (see feedKv) is accounted for.
 			function feedTangent(cfg, x, y, rf) {
 				const ox = x - cfg.diskX, oy = y - cfg.diskY, od = Math.hypot(ox, oy);
 				if (!(od > rf)) return null;
@@ -1819,7 +1847,8 @@
 					const along = ((tx - x) * -Math.sin(a) + (ty - y) * Math.cos(a)) * cfg.omega;
 					if (along <= 0 && side !== 1) continue;
 					const chord = Math.hypot(tx - x, ty - y), vs = Math.abs(cfg.omega) * rf;
-					return { x: tx, y: ty, v0: Math.sqrt(vs * vs + 2 * muKEff(cfg) * cfg.g * chord), ang: Math.atan2(ty - y, tx - x) };
+					return { x: tx, y: ty, v0: Math.sqrt(vs * vs + 2 * muKEff(cfg) * cfg.g * chord),
+						ang: Math.atan2(ty - y, tx - x), kv: feedKv(cfg, x, y, tx, ty, chord, vs) };
 				}
 				return null;
 			}

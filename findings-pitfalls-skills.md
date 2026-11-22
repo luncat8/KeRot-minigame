@@ -334,3 +334,12 @@
 - A convex shape grown by a puck radius: the first contact of a straight path is an
   edge face pushed out by r (check the hit lies within the edge) or a corner circle of
   radius r. Verify against brute-force stepping of `gap(p(t)) <= r` on random rays.
+- A grid of speed multipliers measured on the reference board silently breaks on any
+  preset whose geometry shifts the quantity being multiplied (FEED_KV's capture band
+  moved from 0.90 to 1.00 once the disk shrank and only 10 % of the launch chord
+  crossed it). Re-express it as (geometry-derived centre) × (fixed spread): sweep the
+  true band first (`diag-lockband.js` style: radius × kv × angle, print the locks),
+  then fit the centre's one free constant against the reference board so the old
+  numbers reproduce exactly where they already worked, and keep the grid's length
+  unchanged — candidate counts feed the shared rng stream that warp's light search
+  and the fine patch are aligned to.

@@ -28,7 +28,7 @@ const profile = BOT_PROFILES.keeper;
 const BOT_LEVELS = 4;
 const BOT_SPREAD = [0.78, 0.36, 0.48, 0.48, 0.10];
 const FEED_FRAC = [0.70, 0.82, 0.92];
-const FEED_KV = [0.86, 0.90, 0.94];
+const FEED_DKV = [-0.04, 0, 0.04];
 const FEED_DA = [-0.02618, 0, 0.02618, 0.05236];
 const own = w.own[i], stock = roster[own].balls;
 const urgency = 1 + (CFG.ballsPerPlayer - stock) * 0.55;
@@ -81,8 +81,8 @@ for (let k = 0; k < BOT_SAMPLES; k += step) {
 		if (rf <= CFG.puckR) continue;
 		const f = feedTangent(CFG, w.x[i], w.y[i], rf);
 		if (!f) continue;
-		for (let s = 0; s < FEED_KV.length; s++) {
-			const speed = clamp(f.v0 * FEED_KV[s], CFG.vMin, CFG.vMax);
+		for (let s = 0; s < FEED_DKV.length; s++) {
+			const speed = clamp(f.v0 * (f.kv + FEED_DKV[s]), CFG.vMin, CFG.vMax);
 			for (let a = 0; a < FEED_DA.length; a++) {
 				const ang = f.ang + FEED_DA[a];
 				cands.push({ group: 4, r, s, a, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed, speed });

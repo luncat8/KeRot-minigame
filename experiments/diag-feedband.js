@@ -17,7 +17,8 @@ function sweep(label) {
 	const f = feedTangent(CFG, CFG.launchX, CFG.launchY, rf);
 	console.log('feed rf=' + rf.toFixed(4) + ' (cap ' + cap.toFixed(4) + ') tangent(' + f.x.toFixed(3) + ',' + f.y.toFixed(3) + ') v0=' + f.v0.toFixed(4) +
 		' chord=' + Math.hypot(f.x - CFG.launchX, f.y - CFG.launchY).toFixed(4));
-	console.log('FEED_KV scaled speeds: ' + FEED_KV.map(k => (f.v0 * k).toFixed(3)).join(', '));
+	console.log('feed band speeds: ' + FEED_DKV.map(d => (f.v0 * (f.kv + d)).toFixed(3)).join(', ') +
+		' (kv centre ' + f.kv.toFixed(3) + ', v0 ' + f.v0.toFixed(4) + ')');
 	const w = createWorld(CFG);
 	const i = spawnPuck(w, CFG.launchX, CFG.launchY, 0);
 	console.log('speed  stopD   endD    locked  st   note');
@@ -39,7 +40,7 @@ function sweep(label) {
 	}
 }
 
-const FEED_KV = [0.86, 0.90, 0.94];
+const FEED_DKV = [-0.04, 0, 0.04];
 applyCfg(parseQuery('?preset=default'));
 sweep('default');
 applyCfg(parseQuery('?preset=notsobigdisk'));

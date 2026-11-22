@@ -1,4 +1,5 @@
-// Log every keeper throw during a full 6-bot notsobigdisk game.
+// Log every keeper throw during a full 6-bot game.
+// Run: node experiments/diag-game6.js [preset]
 Object.assign(globalThis,
 	require('../js/physics.js'),
 	require('../js/score.js'),
@@ -8,7 +9,7 @@ Object.assign(globalThis,
 	require('../js/bots.js'),
 	require('../js/presets.js'));
 
-applyCfg(parseQuery('?preset=notsobigdisk'));
+applyCfg(parseQuery('?preset=' + (process.argv[2] || 'notsobigdisk')));
 const BOTS = ['random', 'keeper', 'hunter', 'retriever', 'blackhole', 'balanced'];
 const TICK = 8;
 const w = createWorld(CFG);
