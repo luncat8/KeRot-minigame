@@ -107,6 +107,11 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	Render.drawWorld(view);
 	check(!ops.includes('text:+.10'), 'no vote badge while the rule is off');
 	CFG.speedVote = rule0; roster[1].voteLabel = ''; view.state = 'resolve';
+	// A motion-ended turn has no clock: its bar is a sweeping block, never a drained one.
+	CFG.turnEnd = 'motion'; view.resolveT = 9.5; ops.length = 0;
+	Render.drawWorld(view);
+	check(ops.filter(o => o === 'fillRect').length === bars, 'a motion turn keeps its bar past handoffT', String(ops.filter(o => o === 'fillRect').length));
+	CFG.turnEnd = 'window'; view.resolveT = 1.5;
 	// The other return rule: same hole, plus the launch lane, and two labels.
 	ops.length = 0;
 	view.opts = { ring: false, preview: false, mode: 'advance', theme: 'classic' };
@@ -398,7 +403,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	check(before === before && isFinite(after), 'ghost finite');
 	// The preview is a drag-time cost on the frame that also steps the board, so it is
 	// simulated to the window the throw is paid by, not to the spin-down horizon.
-	check(ghostT <= CFG.handoffT + 1e-9, 'the ghost stops at the handoff window', ghostT.toFixed(2) + ' s > ' + CFG.handoffT + ' s');
+	check(ghostT <= predictHorizon(CFG) + 1e-9, 'the ghost stops at the turn it is paid by', ghostT.toFixed(2) + ' s > ' + predictHorizon(CFG) + ' s');
 	// A puck swallowed while a seat aims swap-moves the armed puck (the last one spawned)
 	// into the freed slot. `pending` is an index, not an identity: the aim, the ghost and
 	// the throw must follow the puck, or the preview comes up empty and the throw lands in
@@ -568,7 +573,7 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 	}
 	// The radio groups of index.html, by name; pick() is a user click on one.
 	const radioSets = {};
-	for (const [name, values] of [['recycle', ['none', 'zones', 'advance']], ['speedVote', ['off', 'turn', 'round']], ['voteMode', ['delta', 'exact']]])
+	for (const [name, values] of [['recycle', ['none', 'zones', 'advance']], ['speedVote', ['off', 'turn', 'round']], ['voteMode', ['delta', 'exact']], ['turnEnd', ['window', 'motion']]])
 		radioSets[name] = values.map(v => ({ value: v, checked: false, addEventListener(type, fn) { this.on = fn; } }));
 	const pick = (name, value) => { for (const r of radioSets[name]) r.checked = r.value === value; radioSets[name].find(r => r.value === value).on(); };
 	globalThis.document = {
@@ -884,6 +889,21 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		check(/(?:^|&)scorescale=1\.4(?:&|$)/.test(UI.changesQuery()), 'scoreScale echoes scorescale=1.4');
 		UI.applyPreset('default');
 		check(CFG.swapZones === false && CFG.scoreScale === 1 && els.chkSwap.checked === false, 'default preset resets swapZones and scoreScale');
+		// The turn rule: the staller preset switches it on with its table, the radios and
+		// the link follow, a click is live, and the default preset puts the window back.
+		UI.applyPreset('staller');
+		check(CFG.turnEnd === 'motion' && radioSets.turnEnd.find(r => r.checked).value === 'motion' &&
+			Game.seatTypes.join() === 'human,staller,keeper,timing', 'the staller preset turns motion-ended turns on with its table', Game.seatTypes.join());
+		check(historyCalls[historyCalls.length - 1].startsWith('?preset=staller'), 'the staller preset is echoed as its link');
+		pick('turnEnd', 'window');
+		check(CFG.turnEnd === 'window' && !/(?:^|&)turns=/.test(UI.changesQuery()), 'the shipped turn rule stays out of the link', UI.changesQuery());
+		pick('turnEnd', 'motion');
+		check(CFG.turnEnd === 'motion' && /(?:^|&)turns=motion(?:&|$)/.test(UI.changesQuery()), 'a motion rule echoes turns=motion');
+		const turnsLink = parseQuery('?turns=MOTION&seats=staller,human');
+		check(turnsLink && turnsLink.turns === 'motion' && turnsLink.seats.join() === 'staller,human', 'turns and the staller seat parse from a link');
+		check(parseQuery('?turns=forever') === null, 'an unknown turn rule is dropped');
+		UI.applyPreset('default');
+		check(CFG.turnEnd === 'window' && radioSets.turnEnd.find(r => r.checked).value === 'window', 'default preset restores the fixed window');
 			console.log('presets/url smoke: ' + Object.keys(PRESETS).length + ' presets, parameters applied and clamped, sliders pulled, roster swapped, link echoed');
 			els.chkRing.checked = true; els.chkPreview.checked = true; els.chkHoleFill.checked = false;
 	}

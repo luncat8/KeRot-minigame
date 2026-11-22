@@ -21,9 +21,23 @@ function createPredictor(cfg) {
 		finalRates: new Float64Array(seats),
 		stableBase: new Float64Array(seats), // locked/asleep rate before the throw
 		stableRates: new Float64Array(seats), // locked/asleep rate after it has had time to capture
-		endX: 0, endY: 0, endV: 0, dScore: 0, locked: false, removed: false,
+		endX: 0, endY: 0, endV: 0, dScore: 0, locked: false, removed: false, settled: false,
 		recoveryDelta: 0, ownLost: 0, enemyLost: 0, duration: 0, t: 0,
+		// window: the part of the turn scoreBySeat integrates (≤ handoffT). stallLead: in a
+		// motion-ended turn, the thrower's lead over the strongest other seat integrated
+		// over the time the turn runs past that window (negative when it settles short).
+		window: 0, stallLead: 0,
 	};
+}
+// How far a prediction plays the turn out: the fixed window, or in motion mode the turn
+// itself up to maxResolve. The bound is the search's cost cap, not a rule: what still
+// slides there is extrapolated (predictStroke), and the real turn plays on.
+function predictHorizon(cfg) { return motionTurns(cfg) ? Math.min(turnLimit(cfg), cfg.maxResolve) : cfg.handoffT; }
+// The thrower's lead in rate over the strongest other seat.
+function rateLead(rates, owner) {
+	let top = 0;
+	for (let s = 0; s < rates.length; s++) if (s !== owner && rates[s] > top) top = rates[s];
+	return rates[owner] - top;
 }
 function cloneInto(dst, src) {
 	dst.t = src.t; dst.theta = src.theta; dst.omegaCur = src.omegaCur; dst.alpha = src.alpha;
@@ -64,6 +78,7 @@ function predictStroke(pred, src, i, vx, vy, maxT, evaluate) {
 	pred.n = 0; pred.removed = false; pred.locked = false;
 	pred.endX = src.x[i]; pred.endY = src.y[i]; pred.endV = 0;
 	pred.duration = 0; pred.t = 0; pred.recoveryDelta = 0; pred.ownLost = 0; pred.enemyLost = 0;
+	pred.window = 0; pred.stallLead = 0; pred.settled = false;
 	pred.scoreBySeat.fill(0); pred.finalRates.fill(0); pred.stableRates.fill(0);
 	if (evaluate) stableRates(src, pred.stableBase);
 	cloneInto(w, src);
@@ -73,7 +88,9 @@ function predictStroke(pred, src, i, vx, vy, maxT, evaluate) {
 	path[0] = lastX; path[1] = lastY; pred.n = 1;
 	const horizon = maxT === undefined ? cfg.maxResolve : Math.max(0, maxT);
 	const maxSteps = Math.ceil(horizon / cfg.h);
-	let steps = 0, scoreSampleStep = 0;
+	// The score term prices the fixed window; motion mode's time past it is the stall term's.
+	const windowSteps = Math.min(maxSteps, Math.ceil(cfg.handoffT / cfg.h));
+	let steps = 0, scoreSampleStep = 0, lead = 0;
 	if (evaluate) {
 		scoreRates(w, pred.sampleRates);
 		pred.previousRates.set(pred.sampleRates);
@@ -88,11 +105,18 @@ function predictStroke(pred, src, i, vx, vy, maxT, evaluate) {
 			path[pred.n * 2] = lastX; path[pred.n * 2 + 1] = lastY; pred.n++;
 		}
 		const done = isSettled(w);
-		if (evaluate && (steps - scoreSampleStep >= PRED_SCORE_EVERY || done || steps >= maxSteps)) {
+		if (evaluate && (steps - scoreSampleStep >= PRED_SCORE_EVERY || steps === windowSteps || done || steps >= maxSteps)) {
 			scoreRates(w, pred.sampleRates);
 			const dt = (steps - scoreSampleStep) * cfg.h;
-			for (let s = 0; s < pred.scoreBySeat.length; s++) {
-				pred.scoreBySeat[s] += (pred.previousRates[s] + pred.sampleRates[s]) * 0.5 * dt;
+			if (steps <= windowSteps) {
+				for (let s = 0; s < pred.scoreBySeat.length; s++) {
+					pred.scoreBySeat[s] += (pred.previousRates[s] + pred.sampleRates[s]) * 0.5 * dt;
+				}
+				lead = rateLead(pred.sampleRates, owner);
+			} else {
+				const next = rateLead(pred.sampleRates, owner);
+				pred.stallLead += (lead + next) * 0.5 * dt;
+				lead = next;
 			}
 			pred.previousRates.set(pred.sampleRates);
 			scoreSampleStep = steps;
@@ -107,6 +131,9 @@ function predictStroke(pred, src, i, vx, vy, maxT, evaluate) {
 	pred.endV = tracked >= 0 ? Math.hypot(w.vx[tracked], w.vy[tracked]) : 0;
 	pred.locked = tracked >= 0 && w.st[tracked] === ST_LOCKED;
 	pred.duration = steps * cfg.h; pred.t = pred.duration;
+	pred.window = Math.min(steps, windowSteps) * cfg.h;
+	pred.settled = isSettled(w);
+	if (evaluate && motionTurns(cfg)) pred.stallLead += lead * stallTail(w, pred.settled, pred.duration);
 	pred.recoveryDelta = recoverableCount(w, owner, cfg.recycleMode, -1) - recoverable0;
 	pred.ownLost = (w.ownerLosses[owner] || 0) - startLoss;
 	pred.enemyLost = sumOtherLosses(w.ownerLosses, owner) - startEnemyLoss;
@@ -122,6 +149,21 @@ function predictStroke(pred, src, i, vx, vy, maxT, evaluate) {
 		stableRates(w, pred.stableRates);
 	} else pred.dScore = scoreRate(w, owner) - rate0;
 	return pred;
+}
+// The turn time the integral did not cover, signed: a board that settled inside the
+// window shortened the turn by the rest of it; one still sliding at the horizon runs on
+// about as long as its fastest slider needs to stop on bare ice (within the watchdog).
+// The lead at the last sample is held over it.
+function stallTail(w, settled, duration) {
+	const cfg = w.cfg;
+	if (settled) return Math.min(0, duration - cfg.handoffT);
+	let v2 = 0;
+	for (let i = 0; i < w.n; i++) {
+		if (w.st[i] !== ST_SLIDE) continue;
+		const s = w.vx[i] * w.vx[i] + w.vy[i] * w.vy[i];
+		if (s > v2) v2 = s;
+	}
+	return Math.min(Math.sqrt(v2) / (muKEff(cfg) * cfg.g), Math.max(0, turnLimit(cfg) - duration));
 }
 // Extra steps after the scored window, so a capture that lands just past handoff is
 // priced as the lock it is. Only the thrown puck is waited on: following every slider
@@ -139,4 +181,4 @@ function followThrown(w, uid, steps, cap) {
 	}
 }
 
-if (typeof module !== 'undefined') module.exports = { createPredictor, cloneInto, findPuckUid, predictStroke, recoverableCount, PRED_SAMPLES, PRED_SCORE_EVERY, PRED_PATH_EVERY };
+if (typeof module !== 'undefined') module.exports = { createPredictor, cloneInto, findPuckUid, predictStroke, predictHorizon, rateLead, recoverableCount, PRED_SAMPLES, PRED_SCORE_EVERY, PRED_PATH_EVERY };

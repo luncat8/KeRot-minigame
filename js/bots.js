@@ -15,11 +15,18 @@ const BOT_SAMPLES = BOT_GROUPS * BOT_LEVELS;
 // worth barely a window (recPrice), so extending a game by recycling is a tactical
 // fallback, never a scoring plan. Opportunity is the locked rate, not the rate at the
 // sample instant: a puck crossing red at handoff pays for the window and then leaves.
-// The turn's score window is hard-capped (handoffT), so a bot cannot score more by
-// stretching its turn — it can only spend the window it is given well. The timing bot
-// does exactly that: it weights the *within-turn* red-time (score) far above the
-// far-future lock (opportunity), so it throws to get pucks dwelling in red (and
-// double-passing the zone) instead of merely building the best end-state.
+// In the fixed window (turnEnd 'window') the turn is hard-capped at handoffT, so a bot
+// cannot score more by stretching its turn — it can only spend the window it is given
+// well. The timing bot does exactly that: it weights the *within-turn* red-time (score)
+// far above the far-future lock (opportunity), so it throws to get pucks dwelling in red
+// (and double-passing the zone) instead of merely building the best end-state.
+// When turns end on motion, every second the board keeps sliding pays every seat its
+// current rate. `stall` prices that: the thrower's rate lead over the strongest other
+// seat, integrated over the turn time past the reference window (predictStroke
+// stallLead) with the rates as they evolve, so a stroke that loses the lead mid-turn
+// pays for the time it then extends. It counts only while the seat's parked pucks
+// out-earn every other seat's before the throw; behind, it plays for position.
+// Banked score never enters it. Only the staller has stall > 0.
 const BOT_PROFILES = {
 	random: { score: 0.10, opportunity: 0.10, denial: 0.05, recovery: 0.30, reserve: 0.20, risk: 0.30, kill: 0.05, noise: 8.0 },
 	keeper: { score: 1.00, opportunity: 1.20, denial: 0.15, recovery: 0.20, reserve: 0.15, risk: 1.30, kill: 0.10, noise: 0.00 },
@@ -31,6 +38,7 @@ const BOT_PROFILES = {
 	// how strongly it votes to slow the disk, so its lead keeps dwelling in red for the
 	// window it is given. 0 for every shipped profile; only the timing bot leans on it.
 	timing: { score: 1.70, opportunity: 0.55, denial: 0.35, recovery: 0.30, reserve: 0.30, risk: 1.35, kill: 0.15, noise: 0.05, patience: 1.2 },
+	staller: { score: 0.90, opportunity: 1.00, denial: 0.35, recovery: 0.30, reserve: 0.40, risk: 1.00, kill: 0.40, noise: 0.05, stall: 1.50 },
 };
 const BOT_SPREAD = [0.78, 0.36, 0.48, 0.48, 0.10];
 // One record per target group; v0 is a solved launch speed (0 = sample the whole
@@ -138,9 +146,9 @@ function strategicTargets(w, cfg, i) {
 // - lifePrice: a lost ball forfeits its own remaining turns (~1/seats of the
 //   horizon); a parked puck's lost annuity is already priced by opportunity/denied.
 function evaluateStroke(profile, w, cfg, i, pred, vx, vy, rng, urgency, future, ballValue, recPrice, lifePrice) {
-	predictStroke(pred, w, i, vx, vy, cfg.handoffT, true);
+	predictStroke(pred, w, i, vx, vy, predictHorizon(cfg), true);
 	const owner = w.own[i], base = pred.initialRates, integral = pred.scoreBySeat;
-	const duration = pred.duration;
+	const duration = pred.window;
 	const ownIntegral = integral[owner] - base[owner] * duration;
 	// A locked puck is an annuity: it pays its rate every later resolve window, not
 	// only this one. future = the pays-still-coming horizon (later turns' windows
@@ -157,10 +165,15 @@ function evaluateStroke(profile, w, cfg, i, pred, vx, vy, rng, urgency, future, 
 		enemyOpportunity += stable[s] - stable0[s];
 	}
 	const denied = -(enemyIntegral + enemyOpportunity * future);
+	// stallLead is 0 unless turns end on motion (predictStroke), so the fixed window
+	// never pays for duration, whatever the profile. The preference is gated on the
+	// sustained (locked/asleep) rate lead before the throw: a seat that is behind
+	// improves its position instead of pricing every stroke by how soon it ends.
+	const stall = profile.stall && rateLead(stable0, owner) > 0 ? profile.stall * pred.stallLead : 0;
 	return profile.score * ownIntegral + profile.opportunity * ownOpportunity
 		+ profile.denial * denied + recPrice * (profile.recovery + profile.reserve * urgency) * pred.recoveryDelta
 		+ lifePrice * (profile.kill * pred.enemyLost - profile.risk * pred.ownLost)
-		+ (rng() - 0.5) * profile.noise * ballValue;
+		+ stall + (rng() - 0.5) * profile.noise * ballValue;
 }
 // The value landscape of a parking or capture shot is razor-thin (a few cm/s between
 // a lobe lock and an ejection), and a 20-sample sweep strides over it. After the
@@ -242,14 +255,14 @@ function chooseStroke(name, w, cfg, i, pred, rng, roster, rank, light) {
 	strategicTargets(w, cfg, i);
 	const own = w.own[i], stock = roster && roster[own] ? roster[own].balls : 0;
 	const urgency = 1 + (cfg.ballsPerPlayer - stock) * 0.55;
-	// Pays-still-coming horizon: later turns' resolve windows (≈0.9·handoffT each,
-	// they close on settle) plus ~2 s of the end settle. A throw that ends locked
-	// earns that rate for all of them; a fly-by earns only the window.
-	let future = cfg.handoffT;
+	// Pays-still-coming horizon: later turns' resolve windows plus ~2 s of the end
+	// settle (futurePay). A throw that ends locked earns that rate for all of them; a
+	// fly-by earns only the window.
+	let future = turnSpan(cfg);
 	if (roster) {
 		let turns = 0;
 		for (let s = 0; s < roster.length; s++) turns += roster[s].balls;
-		future = 2 + 0.9 * cfg.handoffT * turns;
+		future = futurePay(cfg, turns);
 	}
 	const r0 = Math.PI * cfg.puckR * cfg.puckR * diskMeanRed(cfg);
 	const ballValue = r0 * future;

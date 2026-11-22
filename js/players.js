@@ -4,11 +4,11 @@
 // not a restart. Node-safe: no DOM access.
 if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'));
 
-const SEAT_TYPES = ['human', 'random', 'keeper', 'hunter', 'retriever', 'blackhole', 'balanced', 'timing'];
+const SEAT_TYPES = ['human', 'random', 'keeper', 'hunter', 'retriever', 'blackhole', 'balanced', 'timing', 'staller'];
 const SEAT_LABELS = {
 	human: 'human', random: 'bot — random', keeper: 'bot — keeper', hunter: 'bot — hunter',
 	retriever: 'bot — retriever', blackhole: 'bot — black hole', balanced: 'bot — balanced',
-	timing: 'bot — timing',
+	timing: 'bot — timing', staller: 'bot — staller',
 };
 // One colour per seat, shared by the board HUD, the panel and the puck rings, so a
 // puck on the board always reads as its owner's.

@@ -10,7 +10,7 @@ const UI = (() => {
 	const SHIPPED = {
 		omega: CFG.omega, muK: CFG.muK, muS: CFG.muS, puckM: CFG.puckM,
 		schema: CFG.diskSchema, recycle: CFG.recycleMode, zones: CFG.zoneStyle, holes: CFG.holeStyle, swap: CFG.swapZones, scoreScale: CFG.scoreScale,
-		vote: CFG.speedVote, voteMode: CFG.voteMode, balls: CFG.ballsPerPlayer,
+		vote: CFG.speedVote, voteMode: CFG.voteMode, turns: CFG.turnEnd, balls: CFG.ballsPerPlayer,
 		botspeed: CFG.botSpeed, warp: !!CFG.warp, warpTries: CFG.warpTries, warpTurns: CFG.warpTurns, warpGoal: CFG.warpGoal,
 		theme: 'classic', cards: 'square', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3, seats: 'human,balanced,blackhole,retriever',
 	};
@@ -110,6 +110,8 @@ const UI = (() => {
 		for (const r of radios('holeStyle')) r.addEventListener('change', () => { if (r.checked) { CFG.holeStyle = r.value; Game.invalidateGhost(); markCustom(); } });
 		// The speed rule is live, like the return rule: it applies from the next handoff.
 		for (const r of radios('speedVote')) r.addEventListener('change', () => { if (r.checked) setRule(r.value, CFG.voteMode); });
+		// The turn rule is live too: the turn under way already ends by it.
+		for (const r of radios('turnEnd')) r.addEventListener('change', () => { if (r.checked) { Game.setTurnEnd(r.value); markCustom(); } });
 		for (const r of radios('voteMode')) r.addEventListener('change', () => { if (r.checked) setRule(CFG.speedVote, r.value); });
 		fillSelect(els.speedMode, SPEED_RULE_LABELS, CFG.speedVote);
 		els.speedMode.addEventListener('change', () => setRule(els.speedMode.value, CFG.voteMode));
@@ -166,6 +168,7 @@ const UI = (() => {
 		if (!!CFG.swapZones !== SHIPPED.swap) parts.push('swap=' + (CFG.swapZones ? 1 : 0));
 		if (CFG.speedVote !== SHIPPED.vote) parts.push('vote=' + CFG.speedVote);
 		if (CFG.voteMode !== SHIPPED.voteMode) parts.push('votemode=' + CFG.voteMode);
+		if (CFG.turnEnd !== SHIPPED.turns) parts.push('turns=' + CFG.turnEnd);
 		if (CFG.botSpeed !== SHIPPED.botspeed) parts.push('botspeed=' + CFG.botSpeed);
 		if (!!CFG.warp !== SHIPPED.warp) parts.push('warp=' + (CFG.warp ? 1 : 0));
 		if (CFG.warpTries !== SHIPPED.warpTries) parts.push('warptries=' + CFG.warpTries);
@@ -218,6 +221,7 @@ const UI = (() => {
 		for (const r of radios('holeStyle')) r.checked = r.value === CFG.holeStyle;
 		for (const r of radios('speedVote')) r.checked = r.value === CFG.speedVote;
 		for (const r of radios('voteMode')) r.checked = r.value === CFG.voteMode;
+		for (const r of radios('turnEnd')) r.checked = r.value === CFG.turnEnd;
 		els.speedMode.value = CFG.speedVote;
 		els.botSpeed.value = CFG.botSpeed in SPEED_STRATS ? CFG.botSpeed : 'auto';
 		els.chkWarp.checked = !!CFG.warp;
@@ -251,6 +255,7 @@ const UI = (() => {
 		}
 		if (setup.geometry !== undefined) Render.resize(true);
 		if (setup.omega !== undefined || setup.autoOmega) Game.setOmega(CFG.omega); // a set speed, not a voted one
+		if (setup.turns) Game.setTurnEnd(CFG.turnEnd); // live, like the radios
 		if (CARD_STYLES.includes(setup.cards)) opts.cards = setup.cards;
 		if (setup.fx && FX_MODES.includes(setup.fx)) opts.fx = setup.fx;
 		if (setup.sfx !== undefined) opts.sfx = !!setup.sfx;
@@ -440,7 +445,9 @@ const UI = (() => {
 			: 'P' + (Game.turn + 1) + ' (' + SEAT_LABELS[seat.type] + ') is aiming…';
 		// The scoring window may be the last one; a recycled ball can still bring a
 		// seat back, so naming the next seat here would promise a turn that may not come.
-		if (Game.state === 'resolve') return 'resolving… scoring window closes in ' + Math.max(0, CFG.handoffT - Game.resolveT).toFixed(1) + ' s';
+		if (Game.state === 'resolve') return motionTurns(CFG)
+			? 'resolving… the turn ends when the board stops · ' + Game.resolveT.toFixed(1) + ' s'
+			: 'resolving… scoring window closes in ' + Math.max(0, CFG.handoffT - Game.resolveT).toFixed(1) + ' s';
 		if (Game.state === 'vote') return 'speed vote — P' + (Game.turn + 1) + ' throws when it closes';
 		if (Game.state === 'settle') return 'disk spinning down…';
 		return 'game over — ' + (tied(Game.roster) ? 'a draw' : seatName(Game.winner) + ' wins') + ' · double-click the board for a new game';

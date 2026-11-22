@@ -200,11 +200,11 @@ function puckArea(w, i) { setGeo(w); rateOf(w, i); return _rate.area; }
 // Raw score is red·m²·s — an arbitrary unit that doubles when the game does. The
 // reference is a perfect game of this size: every ball of a seat parked on the
 // reddest pixel (RED_MAX) for the average life of a ball in the game (a ball thrown
-// on turn t is live for the turns after it, so the average is (turns+1)/2 windows).
+// on turn t is live for the turns after it, so the average is (turns+1)/2 turn spans).
 function scoreRef(cfg, seats) {
 	const turns = seats * cfg.ballsPerPlayer;
 	const rateMax = Math.PI * cfg.puckR * cfg.puckR * RED_MAX;
-	return cfg.ballsPerPlayer * rateMax * cfg.handoffT * (turns + 1) / 2;
+	return cfg.ballsPerPlayer * rateMax * turnSpan(cfg) * (turns + 1) / 2;
 }
 function displayScore(cfg, seats, raw) {
 	const v = Math.round(cfg.scoreDisplayMax * raw / scoreRef(cfg, seats));

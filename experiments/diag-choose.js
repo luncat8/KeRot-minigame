@@ -26,7 +26,7 @@ const profile = BOT_PROFILES.keeper;
 const own = w.own[i], stock = roster[own].balls;
 const urgency = 1 + (CFG.ballsPerPlayer - stock) * 0.55;
 let future = CFG.handoffT;
-{ let turns = 0; for (let s = 0; s < roster.length; s++) turns += roster[s].balls; future = 2 + 0.9 * CFG.handoffT * turns; }
+{ let turns = 0; for (let s = 0; s < roster.length; s++) turns += roster[s].balls; future = futurePay(CFG, turns); }
 const r0 = Math.PI * CFG.puckR * CFG.puckR * diskMeanRed(CFG);
 const ballValue = r0 * future;
 const recPrice = 0.2 * ballValue;

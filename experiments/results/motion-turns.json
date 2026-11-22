@@ -1,0 +1,94 @@
+{
+	"date": "2026-11-22T02:45:54.465Z",
+	"games": 8,
+	"league": [
+		"staller",
+		"keeper",
+		"balanced",
+		"timing"
+	],
+	"modes": {
+		"window": {
+			"turnLength": {
+				"turns": 205,
+				"mean": 3.771056910567199,
+				"p50": 4.0166666666630135,
+				"p90": 4.016666666667332,
+				"max": 4.016666666669863,
+				"watchdog": 4,
+				"watchdogHits": 143
+			},
+			"bots": {
+				"staller": {
+					"score": 352.25,
+					"wins": 1,
+					"turnMean": 3.7437908496712966,
+					"turnP90": 4.016666666666599,
+					"msPerDecision": 462.73720601960787
+				},
+				"keeper": {
+					"score": 350.375,
+					"wins": 2,
+					"turnMean": 3.764743589741663,
+					"turnP90": 4.016666666666439,
+					"msPerDecision": 438.5296118461539
+				},
+				"balanced": {
+					"score": 335.25,
+					"wins": 1,
+					"turnMean": 3.7307692307673435,
+					"turnP90": 4.016666666666599,
+					"msPerDecision": 417.25349590384616
+				},
+				"timing": {
+					"score": 359.125,
+					"wins": 4,
+					"turnMean": 3.8473333333314432,
+					"turnP90": 4.0166666666698525,
+					"msPerDecision": 428.03126754000004
+				}
+			}
+		},
+		"motion": {
+			"turnLength": {
+				"turns": 206,
+				"mean": 5.4709546925531995,
+				"p50": 4.9999999999954525,
+				"p90": 8.416666666670373,
+				"max": 13.24999999998829,
+				"watchdog": 38.58103975535168,
+				"watchdogHits": 0
+			},
+			"bots": {
+				"staller": {
+					"score": 377.5,
+					"wins": 2,
+					"turnMean": 5.784972677591648,
+					"turnP90": 9.416666666658145,
+					"msPerDecision": 593.6243459344263
+				},
+				"keeper": {
+					"score": 302.375,
+					"wins": 1,
+					"turnMean": 5.280769230765977,
+					"turnP90": 8.51666666665892,
+					"msPerDecision": 569.881289480769
+				},
+				"balanced": {
+					"score": 358.875,
+					"wins": 3,
+					"turnMean": 5.416666666663313,
+					"turnP90": 8.01666666666937,
+					"msPerDecision": 555.9756970612244
+				},
+				"timing": {
+					"score": 359.375,
+					"wins": 2,
+					"turnMean": 5.320833333330367,
+					"turnP90": 7.616666666659782,
+					"msPerDecision": 548.0374625454544
+				}
+			}
+		}
+	}
+}

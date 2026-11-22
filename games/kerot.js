@@ -43,8 +43,12 @@
 				spinDrag: 4 / 3, // spinning friction: ω̇ = spinDrag*muK*g/r per unit covered area
 				slop: 1e-6,
 				maxSubsteps: 8,
-				maxResolve: 8, // s; ghost re-sim horizon
+				maxResolve: 8, // s; the furthest a prediction plays a turn out (bot follow-up, motion-mode horizon)
 				handoffT: 4, // s; hand the turn over even if the board has not settled
+				// How a thrown turn ends (radio group, turnLimit below): 'window' — at handoffT or
+				// when the board settles, whichever is first; 'motion' — only when the board settles.
+				// Settled means no puck slides: a locked rider moves with the disk, not over it.
+				turnEnd: 'window',
 				ballsPerPlayer: 4, // every seat throws this many pucks; the game is seats x balls throws
 				maxPlayers: 8, // roster cap: seats x balls pucks can be on the board at once
 				maxThrows: 96, // hard game cap: a board that keeps handing pucks back still ends
@@ -135,6 +139,34 @@
 			function aimGrab(cfg) { return cfg.puckR + cfg.aimGrabMargin; }
 			function stopDistance(cfg, v) { return v * v / (2 * muKEff(cfg) * cfg.g); } // on bare ice
 			
+			// --- Turn end: the one rule the game, the predictors, the bots and warp copies share ---
+			// Motion-ended turns need friction: without it nothing ever settles.
+			function motionTurns(cfg) { return cfg.turnEnd === 'motion' && cfg.muK > 0; }
+			// The slowest the fastest thing on the board can come to rest on bare ice: a full stroke,
+			// or a puck flung at the rim speed of the disk.
+			function slideTime(cfg) {
+				return Math.max(cfg.vMax, Math.abs(cfg.omega) * (cfg.diskR + cfg.puckR)) / (muKEff(cfg) * cfg.g);
+			}
+			// The emergency watchdog of a motion-ended turn. A free slide stops within slideTime, and
+			// walls only take energy out; a rim straddler that the motor drags adds seconds that do
+			// not shrink with friction, hence the fixed base. Measured play stays under half of it at
+			// every friction (experiments/motion-turns.js), and it is the same wherever a turn is run.
+			const TURN_WATCHDOG_BASE = 8, TURN_WATCHDOG_SLIDES = 3; // s, × slideTime
+			// The longest a thrown turn can last: handoffT, or the watchdog in motion mode. The turn
+			// hands over at isSettled(w) || resolveT >= turnLimit(cfg).
+			function turnLimit(cfg) {
+				return motionTurns(cfg) ? TURN_WATCHDOG_BASE + TURN_WATCHDOG_SLIDES * slideTime(cfg) : cfg.handoffT;
+			}
+			// The nominal length of a turn: the score display's reference and the bots' measure of
+			// what later turns pay. The fixed window is handoffT. A motion-ended turn lasts as long as
+			// its board slides — most throws lock or stop within seconds, a few run long — and its
+			// measured mean grows with the log of slideTime (fit in experiments/motion-turns.js).
+			const MOTION_SPAN_S = 2.06, MOTION_SPAN_K = 1.54;
+			function turnSpan(cfg) { return motionTurns(cfg) ? MOTION_SPAN_S + MOTION_SPAN_K * Math.log(slideTime(cfg)) : cfg.handoffT; }
+			// What the turns still to come pay a puck parked now: ~0.9 of a span each (many close on
+			// settle) plus ~2 s of the end-of-game spin-down.
+			function futurePay(cfg, turns) { return 2 + 0.9 * turnSpan(cfg) * turns; }
+			
 			// Explicit board geometry is shared by presets and the optional editor.
 			const GEOMETRY_KEYS = ['boardW', 'boardH', 'diskX', 'diskY', 'diskR', 'puckR',
 				'launchX', 'launchY', 'launchMinX', 'launchMaxX', 'launchMinY', 'launchMaxY', 'zoneCutGap', 'zoneReach'];
@@ -184,7 +216,7 @@
 				applyBoardGeometry(cfg, DEFAULT_BOARD_GEOMETRY);
 				cfg.customGeometry = false;
 			}
-			if (typeof module !== 'undefined') module.exports = { GEOMETRY_KEYS, boardGeometry, validBoardGeometry, applyBoardGeometry, rebuildZones, resetBoardGeometry, CFG, aimGrab, RETURN_ZONES, ADVANCE_ZONES, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, loadFactor, muKEff, muSEff, holdRadius, autoOmega, stopDistance, clamp };
+			if (typeof module !== 'undefined') module.exports = { GEOMETRY_KEYS, boardGeometry, validBoardGeometry, applyBoardGeometry, rebuildZones, resetBoardGeometry, CFG, aimGrab, RETURN_ZONES, ADVANCE_ZONES, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, loadFactor, muKEff, muSEff, holdRadius, autoOmega, stopDistance, motionTurns, slideTime, turnLimit, turnSpan, futurePay, clamp };
 			}
 		},
 		"js/field.js": function(module, exports, require, globalThis) {
@@ -1041,11 +1073,11 @@
 			// Raw score is red·m²·s — an arbitrary unit that doubles when the game does. The
 			// reference is a perfect game of this size: every ball of a seat parked on the
 			// reddest pixel (RED_MAX) for the average life of a ball in the game (a ball thrown
-			// on turn t is live for the turns after it, so the average is (turns+1)/2 windows).
+			// on turn t is live for the turns after it, so the average is (turns+1)/2 turn spans).
 			function scoreRef(cfg, seats) {
 				const turns = seats * cfg.ballsPerPlayer;
 				const rateMax = Math.PI * cfg.puckR * cfg.puckR * RED_MAX;
-				return cfg.ballsPerPlayer * rateMax * cfg.handoffT * (turns + 1) / 2;
+				return cfg.ballsPerPlayer * rateMax * turnSpan(cfg) * (turns + 1) / 2;
 			}
 			function displayScore(cfg, seats, raw) {
 				const v = Math.round(cfg.scoreDisplayMax * raw / scoreRef(cfg, seats));
@@ -1063,11 +1095,11 @@
 			// not a restart. Node-safe: no DOM access.
 			if (typeof module !== 'undefined') Object.assign(globalThis, require('./cfg.js'));
 			
-			const SEAT_TYPES = ['human', 'random', 'keeper', 'hunter', 'retriever', 'blackhole', 'balanced', 'timing'];
+			const SEAT_TYPES = ['human', 'random', 'keeper', 'hunter', 'retriever', 'blackhole', 'balanced', 'timing', 'staller'];
 			const SEAT_LABELS = {
 				human: 'human', random: 'bot — random', keeper: 'bot — keeper', hunter: 'bot — hunter',
 				retriever: 'bot — retriever', blackhole: 'bot — black hole', balanced: 'bot — balanced',
-				timing: 'bot — timing',
+				timing: 'bot — timing', staller: 'bot — staller',
 			};
 			// One colour per seat, shared by the board HUD, the panel and the puck rings, so a
 			// puck on the board always reads as its owner's.
@@ -1354,9 +1386,23 @@
 					finalRates: new Float64Array(seats),
 					stableBase: new Float64Array(seats), // locked/asleep rate before the throw
 					stableRates: new Float64Array(seats), // locked/asleep rate after it has had time to capture
-					endX: 0, endY: 0, endV: 0, dScore: 0, locked: false, removed: false,
+					endX: 0, endY: 0, endV: 0, dScore: 0, locked: false, removed: false, settled: false,
 					recoveryDelta: 0, ownLost: 0, enemyLost: 0, duration: 0, t: 0,
+					// window: the part of the turn scoreBySeat integrates (≤ handoffT). stallLead: in a
+					// motion-ended turn, the thrower's lead over the strongest other seat integrated
+					// over the time the turn runs past that window (negative when it settles short).
+					window: 0, stallLead: 0,
 				};
+			}
+			// How far a prediction plays the turn out: the fixed window, or in motion mode the turn
+			// itself up to maxResolve. The bound is the search's cost cap, not a rule: what still
+			// slides there is extrapolated (predictStroke), and the real turn plays on.
+			function predictHorizon(cfg) { return motionTurns(cfg) ? Math.min(turnLimit(cfg), cfg.maxResolve) : cfg.handoffT; }
+			// The thrower's lead in rate over the strongest other seat.
+			function rateLead(rates, owner) {
+				let top = 0;
+				for (let s = 0; s < rates.length; s++) if (s !== owner && rates[s] > top) top = rates[s];
+				return rates[owner] - top;
 			}
 			function cloneInto(dst, src) {
 				dst.t = src.t; dst.theta = src.theta; dst.omegaCur = src.omegaCur; dst.alpha = src.alpha;
@@ -1397,6 +1443,7 @@
 				pred.n = 0; pred.removed = false; pred.locked = false;
 				pred.endX = src.x[i]; pred.endY = src.y[i]; pred.endV = 0;
 				pred.duration = 0; pred.t = 0; pred.recoveryDelta = 0; pred.ownLost = 0; pred.enemyLost = 0;
+				pred.window = 0; pred.stallLead = 0; pred.settled = false;
 				pred.scoreBySeat.fill(0); pred.finalRates.fill(0); pred.stableRates.fill(0);
 				if (evaluate) stableRates(src, pred.stableBase);
 				cloneInto(w, src);
@@ -1406,7 +1453,9 @@
 				path[0] = lastX; path[1] = lastY; pred.n = 1;
 				const horizon = maxT === undefined ? cfg.maxResolve : Math.max(0, maxT);
 				const maxSteps = Math.ceil(horizon / cfg.h);
-				let steps = 0, scoreSampleStep = 0;
+				// The score term prices the fixed window; motion mode's time past it is the stall term's.
+				const windowSteps = Math.min(maxSteps, Math.ceil(cfg.handoffT / cfg.h));
+				let steps = 0, scoreSampleStep = 0, lead = 0;
 				if (evaluate) {
 					scoreRates(w, pred.sampleRates);
 					pred.previousRates.set(pred.sampleRates);
@@ -1421,11 +1470,18 @@
 						path[pred.n * 2] = lastX; path[pred.n * 2 + 1] = lastY; pred.n++;
 					}
 					const done = isSettled(w);
-					if (evaluate && (steps - scoreSampleStep >= PRED_SCORE_EVERY || done || steps >= maxSteps)) {
+					if (evaluate && (steps - scoreSampleStep >= PRED_SCORE_EVERY || steps === windowSteps || done || steps >= maxSteps)) {
 						scoreRates(w, pred.sampleRates);
 						const dt = (steps - scoreSampleStep) * cfg.h;
-						for (let s = 0; s < pred.scoreBySeat.length; s++) {
-							pred.scoreBySeat[s] += (pred.previousRates[s] + pred.sampleRates[s]) * 0.5 * dt;
+						if (steps <= windowSteps) {
+							for (let s = 0; s < pred.scoreBySeat.length; s++) {
+								pred.scoreBySeat[s] += (pred.previousRates[s] + pred.sampleRates[s]) * 0.5 * dt;
+							}
+							lead = rateLead(pred.sampleRates, owner);
+						} else {
+							const next = rateLead(pred.sampleRates, owner);
+							pred.stallLead += (lead + next) * 0.5 * dt;
+							lead = next;
 						}
 						pred.previousRates.set(pred.sampleRates);
 						scoreSampleStep = steps;
@@ -1440,6 +1496,9 @@
 				pred.endV = tracked >= 0 ? Math.hypot(w.vx[tracked], w.vy[tracked]) : 0;
 				pred.locked = tracked >= 0 && w.st[tracked] === ST_LOCKED;
 				pred.duration = steps * cfg.h; pred.t = pred.duration;
+				pred.window = Math.min(steps, windowSteps) * cfg.h;
+				pred.settled = isSettled(w);
+				if (evaluate && motionTurns(cfg)) pred.stallLead += lead * stallTail(w, pred.settled, pred.duration);
 				pred.recoveryDelta = recoverableCount(w, owner, cfg.recycleMode, -1) - recoverable0;
 				pred.ownLost = (w.ownerLosses[owner] || 0) - startLoss;
 				pred.enemyLost = sumOtherLosses(w.ownerLosses, owner) - startEnemyLoss;
@@ -1455,6 +1514,21 @@
 					stableRates(w, pred.stableRates);
 				} else pred.dScore = scoreRate(w, owner) - rate0;
 				return pred;
+			}
+			// The turn time the integral did not cover, signed: a board that settled inside the
+			// window shortened the turn by the rest of it; one still sliding at the horizon runs on
+			// about as long as its fastest slider needs to stop on bare ice (within the watchdog).
+			// The lead at the last sample is held over it.
+			function stallTail(w, settled, duration) {
+				const cfg = w.cfg;
+				if (settled) return Math.min(0, duration - cfg.handoffT);
+				let v2 = 0;
+				for (let i = 0; i < w.n; i++) {
+					if (w.st[i] !== ST_SLIDE) continue;
+					const s = w.vx[i] * w.vx[i] + w.vy[i] * w.vy[i];
+					if (s > v2) v2 = s;
+				}
+				return Math.min(Math.sqrt(v2) / (muKEff(cfg) * cfg.g), Math.max(0, turnLimit(cfg) - duration));
 			}
 			// Extra steps after the scored window, so a capture that lands just past handoff is
 			// priced as the lock it is. Only the thrown puck is waited on: following every slider
@@ -1472,7 +1546,7 @@
 				}
 			}
 			
-			if (typeof module !== 'undefined') module.exports = { createPredictor, cloneInto, findPuckUid, predictStroke, recoverableCount, PRED_SAMPLES, PRED_SCORE_EVERY, PRED_PATH_EVERY };
+			if (typeof module !== 'undefined') module.exports = { createPredictor, cloneInto, findPuckUid, predictStroke, predictHorizon, rateLead, recoverableCount, PRED_SAMPLES, PRED_SCORE_EVERY, PRED_PATH_EVERY };
 			}
 		},
 		"js/bots.js": function(module, exports, require, globalThis) {
@@ -1494,11 +1568,18 @@
 			// worth barely a window (recPrice), so extending a game by recycling is a tactical
 			// fallback, never a scoring plan. Opportunity is the locked rate, not the rate at the
 			// sample instant: a puck crossing red at handoff pays for the window and then leaves.
-			// The turn's score window is hard-capped (handoffT), so a bot cannot score more by
-			// stretching its turn — it can only spend the window it is given well. The timing bot
-			// does exactly that: it weights the *within-turn* red-time (score) far above the
-			// far-future lock (opportunity), so it throws to get pucks dwelling in red (and
-			// double-passing the zone) instead of merely building the best end-state.
+			// In the fixed window (turnEnd 'window') the turn is hard-capped at handoffT, so a bot
+			// cannot score more by stretching its turn — it can only spend the window it is given
+			// well. The timing bot does exactly that: it weights the *within-turn* red-time (score)
+			// far above the far-future lock (opportunity), so it throws to get pucks dwelling in red
+			// (and double-passing the zone) instead of merely building the best end-state.
+			// When turns end on motion, every second the board keeps sliding pays every seat its
+			// current rate. `stall` prices that: the thrower's rate lead over the strongest other
+			// seat, integrated over the turn time past the reference window (predictStroke
+			// stallLead) with the rates as they evolve, so a stroke that loses the lead mid-turn
+			// pays for the time it then extends. It counts only while the seat's parked pucks
+			// out-earn every other seat's before the throw; behind, it plays for position.
+			// Banked score never enters it. Only the staller has stall > 0.
 			const BOT_PROFILES = {
 				random: { score: 0.10, opportunity: 0.10, denial: 0.05, recovery: 0.30, reserve: 0.20, risk: 0.30, kill: 0.05, noise: 8.0 },
 				keeper: { score: 1.00, opportunity: 1.20, denial: 0.15, recovery: 0.20, reserve: 0.15, risk: 1.30, kill: 0.10, noise: 0.00 },
@@ -1510,6 +1591,7 @@
 				// how strongly it votes to slow the disk, so its lead keeps dwelling in red for the
 				// window it is given. 0 for every shipped profile; only the timing bot leans on it.
 				timing: { score: 1.70, opportunity: 0.55, denial: 0.35, recovery: 0.30, reserve: 0.30, risk: 1.35, kill: 0.15, noise: 0.05, patience: 1.2 },
+				staller: { score: 0.90, opportunity: 1.00, denial: 0.35, recovery: 0.30, reserve: 0.40, risk: 1.00, kill: 0.40, noise: 0.05, stall: 1.50 },
 			};
 			const BOT_SPREAD = [0.78, 0.36, 0.48, 0.48, 0.10];
 			// One record per target group; v0 is a solved launch speed (0 = sample the whole
@@ -1617,9 +1699,9 @@
 			// - lifePrice: a lost ball forfeits its own remaining turns (~1/seats of the
 			//   horizon); a parked puck's lost annuity is already priced by opportunity/denied.
 			function evaluateStroke(profile, w, cfg, i, pred, vx, vy, rng, urgency, future, ballValue, recPrice, lifePrice) {
-				predictStroke(pred, w, i, vx, vy, cfg.handoffT, true);
+				predictStroke(pred, w, i, vx, vy, predictHorizon(cfg), true);
 				const owner = w.own[i], base = pred.initialRates, integral = pred.scoreBySeat;
-				const duration = pred.duration;
+				const duration = pred.window;
 				const ownIntegral = integral[owner] - base[owner] * duration;
 				// A locked puck is an annuity: it pays its rate every later resolve window, not
 				// only this one. future = the pays-still-coming horizon (later turns' windows
@@ -1636,10 +1718,15 @@
 					enemyOpportunity += stable[s] - stable0[s];
 				}
 				const denied = -(enemyIntegral + enemyOpportunity * future);
+				// stallLead is 0 unless turns end on motion (predictStroke), so the fixed window
+				// never pays for duration, whatever the profile. The preference is gated on the
+				// sustained (locked/asleep) rate lead before the throw: a seat that is behind
+				// improves its position instead of pricing every stroke by how soon it ends.
+				const stall = profile.stall && rateLead(stable0, owner) > 0 ? profile.stall * pred.stallLead : 0;
 				return profile.score * ownIntegral + profile.opportunity * ownOpportunity
 					+ profile.denial * denied + recPrice * (profile.recovery + profile.reserve * urgency) * pred.recoveryDelta
 					+ lifePrice * (profile.kill * pred.enemyLost - profile.risk * pred.ownLost)
-					+ (rng() - 0.5) * profile.noise * ballValue;
+					+ stall + (rng() - 0.5) * profile.noise * ballValue;
 			}
 			// The value landscape of a parking or capture shot is razor-thin (a few cm/s between
 			// a lobe lock and an ejection), and a 20-sample sweep strides over it. After the
@@ -1721,14 +1808,14 @@
 				strategicTargets(w, cfg, i);
 				const own = w.own[i], stock = roster && roster[own] ? roster[own].balls : 0;
 				const urgency = 1 + (cfg.ballsPerPlayer - stock) * 0.55;
-				// Pays-still-coming horizon: later turns' resolve windows (≈0.9·handoffT each,
-				// they close on settle) plus ~2 s of the end settle. A throw that ends locked
-				// earns that rate for all of them; a fly-by earns only the window.
-				let future = cfg.handoffT;
+				// Pays-still-coming horizon: later turns' resolve windows plus ~2 s of the end
+				// settle (futurePay). A throw that ends locked earns that rate for all of them; a
+				// fly-by earns only the window.
+				let future = turnSpan(cfg);
 				if (roster) {
 					let turns = 0;
 					for (let s = 0; s < roster.length; s++) turns += roster[s].balls;
-					future = 2 + 0.9 * cfg.handoffT * turns;
+					future = futurePay(cfg, turns);
 				}
 				const r0 = Math.PI * cfg.puckR * cfg.puckR * diskMeanRed(cfg);
 				const ballValue = r0 * future;
@@ -2208,7 +2295,7 @@
 					const dh = holdRadius(cfg), rf = Math.min(0.82 * dh, cfg.diskR - cfg.puckR - 0.01);
 					const feed = cfg.omega !== 0 && rf > cfg.puckR ? feedTangent(cfg, x, y, rf) : null;
 					const ang = feed ? feed.ang : Math.atan2(cfg.diskY - y, cfg.diskX - x);
-					const sp = feed ? Math.min(cfg.vMax, feed.v0 * 0.9) : Math.min(cfg.vMax, 1.6);
+					const sp = feed ? Math.min(cfg.vMax, feed.v0 * feed.kv) : Math.min(cfg.vMax, 1.6);
 					aim.vx = Math.cos(ang) * sp; aim.vy = Math.sin(ang) * sp; aim.hasStroke = true;
 					botT = 0; invalidateGhost();
 				}
@@ -2365,6 +2452,9 @@
 						if (wasStill && v !== 0) wakeOnDisk(w);
 					}
 				}
+				// The turn rule applies at once, to the turn under way as well: the next frame's
+				// handoff test reads it.
+				function setTurnEnd(mode) { cancelPlan(); cfg.turnEnd = mode === 'motion' ? 'motion' : 'window'; invalidateGhost(); }
 				function setVoteOf(i, kind, value) { if (!roster[i]) return; cancelPlan(); setVote(cfg, roster[i], kind, value); }
 				// A rule change applies from the next handoff on; switching the rule off closes a
 				// running vote uncounted. A vote's value means something else in the other mode,
@@ -2398,17 +2488,18 @@
 				// Called by main after each batch of fixed steps (dtSim simulated seconds).
 				function afterSteps(dtSim) {
 					syncPending(); // a hole swallowed a puck during these steps, and the armed one moved with it
-					// The window that pays: it opens when a seat pushes and closes at handoffT
-					// (or when the board settles), and it pays every seat at once for the red it
-					// is holding. The spin-down at the end is still live board, so it pays too.
+					// The window that pays: it opens when a seat pushes and closes when the turn
+					// ends (on settle, or at turnLimit), and it pays every seat at once for the red
+					// it is holding. The spin-down at the end is still live board, so it pays too.
 					if (state === 'resolve' || state === 'settle') scoreTick(w, roster, dtSim);
 					if (state === 'resolve') {
 						resolveT += dtSim;
-						// A turn ends when the board settles, and at handoffT regardless: a puck
-						// the disk keeps nudging can slide for ten seconds, and the next seat must
-						// not wait for it. Whatever is still moving stays on the board and keeps
-						// being simulated while the next seat aims.
-						if (isSettled(w) || resolveT >= cfg.handoffT) handOff();
+						// A turn ends when the board settles, and at turnLimit regardless. In the
+						// fixed window that is handoffT: a puck the disk keeps nudging can slide for
+						// ten seconds, and the next seat must not wait for it — whatever still moves
+						// stays on the board and keeps being simulated while the next seat aims.
+						// Motion-ended turns wait for the board; the limit is only their watchdog.
+						if (isSettled(w) || resolveT >= turnLimit(cfg)) handOff();
 					} else if (state === 'vote') {
 						voteT += dtSim;
 						if (voteT >= cfg.voteT) closeVote();
@@ -2474,11 +2565,11 @@
 					syncPending();
 					if (!sim && ghost && ghostDirty && predT <= 0 && state === 'aim' && aim.hasStroke && pending >= 0) {
 						// The ghost is drawn during a drag, on the frame that also steps the board, so
-						// it is simulated to the window the throw is paid by (handoffT) and not to the
-						// spin-down horizon: a puck still sliding 4 s after the push has already had
-						// its turn handed over, and simulating that tail is most of a crowded board's
-						// ghost cost. The bots still price the full maxResolve horizon.
-						predictStroke(pred, w, pending, aim.vx, aim.vy, cfg.handoffT);
+						// it is simulated to the turn the throw is paid by (predictHorizon: handoffT in
+						// the fixed window) and not to the spin-down horizon: a puck still sliding 4 s
+						// after the push has already had its turn handed over, and simulating that tail
+						// is most of a crowded board's ghost cost.
+						predictStroke(pred, w, pending, aim.vx, aim.vy, predictHorizon(cfg));
 						ghostDirty = false; predT = PRED_COOLDOWN;
 					}
 					predT -= dt;
@@ -2689,7 +2780,7 @@
 				const api = {
 					world: w, aim, pred, roster, cfg, reset, fitBoard, canAim, bindInput, bindPointer, beforeSteps, afterSteps, tick,
 					setStroke, setAimVel, commitThrow, setSeatType, setSeatTypes, addPlayer, removePlayer,
-					invalidateGhost, setPuckMass, setDiskSchema, giveBack, setOmega, setSpeedRule, setVote: setVoteOf,
+					invalidateGhost, setPuckMass, setDiskSchema, giveBack, setOmega, setSpeedRule, setTurnEnd, setVote: setVoteOf,
 					// The bot brain, through the one entry point that owns a running plan: turning
 					// the look-ahead off drops a search that is under way instead of honouring it.
 					setWarp(on) { cfg.warp = !!on; cancelPlan(); },
@@ -2698,7 +2789,7 @@
 					// The game is over (disk spinning down, or scored): the board is spent until
 					// the next reset, so a settings change has to restart it to be seen at all.
 					get roundEnded() { return state === 'settle' || state === 'scored'; },
-					get resolveT() { return resolveT; }, // s into the resolve; the turn hands off at handoffT
+					get resolveT() { return resolveT; }, // s into the resolve; the turn hands off on settle or at turnLimit
 					get voteT() { return voteT; }, // s into a speed vote; it closes at cfg.voteT
 					get omegaStart() { return isNaN(omegaBase) ? cfg.omega : omegaBase; }, // the configured speed
 					get omegaNow() { return spinNow(w); }, // the motor's live speed, including a vote ramp
@@ -3463,13 +3554,17 @@
 						}
 					}
 					if (cfg.speedVote !== 'off') drawVotes(view, x0, cw);
-					if (view.state === 'resolve') { // the 4 s window that is paying right now
-						const left = Math.max(0, 1 - view.resolveT / cfg.handoffT);
+					if (view.state === 'resolve') { // the window that is paying right now
 						const x = x0 + view.turn * (cw + HUD_GAP), y = HUD_Y + HUD_H + 0.022;
 						ctx.fillStyle = 'rgba(255,255,255,0.22)';
 						ctx.fillRect(x, y, cw, 0.026);
 						ctx.fillStyle = seatColor(view.turn);
-						ctx.fillRect(x, y, cw * left, 0.026);
+						if (motionTurns(cfg)) {
+							// A motion-ended turn has no clock to run down: a block sweeps the bar
+							// while the board slides.
+							const bw = cw * 0.25, phase = 0.5 - 0.5 * Math.cos(Math.PI * view.resolveT);
+							ctx.fillRect(x + (cw - bw) * phase, y, bw, 0.026);
+						} else ctx.fillRect(x, y, cw * Math.max(0, 1 - view.resolveT / cfg.handoffT), 0.026);
 					}
 					ctx.restore();
 				}
@@ -3621,7 +3716,8 @@
 			const { createRenderer } = renderModule;
 			const BOT_NAMES = {
 				random: 'random', keeper: 'keeper', hunter: 'hunter',
-				retriever: 'retriever', blackhole: 'black hole', balanced: 'balanced'
+				retriever: 'retriever', blackhole: 'black hole', balanced: 'balanced',
+				timing: 'timing', staller: 'staller'
 			};
 			const MIN_BALLS = 1, MAX_BALLS = 4;
 			const MIN_HANDOFF = 1.5, MAX_HANDOFF = 4;
@@ -3647,6 +3743,7 @@
 				cfg.warp = false;
 				cfg.botDelay = bounded(o.botDelay, 0.35, 0, 2);
 				cfg.handoffT = bounded(o.handoffT, 3, MIN_HANDOFF, MAX_HANDOFF);
+				cfg.turnEnd = o.turnEnd === 'motion' ? 'motion' : 'window';
 				cfg.settleTime = bounded(o.settleTime, BASE_CFG.settleTime, MIN_SETTLE, MAX_SETTLE);
 				if (o.omega !== undefined && o.omega !== null) cfg.omega = bounded(o.omega, cfg.omega, 0, cfg.omegaMax);
 				if (o.mass !== undefined && o.mass !== null) cfg.puckM = bounded(o.mass, cfg.puckM, cfg.massMin, cfg.massMax);

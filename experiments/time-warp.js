@@ -5,6 +5,7 @@
 // and that the limits are the ones asked for — and this file is where they are checked,
 // against the modules the page runs.
 // Run: node experiments/time-warp.js [tries] [turns] [goal] [snapshots]
+// Env: KEROT_TABLE=keeper,hunter,balanced  KEROT_SCHEMA=classic  KEROT_TURNS=window|motion
 //
 //	1 the copy's turn is the game's turn, bit for bit, at the handoff
 //	2 the line the search settles on is never worse than the greedy line on its own measure
@@ -24,6 +25,7 @@ const GOAL = process.argv[4] === undefined ? CFG.warpGoal : parseFloat(process.a
 const SNAPS = parseInt(process.argv[5], 10) || 10;
 const TABLE = (process.env.KEROT_TABLE || 'keeper,hunter,balanced').split(',');
 const SCHEMA = process.env.KEROT_SCHEMA || 'classic';
+const TURN_END = process.env.KEROT_TURNS === 'motion' ? 'motion' : 'window'; // KEROT_TURNS=motion: the same gates on motion-ended turns
 const now = () => Number(process.hrtime.bigint()) / 1e6;
 let fails = 0;
 function ok(name, cond, note) {
@@ -37,7 +39,7 @@ function timed(f) { const t = now(); f(); return now() - t; }
 // seat armed and unmoving, so a test can hand it a stroke and start both boards on the
 // turn at the same instant.
 function mkGame(over) {
-	const cfg = Object.assign({}, CFG, { diskSchema: SCHEMA, ballsPerPlayer: 4, warpTries: TRIES, warpTurns: TURNS, warpGoal: GOAL }, over || {});
+	const cfg = Object.assign({}, CFG, { diskSchema: SCHEMA, turnEnd: TURN_END, ballsPerPlayer: 4, warpTries: TRIES, warpTurns: TURNS, warpGoal: GOAL }, over || {});
 	const g = createGame({ world: createWorld(cfg), roster: createRoster(TABLE, cfg.ballsPerPlayer), cfg: cfg });
 	g.reset(); // as js/main.js does at boot: it is what seats the first puck
 	return g;
@@ -101,7 +103,7 @@ function gameDiff(a, b) {
 // The ruler warp.js prices a line on: one ball's annuity over the windows left, with the
 // windows counted from the snapshot — so a test uses the count the search itself saw.
 function ballValue(cfg, turns) {
-	return Math.PI * cfg.puckR * cfg.puckR * diskMeanRed(cfg) * (2 + 0.9 * cfg.handoffT * turns);
+	return Math.PI * cfg.puckR * cfg.puckR * diskMeanRed(cfg) * futurePay(cfg, turns);
 }
 function ballsLeft(g) {
 	let n = 0;

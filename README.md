@@ -59,9 +59,26 @@ ordinary visit; the Snowfall artifact does not include the editor.
 
 Validate with `node experiments/zone-edit.js`; the optional real-browser gate is
 `experiments/zone-editor-browser.js` (Playwright Core + a Chromium executable; see its
-header). Design: [`archive/0.7.0-plan.md`](archive/0.7.0-plan.md). The motion-ended turn
-mode and separate **Staller** character remain deferred in
-[`0.6.9-plan.md`](0.6.9-plan.md); **Timing** still plays the existing fixed-window rule.
+header). Design: [`archive/0.7.0-plan.md`](archive/0.7.0-plan.md).
+
+## Motion-ended turns
+
+By default a turn pays from the push until `handoffT` (4 s) has passed or the board has
+stopped, whichever comes first. **A turn ends: when the board stops** (`turns=motion`)
+drops the clock. The turn runs while any puck still slides or spins on the ice, and
+locked riders do not count. This rule needs friction. An emergency watchdog of
+8 s + 3 × the longest free slide is shared by the game, the predictors and warp copies;
+measured play stays well under it. The **staller** bot plays this rule: while its parked
+pucks out-earn every other seat, it prefers strokes that keep the board moving; behind,
+it plays for position. **Timing** keeps its fixed-window strategy. Try it with the
+`staller` preset:
+
+```
+index.html?preset=staller
+```
+
+Validate with `node experiments/motion-turns.js` (`--bench N` for seeded leagues, `--span`
+for the turn-length fit). Design: [`archive/0.6.9-plan.md`](archive/0.6.9-plan.md).
 
 ## Optional glass presentation
 

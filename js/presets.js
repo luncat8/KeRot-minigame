@@ -10,13 +10,13 @@ if (typeof module !== 'undefined') Object.assign(globalThis,
 	require('./cfg.js'), require('./field.js'), require('./players.js'), require('./vote.js'));
 
 // The bundles. Keys match the setup object parseQuery returns (omega, muK, muS,
-// puckM, schema, recycle, zones, holes, vote, voteMode, theme, cards, seats, balls, autoOmega); a bundle sets only what
+// puckM, schema, recycle, zones, holes, vote, voteMode, turns, theme, cards, seats, balls, autoOmega); a bundle sets only what
 // it lists and leaves the rest alone, except `default`, which is complete on
 // purpose — the way back from anywhere. `autoOmega` re-solves the 90 % rule after
 // the bundle's μ and mass are in, so every mass preset keeps its own eject ring.
 const PRESETS = {
 	default: { label: 'classic default', geometry: null, maxThrows: 96, muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'advance',
-		zones: 'hatch', holes: 'classic', swap: false, scoreScale: 1, vote: 'round', voteMode: 'delta', theme: 'classic', cards: 'square', fx: 'plain', sfx: false, balls: 4,
+		zones: 'hatch', holes: 'classic', swap: false, scoreScale: 1, vote: 'round', voteMode: 'delta', turns: 'window', theme: 'classic', cards: 'square', fx: 'plain', sfx: false, balls: 4,
 		decor: 'radial', face: 'launch', vol: 1.3,
 		botspeed: 'auto', warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, seats: ['human', 'balanced', 'blackhole', 'retriever'] },
 	slick: { label: 'slick ice · long slides', muK: 0.012, muS: 0.030, puckM: 4, autoOmega: true },
@@ -43,6 +43,9 @@ const PRESETS = {
 	// play the disk with its votes, one set to look ahead before it throws.
 	speedplay: { label: 'speed play · park vs shake', vote: 'turn', botspeed: 'park' },
 	foresight: { label: 'foresight · time-warp look-ahead', warp: 1, warpTries: 8, warpTurns: 3, warpGoal: 0.6 },
+	// Turns that end when the board stops: the staller keeps it sliding while its pucks
+	// out-earn the table, against a parker and the fixed-window timing bot.
+	staller: { label: 'motion turns · staller keeps it sliding', turns: 'motion', seats: ['human', 'staller', 'keeper', 'timing'] },
 	solo: { label: 'practice · human alone', seats: ['human'], vote: 'off' }, // a vote of one is the slider
 	bots: { label: 'bot league · all six profiles', seats: ['keeper', 'hunter', 'balanced', 'retriever', 'blackhole', 'random'] },
 };
@@ -53,6 +56,7 @@ const RECYCLES = ['none', 'zones', 'advance'];
 const ZONE_STYLES = ['hatch', 'wavy', 'rounded', 'arcs', '3-rounded', '6-hemi'], HOLE_STYLES = ['classic', 'rim', 'well', 'triangle']; // CFG.zoneStyle, CFG.holeStyle
 const CARD_STYLES = ['square', 'round']; // the score cards' corners; page state, not CFG
 const SPEED_RULES = ['off', 'turn', 'round'], VOTE_MODES = ['delta', 'exact']; // CFG.speedVote, CFG.voteMode
+const TURN_ENDS = ['window', 'motion']; // CFG.turnEnd
 const VIEWS = ['fit', 'side']; // the layout keys of index.html; fit is the shipped one
 const FX_MODES = ['plain', 'glass']; // presentation; not CFG, js/ui.js loads the add-on
 const DECOR_MODES = ['radial', 'hex']; // the glass disk's etched finish
@@ -84,6 +88,7 @@ function applyCfg(setup) {
 	if (setup.scoreScale !== undefined) CFG.scoreScale = clamp(setup.scoreScale, NUM_RANGES.scoreScale[0], NUM_RANGES.scoreScale[1]);
 	if (SPEED_RULES.includes(setup.vote)) CFG.speedVote = setup.vote;
 	if (VOTE_MODES.includes(setup.voteMode)) CFG.voteMode = setup.voteMode;
+	if (TURN_ENDS.includes(setup.turns)) CFG.turnEnd = setup.turns;
 	if (SPEED_STRATS[setup.botspeed]) CFG.botSpeed = setup.botspeed;
 	if (setup.warp !== undefined) CFG.warp = !!setup.warp;
 	if (setup.warpTries !== undefined) CFG.warpTries = Math.round(setup.warpTries);
@@ -144,6 +149,8 @@ function parseQuery(search) {
 	const vote = q.vote && q.vote.toLowerCase(), voteMode = q.votemode && q.votemode.toLowerCase();
 	if (SPEED_RULES.includes(vote)) { out.vote = vote; found = true; }
 	if (VOTE_MODES.includes(voteMode)) { out.voteMode = voteMode; found = true; }
+	const turns = q.turns && q.turns.toLowerCase();
+	if (TURN_ENDS.includes(turns)) { out.turns = turns; found = true; }
 	if (q.theme) { out.theme = q.theme.toLowerCase(); found = true; } // validated where themes live (ui.js)
 	const fx = q.fx && q.fx.toLowerCase();
 	if (fx === 'glass' || fx === 'crystal' || fx === 'on' || fx === '1' || fx === 'true') { out.fx = 'glass'; found = true; }
@@ -176,4 +183,4 @@ function parseQuery(search) {
 // and the same page state comes back when it is opened.
 function presetQuery(name) { return 'preset=' + name; }
 
-if (typeof module !== 'undefined') module.exports = { PRESETS, ZONE_STYLES, HOLE_STYLES, CARD_STYLES, SPEED_RULES, VOTE_MODES, VIEWS, FX_MODES, DECOR_MODES, FACE_MODES, parseQuery, applyCfg, presetQuery };
+if (typeof module !== 'undefined') module.exports = { PRESETS, ZONE_STYLES, HOLE_STYLES, CARD_STYLES, SPEED_RULES, VOTE_MODES, TURN_ENDS, VIEWS, FX_MODES, DECOR_MODES, FACE_MODES, parseQuery, applyCfg, presetQuery };

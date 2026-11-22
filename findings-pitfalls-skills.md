@@ -343,3 +343,17 @@
   numbers reproduce exactly where they already worked, and keep the grid's length
   unchanged — candidate counts feed the shared rng stream that warp's light search
   and the fine patch are aligned to.
+- Turn-length measurements in a sim loop: read the resolve start right after the
+  `g.tick()` that turned `aim` into `resolve`, before stepping. Reading it after the
+  steps shifts every turn by a frame and makes the predictor look a frame off.
+- `createGame()` does not seat a first puck; call `g.reset()` before the loop (once more
+  per extra game to get a fresh seed — the bench leagues rotate seeds that way).
+- The predictor's `duration` stops at the search horizon (`predictHorizon`, capped by
+  `maxResolve`), not at the turn's end. To measure how long a stroke's turn really runs,
+  re-predict it with `turnLimit(cfg)` as the horizon.
+- A preference that only makes sense in one game state (the staller's duration term)
+  needs an explicit gate at decision time. Leaving it as a signed term is not enough: a
+  negative lead still priced every stroke by how soon it ends, and the "behind" staller
+  played worse than its twin (paired leagues, 6 games: 378 vs 573).
+- `pgrep -f pattern` in a bash wait loop matches the loop's own command line; wait on a
+  pid file or use the process tools instead.

@@ -42,9 +42,10 @@ window.startKerot = function() {
 `0` is both a draw and the neutral skip fallback; `mode` distinguishes them. A game key records one
 scalar, which can be summed or used in later story conditions without introducing a second save
 system. Options accepted by the adapter are `balls` (1–4, default 2), `bot` (`balanced`, `keeper`,
-`hunter`, `retriever`, `blackhole`, or `random`), `schema` (`classic`, `circles`, or `rim6`),
-`theme` (`kerot` by default or `classic`), `mass`, `omega`, `botDelay`, `handoffT`, `settleTime`,
-`seed`, plus text-only `title` and `instructions`.
+`hunter`, `retriever`, `blackhole`, `timing`, `staller`, or `random`), `schema` (`classic`, `circles`,
+or `rim6`), `theme` (`kerot` by default or `classic`), `mass`, `omega`, `botDelay`, `handoffT`,
+`turnEnd` (`window` by default: a turn ends at `handoffT` or when the board settles; `motion`: only
+when the board settles), `settleTime`, `seed`, plus text-only `title` and `instructions`.
 
 The mount reserves 44rem (36rem on narrow screens, or viewport height on ≤560px short landscape
 screens) for live and resolved states, and scales `.kerot-board-wrap` by live viewport height so the

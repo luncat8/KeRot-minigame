@@ -120,7 +120,7 @@ function playGame(w, pred, roster, rng) {
 		const lossesBefore = Uint16Array.from(w.ownerLosses);
 		throwPuck(w, i, stroke.vx, stroke.vy);
 		let t = 0;
-		while (!isSettled(w) && t < CFG.handoffT) {
+		while (!isSettled(w) && t < turnLimit(CFG)) {
 			for (let k = 0; k < TICK; k++) stepWorld(w, CFG.h);
 			scoreTick(w, roster, TICK * CFG.h);
 			t += TICK * CFG.h;

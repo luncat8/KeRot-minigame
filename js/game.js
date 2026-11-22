@@ -73,7 +73,7 @@ function createGame(env) {
 		const dh = holdRadius(cfg), rf = Math.min(0.82 * dh, cfg.diskR - cfg.puckR - 0.01);
 		const feed = cfg.omega !== 0 && rf > cfg.puckR ? feedTangent(cfg, x, y, rf) : null;
 		const ang = feed ? feed.ang : Math.atan2(cfg.diskY - y, cfg.diskX - x);
-		const sp = feed ? Math.min(cfg.vMax, feed.v0 * 0.9) : Math.min(cfg.vMax, 1.6);
+		const sp = feed ? Math.min(cfg.vMax, feed.v0 * feed.kv) : Math.min(cfg.vMax, 1.6);
 		aim.vx = Math.cos(ang) * sp; aim.vy = Math.sin(ang) * sp; aim.hasStroke = true;
 		botT = 0; invalidateGhost();
 	}
@@ -230,6 +230,9 @@ function createGame(env) {
 			if (wasStill && v !== 0) wakeOnDisk(w);
 		}
 	}
+	// The turn rule applies at once, to the turn under way as well: the next frame's
+	// handoff test reads it.
+	function setTurnEnd(mode) { cancelPlan(); cfg.turnEnd = mode === 'motion' ? 'motion' : 'window'; invalidateGhost(); }
 	function setVoteOf(i, kind, value) { if (!roster[i]) return; cancelPlan(); setVote(cfg, roster[i], kind, value); }
 	// A rule change applies from the next handoff on; switching the rule off closes a
 	// running vote uncounted. A vote's value means something else in the other mode,
@@ -263,17 +266,18 @@ function createGame(env) {
 	// Called by main after each batch of fixed steps (dtSim simulated seconds).
 	function afterSteps(dtSim) {
 		syncPending(); // a hole swallowed a puck during these steps, and the armed one moved with it
-		// The window that pays: it opens when a seat pushes and closes at handoffT
-		// (or when the board settles), and it pays every seat at once for the red it
-		// is holding. The spin-down at the end is still live board, so it pays too.
+		// The window that pays: it opens when a seat pushes and closes when the turn
+		// ends (on settle, or at turnLimit), and it pays every seat at once for the red
+		// it is holding. The spin-down at the end is still live board, so it pays too.
 		if (state === 'resolve' || state === 'settle') scoreTick(w, roster, dtSim);
 		if (state === 'resolve') {
 			resolveT += dtSim;
-			// A turn ends when the board settles, and at handoffT regardless: a puck
-			// the disk keeps nudging can slide for ten seconds, and the next seat must
-			// not wait for it. Whatever is still moving stays on the board and keeps
-			// being simulated while the next seat aims.
-			if (isSettled(w) || resolveT >= cfg.handoffT) handOff();
+			// A turn ends when the board settles, and at turnLimit regardless. In the
+			// fixed window that is handoffT: a puck the disk keeps nudging can slide for
+			// ten seconds, and the next seat must not wait for it — whatever still moves
+			// stays on the board and keeps being simulated while the next seat aims.
+			// Motion-ended turns wait for the board; the limit is only their watchdog.
+			if (isSettled(w) || resolveT >= turnLimit(cfg)) handOff();
 		} else if (state === 'vote') {
 			voteT += dtSim;
 			if (voteT >= cfg.voteT) closeVote();
@@ -339,11 +343,11 @@ function createGame(env) {
 		syncPending();
 		if (!sim && ghost && ghostDirty && predT <= 0 && state === 'aim' && aim.hasStroke && pending >= 0) {
 			// The ghost is drawn during a drag, on the frame that also steps the board, so
-			// it is simulated to the window the throw is paid by (handoffT) and not to the
-			// spin-down horizon: a puck still sliding 4 s after the push has already had
-			// its turn handed over, and simulating that tail is most of a crowded board's
-			// ghost cost. The bots still price the full maxResolve horizon.
-			predictStroke(pred, w, pending, aim.vx, aim.vy, cfg.handoffT);
+			// it is simulated to the turn the throw is paid by (predictHorizon: handoffT in
+			// the fixed window) and not to the spin-down horizon: a puck still sliding 4 s
+			// after the push has already had its turn handed over, and simulating that tail
+			// is most of a crowded board's ghost cost.
+			predictStroke(pred, w, pending, aim.vx, aim.vy, predictHorizon(cfg));
 			ghostDirty = false; predT = PRED_COOLDOWN;
 		}
 		predT -= dt;
@@ -554,7 +558,7 @@ function createGame(env) {
 	const api = {
 		world: w, aim, pred, roster, cfg, reset, fitBoard, canAim, bindInput, bindPointer, beforeSteps, afterSteps, tick,
 		setStroke, setAimVel, commitThrow, setSeatType, setSeatTypes, addPlayer, removePlayer,
-		invalidateGhost, setPuckMass, setDiskSchema, giveBack, setOmega, setSpeedRule, setVote: setVoteOf,
+		invalidateGhost, setPuckMass, setDiskSchema, giveBack, setOmega, setSpeedRule, setTurnEnd, setVote: setVoteOf,
 		// The bot brain, through the one entry point that owns a running plan: turning
 		// the look-ahead off drops a search that is under way instead of honouring it.
 		setWarp(on) { cfg.warp = !!on; cancelPlan(); },
@@ -563,7 +567,7 @@ function createGame(env) {
 		// The game is over (disk spinning down, or scored): the board is spent until
 		// the next reset, so a settings change has to restart it to be seen at all.
 		get roundEnded() { return state === 'settle' || state === 'scored'; },
-		get resolveT() { return resolveT; }, // s into the resolve; the turn hands off at handoffT
+		get resolveT() { return resolveT; }, // s into the resolve; the turn hands off on settle or at turnLimit
 		get voteT() { return voteT; }, // s into a speed vote; it closes at cfg.voteT
 		get omegaStart() { return isNaN(omegaBase) ? cfg.omega : omegaBase; }, // the configured speed
 		get omegaNow() { return spinNow(w); }, // the motor's live speed, including a vote ramp

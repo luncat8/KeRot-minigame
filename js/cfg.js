@@ -27,8 +27,12 @@ const CFG = {
 	spinDrag: 4 / 3, // spinning friction: ω̇ = spinDrag*muK*g/r per unit covered area
 	slop: 1e-6,
 	maxSubsteps: 8,
-	maxResolve: 8, // s; ghost re-sim horizon
+	maxResolve: 8, // s; the furthest a prediction plays a turn out (bot follow-up, motion-mode horizon)
 	handoffT: 4, // s; hand the turn over even if the board has not settled
+	// How a thrown turn ends (radio group, turnLimit below): 'window' — at handoffT or
+	// when the board settles, whichever is first; 'motion' — only when the board settles.
+	// Settled means no puck slides: a locked rider moves with the disk, not over it.
+	turnEnd: 'window',
 	ballsPerPlayer: 4, // every seat throws this many pucks; the game is seats x balls throws
 	maxPlayers: 8, // roster cap: seats x balls pucks can be on the board at once
 	maxThrows: 96, // hard game cap: a board that keeps handing pucks back still ends
@@ -119,6 +123,34 @@ function autoOmega(cfg) { return Math.sqrt(muSEff(cfg) * cfg.g / (0.9 * cfg.disk
 function aimGrab(cfg) { return cfg.puckR + cfg.aimGrabMargin; }
 function stopDistance(cfg, v) { return v * v / (2 * muKEff(cfg) * cfg.g); } // on bare ice
 
+// --- Turn end: the one rule the game, the predictors, the bots and warp copies share ---
+// Motion-ended turns need friction: without it nothing ever settles.
+function motionTurns(cfg) { return cfg.turnEnd === 'motion' && cfg.muK > 0; }
+// The slowest the fastest thing on the board can come to rest on bare ice: a full stroke,
+// or a puck flung at the rim speed of the disk.
+function slideTime(cfg) {
+	return Math.max(cfg.vMax, Math.abs(cfg.omega) * (cfg.diskR + cfg.puckR)) / (muKEff(cfg) * cfg.g);
+}
+// The emergency watchdog of a motion-ended turn. A free slide stops within slideTime, and
+// walls only take energy out; a rim straddler that the motor drags adds seconds that do
+// not shrink with friction, hence the fixed base. Measured play stays under half of it at
+// every friction (experiments/motion-turns.js), and it is the same wherever a turn is run.
+const TURN_WATCHDOG_BASE = 8, TURN_WATCHDOG_SLIDES = 3; // s, × slideTime
+// The longest a thrown turn can last: handoffT, or the watchdog in motion mode. The turn
+// hands over at isSettled(w) || resolveT >= turnLimit(cfg).
+function turnLimit(cfg) {
+	return motionTurns(cfg) ? TURN_WATCHDOG_BASE + TURN_WATCHDOG_SLIDES * slideTime(cfg) : cfg.handoffT;
+}
+// The nominal length of a turn: the score display's reference and the bots' measure of
+// what later turns pay. The fixed window is handoffT. A motion-ended turn lasts as long as
+// its board slides — most throws lock or stop within seconds, a few run long — and its
+// measured mean grows with the log of slideTime (fit in experiments/motion-turns.js).
+const MOTION_SPAN_S = 2.06, MOTION_SPAN_K = 1.54;
+function turnSpan(cfg) { return motionTurns(cfg) ? MOTION_SPAN_S + MOTION_SPAN_K * Math.log(slideTime(cfg)) : cfg.handoffT; }
+// What the turns still to come pay a puck parked now: ~0.9 of a span each (many close on
+// settle) plus ~2 s of the end-of-game spin-down.
+function futurePay(cfg, turns) { return 2 + 0.9 * turnSpan(cfg) * turns; }
+
 // Explicit board geometry is shared by presets and the optional editor.
 const GEOMETRY_KEYS = ['boardW', 'boardH', 'diskX', 'diskY', 'diskR', 'puckR',
 	'launchX', 'launchY', 'launchMinX', 'launchMaxX', 'launchMinY', 'launchMaxY', 'zoneCutGap', 'zoneReach'];
@@ -168,4 +200,4 @@ function resetBoardGeometry(cfg) {
 	applyBoardGeometry(cfg, DEFAULT_BOARD_GEOMETRY);
 	cfg.customGeometry = false;
 }
-if (typeof module !== 'undefined') module.exports = { GEOMETRY_KEYS, boardGeometry, validBoardGeometry, applyBoardGeometry, rebuildZones, resetBoardGeometry, CFG, aimGrab, RETURN_ZONES, ADVANCE_ZONES, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, loadFactor, muKEff, muSEff, holdRadius, autoOmega, stopDistance, clamp };
+if (typeof module !== 'undefined') module.exports = { GEOMETRY_KEYS, boardGeometry, validBoardGeometry, applyBoardGeometry, rebuildZones, resetBoardGeometry, CFG, aimGrab, RETURN_ZONES, ADVANCE_ZONES, BLACK_HOLES, MAX_PUCKS, ST_SLIDE, ST_LOCKED, ST_SLEEP, loadFactor, muKEff, muSEff, holdRadius, autoOmega, stopDistance, motionTurns, slideTime, turnLimit, turnSpan, futurePay, clamp };

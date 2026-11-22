@@ -276,6 +276,10 @@
 			<label><input type="radio" name="holeStyle" value="well"> round well, dashed reach</label>
 			<label><input type="radio" name="holeStyle" value="triangle"> triangle on the wall</label>
 		</fieldset>
+		<fieldset><legend>a turn ends</legend>
+			<label><input type="radio" name="turnEnd" value="window" checked> after the 4 s window, or when the board stops</label>
+			<label><input type="radio" name="turnEnd" value="motion"> when the board stops &mdash; riders on the disk don't count</label>
+		</fieldset>
 		<fieldset><legend>disk speed in play</legend>
 			<label><input type="radio" name="speedVote" value="off"> set on the panel only</label>
 			<label><input type="radio" name="speedVote" value="turn"> seats vote before every turn</label>
@@ -351,6 +355,12 @@
 	normalised to 0–999 per game, so the number means the same thing for 2 seats and for 8.</p>
 	<p>"Red" is the red channel of the paint: blue pays about a fifth, pale and red pay
 	nearly the same — the legend under <b>disk pattern</b> has the numbers.</p>
+	<h2>turn end</h2>
+	<p>A turn pays from the push until 4 s have passed or the board stops, whichever is first.
+	With <b>a turn ends: when the board stops</b> there is no clock: the turn pays every seat
+	for as long as any puck still slides or spins on the ice. Pucks riding the disk do not
+	count as motion. The <b>staller</b> bot plays this rule: while its pucks earn more than
+	anyone else's, it throws to keep the board moving; when it is behind, it plays for position.</p>
 	<h2>disk pattern</h2>
 	<p><b>soft lobes</b> (the original), <b>3 red circles</b> of different sizes, or
 	<b>6 rim hemispheres</b> — the richest red sits at the rim, right where pucks are

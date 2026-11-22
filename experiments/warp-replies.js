@@ -155,7 +155,7 @@ for (let board = 0; board < BOARDS; board++) {
 	for (let d = 0; d < 2 + board % 6; d++) playTurn(g, lightLine(g, board));
 	const { rank, v } = aimLine(g);
 	if (!W.begin(g, g.turn, rank)) continue;
-	const future = 2 + 0.9 * g.cfg.handoffT * ballsLeft(g);
+	const future = futurePay(g.cfg, ballsLeft(g));
 	const seat = g.turn;
 	const snapWorld = createWorld(g.cfg), snapFlow = {};
 	const snapBalls = new Float64Array(CFG.maxPlayers), snapScore = new Float64Array(CFG.maxPlayers);

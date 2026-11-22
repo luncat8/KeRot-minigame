@@ -153,7 +153,7 @@ function createWarp() {
 			snapBalls[i] = roster[i].balls; snapScore[i] = roster[i].score; snapType[i] = roster[i].type;
 			turns += roster[i].balls;
 		}
-		run.future = 2 + 0.9 * cfg.handoffT * turns;
+		run.future = futurePay(cfg, turns);
 		// The seat's own ruler (js/bots.js evaluateStroke): its profile's weights, the
 		// prices of a lost puck and of one coming back, and the urgency its stock gives
 		// the recovery terms. `run.ball` stays the generic ball annuity, so warpGoal and

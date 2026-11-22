@@ -733,13 +733,17 @@ function createRenderer() {
 			}
 		}
 		if (cfg.speedVote !== 'off') drawVotes(view, x0, cw);
-		if (view.state === 'resolve') { // the 4 s window that is paying right now
-			const left = Math.max(0, 1 - view.resolveT / cfg.handoffT);
+		if (view.state === 'resolve') { // the window that is paying right now
 			const x = x0 + view.turn * (cw + HUD_GAP), y = HUD_Y + HUD_H + 0.022;
 			ctx.fillStyle = 'rgba(255,255,255,0.22)';
 			ctx.fillRect(x, y, cw, 0.026);
 			ctx.fillStyle = seatColor(view.turn);
-			ctx.fillRect(x, y, cw * left, 0.026);
+			if (motionTurns(cfg)) {
+				// A motion-ended turn has no clock to run down: a block sweeps the bar
+				// while the board slides.
+				const bw = cw * 0.25, phase = 0.5 - 0.5 * Math.cos(Math.PI * view.resolveT);
+				ctx.fillRect(x + (cw - bw) * phase, y, bw, 0.026);
+			} else ctx.fillRect(x, y, cw * Math.max(0, 1 - view.resolveT / cfg.handoffT), 0.026);
 		}
 		ctx.restore();
 	}

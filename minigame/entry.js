@@ -19,7 +19,8 @@ const { createGame } = gameModule;
 const { createRenderer } = renderModule;
 const BOT_NAMES = {
 	random: 'random', keeper: 'keeper', hunter: 'hunter',
-	retriever: 'retriever', blackhole: 'black hole', balanced: 'balanced'
+	retriever: 'retriever', blackhole: 'black hole', balanced: 'balanced',
+	timing: 'timing', staller: 'staller'
 };
 const MIN_BALLS = 1, MAX_BALLS = 4;
 const MIN_HANDOFF = 1.5, MAX_HANDOFF = 4;
@@ -45,6 +46,7 @@ function settingsFor(opts) {
 	cfg.warp = false;
 	cfg.botDelay = bounded(o.botDelay, 0.35, 0, 2);
 	cfg.handoffT = bounded(o.handoffT, 3, MIN_HANDOFF, MAX_HANDOFF);
+	cfg.turnEnd = o.turnEnd === 'motion' ? 'motion' : 'window';
 	cfg.settleTime = bounded(o.settleTime, BASE_CFG.settleTime, MIN_SETTLE, MAX_SETTLE);
 	if (o.omega !== undefined && o.omega !== null) cfg.omega = bounded(o.omega, cfg.omega, 0, cfg.omegaMax);
 	if (o.mass !== undefined && o.mass !== null) cfg.puckM = bounded(o.mass, cfg.puckM, cfg.massMin, cfg.massMax);
