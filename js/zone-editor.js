@@ -26,7 +26,8 @@ const ZoneEditor = (() => {
 	function setupOf(cfg, game, opts) {
 		return {
 			geometry: boardGeometry(cfg), omega: game.omegaStart, muK: cfg.muK, muS: cfg.muS, puckM: cfg.puckM,
-			schema: cfg.diskSchema, scoreScale: cfg.scoreScale, recycle: cfg.recycleMode, zones: cfg.zoneStyle, holes: cfg.holeStyle, swap: cfg.swapZones,
+			schema: cfg.diskSchema, scoreScale: cfg.scoreScale, payBlue: cfg.payBlue, payBend: cfg.payBend,
+			recycle: cfg.recycleMode, zones: cfg.zoneStyle, holes: cfg.holeStyle, swap: cfg.swapZones,
 			balls: cfg.ballsPerPlayer, maxThrows: cfg.maxThrows, vote: cfg.speedVote, voteMode: cfg.voteMode,
 			botspeed: cfg.botSpeed, warp: cfg.warp, warpTries: cfg.warpTries, warpTurns: cfg.warpTurns, warpGoal: cfg.warpGoal,
 			seats: game.seatTypes, theme: opts.theme, cards: opts.cards, fx: opts.fx, sfx: opts.sfx,

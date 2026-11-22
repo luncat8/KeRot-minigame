@@ -16,7 +16,7 @@ if (typeof module !== 'undefined') Object.assign(globalThis,
 // the bundle's μ and mass are in, so every mass preset keeps its own eject ring.
 const PRESETS = {
 	default: { label: 'classic default', geometry: null, maxThrows: 96, muK: 0.030, muS: 0.045, puckM: 4, autoOmega: true, schema: 'classic', recycle: 'advance',
-		zones: 'hatch', holes: 'classic', swap: false, scoreScale: 1, vote: 'round', voteMode: 'delta', turns: 'window', theme: 'classic', cards: 'square', fx: 'plain', sfx: false, balls: 4,
+		zones: 'hatch', holes: 'classic', swap: false, scoreScale: 1, payBlue: 55, payBend: 1, vote: 'round', voteMode: 'delta', turns: 'window', theme: 'classic', cards: 'square', fx: 'plain', sfx: false, balls: 4,
 		decor: 'radial', face: 'launch', vol: 1.3,
 		botspeed: 'auto', warp: false, warpTries: 6, warpTurns: 3, warpGoal: 0.5, seats: ['human', 'balanced', 'blackhole', 'retriever'] },
 	slick: { label: 'slick ice · long slides', muK: 0.012, muS: 0.030, puckM: 4, autoOmega: true },
@@ -52,9 +52,11 @@ const PRESETS = {
 	// stay where they are and only the game is shuffled.
 	random: { label: 'random · shuffled game, bot table', random: true },
 };
-// The slider ranges of index.html; URL values are clamped to them.
+// The slider ranges of index.html; URL values are clamped to them. payBlue stops at
+// pale (245): above it the blue part would out-pay the pale paint it bends toward, and
+// the palette's red channel would fall as the field value rises.
 const NUM_RANGES = { maxThrows: [1, 512], omega: [0, CFG.omegaMax], muK: [0.005, 0.3], muS: [0.03, 0.5], puckM: [CFG.massMin, CFG.massMax], balls: [1, 8],
-	scoreScale: [0.25, 3], warpTries: [1, 16], warpTurns: [0, 6], warpGoal: [0, 3], vol: [0, 2] };
+	scoreScale: [0.25, 3], payBlue: [0, 245], payBend: [0.25, 4], warpTries: [1, 16], warpTurns: [0, 6], warpGoal: [0, 3], vol: [0, 2] };
 const RECYCLES = ['none', 'zones', 'advance'];
 const ZONE_STYLES = ['hatch', 'wavy', 'rounded', 'arcs', '3-rounded', '6-hemi'], HOLE_STYLES = ['classic', 'rim', 'well', 'triangle']; // CFG.zoneStyle, CFG.holeStyle
 const CARD_STYLES = ['square', 'round']; // the score cards' corners; page state, not CFG
@@ -93,6 +95,9 @@ function randomSetup() {
 		schema: randomPick(Object.keys(DISK_SCHEMAS)), // the score map is the rule, not only the paint
 		zones: randomPick(ZONE_STYLES), holes: randomPick(HOLE_STYLES), recycle: randomPick(RECYCLES), swap: Math.random() < 0.5,
 		scoreScale: randomPick([0.75, 1, 1, 1, 1.25, 1.5]),
+		// The pay curve joins the draw (it is the score map's rule, not only its look),
+		// weighted toward the shipped curve so most shuffles still feel like the classic.
+		payBlue: randomPick([55, 55, 120, 200, 240]), payBend: randomPick([1, 1, 0.6, 1.8]),
 		vote: randomPick(SPEED_RULES), voteMode: randomPick(VOTE_MODES), turns: randomPick(TURN_ENDS),
 		botspeed: randomPick(Object.keys(SPEED_STRATS)),
 		warp: Math.random() < 0.25, warpTries: 2 + ((Math.random() * 5) | 0),
@@ -125,6 +130,8 @@ function applyCfg(setup) {
 	if (HOLE_STYLES.includes(setup.holes)) CFG.holeStyle = setup.holes;
 	if (setup.swap !== undefined) CFG.swapZones = !!setup.swap;
 	if (setup.scoreScale !== undefined) CFG.scoreScale = clamp(setup.scoreScale, NUM_RANGES.scoreScale[0], NUM_RANGES.scoreScale[1]);
+	if (setup.payBlue !== undefined) CFG.payBlue = clamp(setup.payBlue, NUM_RANGES.payBlue[0], NUM_RANGES.payBlue[1]);
+	if (setup.payBend !== undefined) CFG.payBend = clamp(setup.payBend, NUM_RANGES.payBend[0], NUM_RANGES.payBend[1]);
 	if (SPEED_RULES.includes(setup.vote)) CFG.speedVote = setup.vote;
 	if (VOTE_MODES.includes(setup.voteMode)) CFG.voteMode = setup.voteMode;
 	if (TURN_ENDS.includes(setup.turns)) CFG.turnEnd = setup.turns;
@@ -185,6 +192,8 @@ function parseQuery(search) {
 	const sw = q.swap && q.swap.toLowerCase();
 	if (sw !== undefined) { out.swap = sw === '1' || sw === 'true' || sw === 'on'; found = true; }
 	found = numKey(q, out, 'scorescale', 'scoreScale') || found;
+	found = numKey(q, out, 'payblue', 'payBlue') || found;
+	found = numKey(q, out, 'paybend', 'payBend') || found;
 	const vote = q.vote && q.vote.toLowerCase(), voteMode = q.votemode && q.votemode.toLowerCase();
 	if (SPEED_RULES.includes(vote)) { out.vote = vote; found = true; }
 	if (VOTE_MODES.includes(voteMode)) { out.voteMode = voteMode; found = true; }

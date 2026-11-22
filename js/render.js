@@ -10,7 +10,7 @@ function createRenderer() {
 	// is the top of the ice — over every marking already painted, including the voids,
 	// the aim ghost and the stones.
 	let skin = null;
-	let texDisk = null, texSchema = '', texRadius = 0, ppmDisk = 0, texScore = 1, puckGrad = null, wallPath = null, gridPath = null;
+	let texDisk = null, texSchema = '', texRadius = 0, ppmDisk = 0, texScore = 1, texBlue = 55, texBend = 1, puckGrad = null, wallPath = null, gridPath = null;
 	let zoneFan = null, zoneAdv = null, sectorPath = null, bandPath = null, holeClip = null;
 	let swapZoneNone = null, swapZoneAdv = null, swapZoneFan = null, swapVoidAdv = null, swapVoidFan = null;
 	let builtZone = '', builtHole = '', builtSwap = false; // the shape styles the zone and hole paths were baked for
@@ -454,7 +454,7 @@ function createRenderer() {
 		g.globalCompositeOperation = 'destination-in';
 		g.fillStyle = '#ffffff';
 		g.beginPath(); g.arc(tex.width / 2, tex.height / 2, cfg.diskR * ppm, 0, Math.PI * 2); g.fill();
-		texDisk = cut; texSchema = cfg.diskSchema; texRadius = cfg.diskR; texScore = cfg.scoreScale; ppmDisk = ppm;
+		texDisk = cut; texSchema = cfg.diskSchema; texRadius = cfg.diskR; texScore = cfg.scoreScale; texBlue = cfg.payBlue; texBend = cfg.payBend; ppmDisk = ppm;
 	}
 	function toWorld(clientX, clientY) {
 		const r = cv.getBoundingClientRect();
@@ -632,7 +632,8 @@ function createRenderer() {
 	function drawWorld(view) {
 		const w = view.w, aim = view.aim, opts = view.opts, pred = view.pred;
 		if (opts.theme !== themeName) applyTheme(opts.theme);
-		if (cfg.diskSchema !== texSchema || cfg.diskR !== texRadius || cfg.scoreScale !== texScore) bakeDisk();
+		if (cfg.diskSchema !== texSchema || cfg.diskR !== texRadius || cfg.scoreScale !== texScore ||
+			cfg.payBlue !== texBlue || cfg.payBend !== texBend) bakeDisk();
 		if (cfg.zoneStyle !== builtZone || cfg.holeStyle !== builtHole || !!cfg.swapZones !== builtSwap) buildZonePaths();
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, cv.width, cv.height);

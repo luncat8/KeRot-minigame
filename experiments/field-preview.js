@@ -16,6 +16,17 @@ const pay = v => fieldColor(v, rgb)[0] / 255;
 	for (let k = 0; k <= 2000; k++) { const r = fieldColor(-1 + k / 1000, rgb)[0]; if (r < prev) rising = false; prev = r; }
 	console.log('palette pays: blue ' + pay(-1).toFixed(3) + ' · pale ' + pay(0).toFixed(3) + ' · red ' + pay(1).toFixed(3) + ' of the maximum');
 	check(rising, 'the palette\'s red channel never falls as the field value rises');
+	// The curve is adjustable (CFG.payBlue, CFG.payBend); every allowed setting has to
+	// keep the pay rising with the field value, so the board never pays against its look.
+	const blue0 = CFG.payBlue, bend0 = CFG.payBend;
+	let bentRising = true;
+	for (const payBlue of [0, 55, 120, 245]) for (const payBend of [0.25, 1, 4]) {
+		CFG.payBlue = payBlue; CFG.payBend = payBend;
+		prev = -Infinity;
+		for (let k = 0; k <= 2000; k++) { const r = fieldColor(-1 + k / 1000, rgb)[0]; if (r < prev) bentRising = false; prev = r; }
+	}
+	CFG.payBlue = blue0; CFG.payBend = bend0;
+	check(bentRising, 'the pay curve rises with the field value at every curve setting');
 }
 // Puck centres a riding puck can hold: inside the hold radius and wholly on the disk.
 const hold = Math.min(holdRadius(CFG), R - CFG.puckR);

@@ -81,11 +81,18 @@ function fieldWorld(cfg, x, y, theta) {
 	const c = Math.cos(theta), s = Math.sin(theta);
 	return fieldLocal(cfg, c * dx + s * dy, -s * dx + c * dy);
 }
-// Diverging palette: -1 blue -> 0 pale -> +1 red. Writes rgb into out[0..2].
+// Diverging palette: -1 blue -> 0 pale -> +1 red. Writes rgb into out[0..2]. The red
+// channel is the pay curve (js/score.js): CFG.payBlue is its blue endpoint, CFG.payBend
+// the exponent that bends it between the anchors — below 1 lifts the mid values toward
+// pale, above 1 presses them toward the endpoint. Monotone for every allowed setting
+// (experiments/curve.js), and the ceiling at v = +1 stays 255, so RED_MAX holds. G and
+// B run on the same bent curve, so the colour path from blue through pale to red never
+// changes hue — only where along v it sits.
+const PALE = 245; // the red channel at v = 0; the blue endpoint bends toward it
 function fieldColor(v, out) {
-	const t = v < 0 ? -v : v;
-	if (v < 0) { out[0] = 245 - 190 * t; out[1] = 245 - 155 * t; out[2] = 250 - 10 * t; }
-	else { out[0] = 245 + 10 * t; out[1] = 245 - 165 * t; out[2] = 250 - 190 * t; }
+	const e = Math.pow(v < 0 ? -v : v, CFG.payBend);
+	if (v < 0) { out[0] = PALE + (CFG.payBlue - PALE) * e; out[1] = PALE - 155 * e; out[2] = 250 - 10 * e; }
+	else { out[0] = PALE + 10 * e; out[1] = PALE - 165 * e; out[2] = 250 - 190 * e; }
 	return out;
 }
 // Bake the field over a box in disk-local metres into a canvas. Browser only.

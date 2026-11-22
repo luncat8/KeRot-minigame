@@ -68,6 +68,8 @@
 	.dim { color: var(--dim); }
 	.legend { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11.5px; }
 	.legend i { flex: 0 0 56px; height: 8px; border-radius: 4px; }
+	#payCurve { width: 100%; height: 84px; margin-top: 4px; }
+	#curveInfo { margin-top: 4px; font-size: 11.5px; line-height: 1.45; font-variant-numeric: tabular-nums; }
 	#roster { margin: 6px 0; }
 	.prow { display: flex; align-items: center; gap: 6px; margin: 4px 0; padding: 2px 4px; border-radius: 6px; font-size: var(--fs); }
 	.prow.on { background: var(--on); }
@@ -301,6 +303,13 @@
 		</fieldset>
 		<div class="row"><label>disk pattern <select id="diskSchema"></select></label>
 			<div class="legend"><i id="legendBar"></i><span id="legendText" class="dim"></span></div></div>
+		<fieldset><legend>pay curve</legend>
+			<canvas id="payCurve"></canvas>
+			<div id="curveInfo" class="dim"></div>
+			<div class="row"><label>blue pays <span id="payBlueVal"></span></label><input type="range" id="payBlue" min="0" max="245" step="1" value="55"></div>
+			<div class="row"><label>curve bend <span id="payBendVal"></span></label><input type="range" id="payBend" min="0.25" max="4" step="0.05" value="1"></div>
+			<div class="dim">the paint's red channel — what a puck earns — over the field value, blue to red; the sliders reshape paint and score together.</div>
+		</fieldset>
 		<div class="row"><label>kinetic friction μk <span id="muKVal"></span></label><input type="range" id="muK" min="0.005" max="0.3" step="0.001" value="0.03"></div>
 		<div class="row"><label>static friction μs <span id="muSVal"></span></label><input type="range" id="muS" min="0.03" max="0.5" step="0.001" value="0.045"></div>
 		<div class="row"><label>puck mass <span id="massVal"></span></label><input type="range" id="mass" step="0.001"></div>
@@ -358,7 +367,20 @@
 	while the board resolves; the red field rotates with the disk. Scores are shown
 	normalised to 0–999 per game, so the number means the same thing for 2 seats and for 8.</p>
 	<p>"Red" is the red channel of the paint: blue pays about a fifth, pale and red pay
-	nearly the same — the legend under <b>disk pattern</b> has the numbers.</p>
+	nearly the same — the legend under <b>disk pattern</b> has the numbers. The map has a
+	<b>red part</b> (field above pale) and a <b>blue part</b> (below it): the <b>pay
+	curve</b> view shows what each part of the disk is worth, and the live line and the
+	final breakdown split every seat's rate by the part it sits on.</p>
+	<h2>pay curve</h2>
+	<p>The paint's red channel over the field value — the curve that turns "what the disk
+	looks like" into "what it pays". <b>blue pays</b> sets the curve's blue endpoint (the
+	red channel at full blue; pale 96 % and the red ceiling never move), <b>curve bend</b>
+	bends it between the anchors: under 1 lifts the mid values toward pale, over 1 presses
+	them toward the endpoint. The paint is the score map, so moving a slider recolours the
+	disk and rescores it in one move — what is bright on the board is what pays. The view
+	draws the curve on a strip of the paint itself, with the parts of the disk under it:
+	how much area each side has and what share of the pay it takes. Link keys:
+	<code>payblue</code> (0–245), <code>paybend</code> (0.25–4).</p>
 	<h2>turn end</h2>
 	<p>A turn pays from the push until 4 s have passed or the board stops, whichever is first.
 	With <b>a turn ends: when the board stops</b> there is no clock: the turn pays every seat
@@ -464,7 +486,8 @@
 	from the shipped table, which is the link of what you see now.
 	<code>preset</code>, <code>omega</code>, <code>muk</code>, <code>mus</code>,
 	<code>mass</code> (kg), <code>schema</code> (classic | circles | rim6),
-	<code>scorescale</code>, <code>recycle</code> (none | zones | advance), <code>swap</code> (0|1), <code>vote</code> (off | turn | round),
+	<code>scorescale</code>, <code>payblue</code> (0–245), <code>paybend</code> (0.25–4),
+	<code>recycle</code> (none | zones | advance), <code>swap</code> (0|1), <code>vote</code> (off | turn | round),
 	<code>votemode</code> (delta | exact), <code>theme</code> (classic | kerot),
 	<code>fx</code> (plain | glass), <code>sfx</code> (0|1),
 	<code>decor</code> (radial | hex), <code>face</code> (launch | up | bottom),

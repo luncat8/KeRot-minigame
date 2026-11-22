@@ -818,6 +818,16 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		check(els.omega.value === String(CFG.omega) && els.massVal.textContent.startsWith('20.00 kg'), 'sliders and readouts follow the preset');
 		UI.applySetup(parseQuery('?holefill=1'));
 		check(els.chkHoleFill.checked && UI.opts().holeFill, 'the holefill URL key drives the view option');
+		// The pay curve's link keys: they apply, clamp, pull their sliders, reset a
+		// spent board like any map rule, and echo into a custom link when non-default.
+		UI.applySetup(parseQuery('?payblue=120&paybend=2.5'));
+		check(Math.abs(CFG.payBlue - 120) < 1e-9 && Math.abs(CFG.payBend - 2.5) < 1e-9 && Game.state === 'aim',
+			'the curve keys apply and deal a fresh board', CFG.payBlue + '/' + CFG.payBend);
+		check(els.payBlue.value === '120' && els.payBend.value === '2.5', 'the curve sliders follow the link');
+		UI.applySetup(parseQuery('?payblue=999&paybend=0.01'));
+		check(CFG.payBlue === 245 && Math.abs(CFG.payBend - 0.25) < 1e-9, 'curve values clamp to the slider ranges', CFG.payBlue + '/' + CFG.payBend);
+		UI.applyPreset('default');
+		check(Math.abs(CFG.payBlue - 55) < 1e-9 && Math.abs(CFG.payBend - 1) < 1e-9, 'the default preset restores the shipped curve');
 		els.chkHoleFill.checked = true; els.chkHoleFill.on.change();
 		check(historyCalls[historyCalls.length - 1].includes('holefill=1'), 'a manual switch echoes the non-default view key into the link');
 		els.chkHoleFill.checked = false; els.chkHoleFill.on.change();
@@ -1209,7 +1219,11 @@ for (const f of ['../js/field.js', '../js/score.js', '../js/players.js', '../js/
 		globalThis.document.createElement = tag => tag === 'canvas' ? makeCanvas() : makeEl(tag);
 		if (typeof frameCb === 'function') frameCb(16);
 		globalThis.document.createElement = frameCreate;
-		check(Game.world.thrown >= 1 && Game.state === 'resolve' && Game.resolveT > 0,
+		// One frame plays the armed bot's turn: resolve while it runs — settle at once
+		// when the drawn stroke locks, because this block runs with maxThrows 1 and the
+		// first throw legally ends the game (the shuffle's curve draw changes which
+		// stroke ranks first).
+		check(Game.world.thrown >= 1 && (Game.state === 'resolve' || Game.state === 'settle') && Game.resolveT > 0,
 			'turbo frame: the armed bot throws and the board steps in the frame that arms him',
 			Game.state + ' · thrown ' + Game.world.thrown + ' · resolveT ' + Game.resolveT.toFixed(3));
 		check(drive(), 'the autoplayed game is driven to SCORED');

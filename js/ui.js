@@ -10,6 +10,7 @@ const UI = (() => {
 	const SHIPPED = {
 		omega: CFG.omega, muK: CFG.muK, muS: CFG.muS, puckM: CFG.puckM,
 		schema: CFG.diskSchema, recycle: CFG.recycleMode, zones: CFG.zoneStyle, holes: CFG.holeStyle, swap: CFG.swapZones, scoreScale: CFG.scoreScale,
+		payBlue: CFG.payBlue, payBend: CFG.payBend,
 		vote: CFG.speedVote, voteMode: CFG.voteMode, turns: CFG.turnEnd, balls: CFG.ballsPerPlayer,
 		botspeed: CFG.botSpeed, warp: !!CFG.warp, warpTries: CFG.warpTries, warpTurns: CFG.warpTurns, warpGoal: CFG.warpGoal,
 		theme: 'classic', cards: 'square', fx: 'plain', sfx: false, decor: 'radial', face: 'launch', vol: 1.3, seats: 'human,balanced,blackhole,retriever',
@@ -41,7 +42,7 @@ const UI = (() => {
 		// are the first controls bound; the rest of the panel is read below.
 		for (const id of ['btnThrow', 'btnClear', 'btnAuto', 'btnReset', 'btnPause', 'btnSettings'])
 			els[id] = $(id);
-		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'chkHoleFill', 'chkSwap', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
+		for (const id of ['omega', 'muK', 'muS', 'mass', 'omegaVal', 'muKVal', 'muSVal', 'massVal', 'hold', 'stop', 'simTime', 'puckCount', 'liveScore', 'state', 'breakdown', 'chkRing', 'chkPreview', 'chkHoleFill', 'chkSwap', 'roster', 'btnAdd', 'diskSchema', 'legendBar', 'legendText', 'payCurve', 'payBlue', 'payBend', 'payBlueVal', 'payBendVal', 'curveInfo', 'theme', 'preset', 'ballsLegend', 'voteBox', 'voteRows', 'voteStatus',
 			'botSpeed', 'chkWarp', 'warpRows', 'warpTries', 'warpTurns', 'warpGoal', 'warpTriesVal', 'warpTurnsVal', 'warpGoalVal', 'warpStatus', 'speedMode',
 			'chkCards', 'fx', 'chkSfx', 'decor', 'face', 'vol', 'volVal', 'result', 'resultWinner', 'resultScores', 'resultEma'])
 			els[id] = $(id);
@@ -78,6 +79,10 @@ const UI = (() => {
 		syncWarp();
 		fillSelect(els.diskSchema, DISK_SCHEMAS, CFG.diskSchema);
 		els.diskSchema.addEventListener('change', () => { Game.setDiskSchema(els.diskSchema.value); markCustom(); });
+		// The pay curve's sliders reshape the paint and the score together (js/field.js);
+		// no board reset — the map is live-switchable mid-game, like the disk pattern.
+		els.payBlue.addEventListener('input', () => { CFG.payBlue = parseFloat(els.payBlue.value); syncCurve(); markCustom(); });
+		els.payBend.addEventListener('input', () => { CFG.payBend = parseFloat(els.payBend.value); syncCurve(); markCustom(); });
 		els.view = $('view'); // the view switch: layout, not a game setting, so no CFG key
 		fillSelect(els.view, View.modes, View.isFit() ? 'fit' : 'side');
 		els.view.addEventListener('change', () => { View.set(els.view.value); markCustom(); });
@@ -96,6 +101,7 @@ const UI = (() => {
 		fillSelect(els.preset, PRESETS, '');
 		els.preset.addEventListener('change', () => { if (els.preset.value) applyPreset(els.preset.value); });
 		paintLegend();
+		syncCurve();
 		els.btnAuto.addEventListener('click', () => { Game.setOmega(autoOmega(CFG)); pullOmega(); sync(); onPhys(); });
 		els.btnThrow.addEventListener('click', () => Game.queueThrow(performance.now()));
 		els.btnClear.addEventListener('click', () => { Game.aim.hasStroke = false; });
@@ -172,6 +178,8 @@ const UI = (() => {
 		if (Math.abs(CFG.puckM - SHIPPED.puckM) > 1e-3) parts.push('mass=' + numParam(CFG.puckM));
 		if (CFG.diskSchema !== SHIPPED.schema) parts.push('schema=' + CFG.diskSchema);
 		if (Math.abs((CFG.scoreScale || 1) - SHIPPED.scoreScale) > 5e-4) parts.push('scorescale=' + numParam(CFG.scoreScale));
+		if (CFG.payBlue !== SHIPPED.payBlue) parts.push('payblue=' + numParam(CFG.payBlue));
+		if (Math.abs(CFG.payBend - SHIPPED.payBend) > 1e-4) parts.push('paybend=' + numParam(CFG.payBend));
 		if (CFG.recycleMode !== SHIPPED.recycle) parts.push('recycle=' + CFG.recycleMode);
 		if (CFG.zoneStyle !== SHIPPED.zones) parts.push('zones=' + CFG.zoneStyle);
 		if (CFG.holeStyle !== SHIPPED.holes) parts.push('holes=' + CFG.holeStyle);
@@ -216,6 +224,8 @@ const UI = (() => {
 		els.muS.min = String(CFG.muK);
 		els.mass.value = String(Math.log10(CFG.puckM));
 		els.diskSchema.value = CFG.diskSchema;
+		els.payBlue.value = String(CFG.payBlue);
+		els.payBend.value = String(CFG.payBend);
 		els.theme.value = opts.theme;
 		els.chkCards.checked = opts.cards === 'round';
 		els.fx.value = opts.fx;
@@ -285,9 +295,11 @@ const UI = (() => {
 		if (setup.seats && setup.seats.length) Game.setSeatTypes(setup.seats); // resets itself
 		else if (setup.omega !== undefined || setup.muK !== undefined || setup.muS !== undefined || setup.puckM !== undefined ||
 			setup.geometry !== undefined || setup.maxThrows !== undefined || setup.autoOmega || setup.balls !== undefined ||
-			setup.schema || setup.scoreScale !== undefined || setup.recycle || setup.swap !== undefined || setup.vote || setup.voteMode) Game.reset();
+			setup.schema || setup.scoreScale !== undefined || setup.payBlue !== undefined || setup.payBend !== undefined ||
+			setup.recycle || setup.swap !== undefined || setup.vote || setup.voteMode) Game.reset();
 		pullControls();
 		syncFX();
+		syncCurve();
 		syncRoster();
 		syncVotes();
 		sync();
@@ -317,16 +329,91 @@ const UI = (() => {
 		sel.value = value;
 	}
 	// The paint's three anchors and what each pays, read off fieldColor itself.
+	const _legendRgb = [0, 0, 0], _legendCss = [], _legendPays = [];
 	function paintLegend() {
-		const rgb = [0, 0, 0], css = [], pays = [];
+		_legendCss.length = 0; _legendPays.length = 0;
 		for (const v of [-1, 0, 1]) {
-			fieldColor(v, rgb);
-			css.push('rgb(' + rgb.map(Math.round).join(',') + ')');
-			pays.push(Math.round(100 * rgb[0] / RED_MAX) + ' %');
+			fieldColor(v, _legendRgb);
+			_legendCss.push('rgb(' + _legendRgb.map(Math.round).join(',') + ')');
+			_legendPays.push(Math.round(100 * _legendRgb[0] / RED_MAX) + ' %');
 		}
-		els.legendBar.style.background = 'linear-gradient(90deg, ' + css.join(', ') + ')';
-		els.legendText.textContent = 'pays: blue ' + pays[0] + ' · pale ' + pays[1] + ' · red ' + pays[2];
+		els.legendBar.style.background = 'linear-gradient(90deg, ' + _legendCss.join(', ') + ')';
+		els.legendText.textContent = 'pays: blue ' + _legendPays[0] + ' · pale ' + _legendPays[1] + ' · red ' + _legendPays[2];
 	}
+	// The pay curve's readouts: the sliders' words, the legend (it follows the curve),
+	// and what the two parts of the disk — the field's red side and blue side, split at
+	// pale — are worth on the current pattern. Refreshed by update() too, so editor
+	// drags and preset applies keep it honest; the stats are cached per paint.
+	let curveSig = '';
+	function syncCurve() {
+		const sig = CFG.payBlue + '|' + CFG.payBend + '|' + CFG.diskSchema + '|' + CFG.diskR + '|' + (CFG.scoreScale || 1);
+		if (sig === curveSig) return;
+		curveSig = sig;
+		setText('payBlueVal', Math.round(100 * CFG.payBlue / RED_MAX) + ' % of red');
+		const bend = CFG.payBend;
+		setText('payBendVal', '× ' + bend.toFixed(2) + (bend < 0.95 ? ' — mid pays up' : bend > 1.05 ? ' — extremes only' : ' — linear'));
+		paintLegend();
+		const p = diskPaintStats(CFG);
+		setText('curveInfo', 'disk: red ' + Math.round(100 * p.redArea) + ' % of the area → ' + Math.round(100 * p.redPay) +
+			' % of the pay · pale ' + Math.round(100 * p.paleArea) + ' % → ' + Math.round(100 * p.palePay) +
+			' % · blue ' + Math.round(100 * p.blueArea) + ' % → ' + Math.round(100 * p.bluePay) + ' %');
+	}
+	// The curve plot: the red channel over the field value, drawn on a strip of the
+	// paint itself, with the pay curve's floor and ceiling readable against it. Drawn
+	// on demand (bind, slider input, update at ~5 Hz when the panel shows), never per
+	// frame; the node smoke's stub elements have no 2d context and are skipped.
+	let curveKey = '';
+	function maybeDrawCurve() {
+		const cv = els.payCurve;
+		if (!cv.getContext) return;
+		const w = cv.clientWidth | 0, h = cv.clientHeight | 0;
+		if (!w || !h) return; // the closed fit rail hides the panel's rows
+		const key = w + 'x' + h + '|' + CFG.payBlue + '|' + CFG.payBend + '|' + CFG.diskSchema + '|' + CFG.diskR + '|' + (CFG.scoreScale || 1);
+		if (key === curveKey) return;
+		curveKey = key;
+		const dpr = window.devicePixelRatio || 1;
+		const bw = Math.round(w * dpr), bh = Math.round(h * dpr);
+		if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+		const ctx = cv.getContext('2d');
+		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		const rgb = _legendRgb, pad = 6, mid = h - pad, span = h - 2 * pad;
+		for (let px = 0; px < w; px++) { // the paint itself, one column per pixel
+			fieldColor(-1 + 2 * px / (w - 1), rgb);
+			ctx.fillStyle = 'rgb(' + (rgb[0] | 0) + ',' + (rgb[1] | 0) + ',' + (rgb[2] | 0) + ')';
+			ctx.fillRect(px, 0, 1, h);
+		}
+		ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+		ctx.setLineDash([3, 4]);
+		ctx.beginPath();
+		ctx.moveTo((w - 1) / 2, 2);
+		ctx.lineTo((w - 1) / 2, h - 2);
+		ctx.stroke();
+		ctx.setLineDash([]);
+		ctx.lineJoin = 'round';
+		ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+		ctx.lineWidth = 3;
+		curvePath(ctx, w, pad, mid, span);
+		ctx.stroke();
+		ctx.strokeStyle = 'rgba(15,23,32,0.9)';
+		ctx.lineWidth = 1.5;
+		curvePath(ctx, w, pad, mid, span);
+		ctx.stroke();
+	}
+	function curvePath(ctx, w, pad, mid, span) {
+		const rgb = _legendRgb;
+		ctx.beginPath();
+		for (let px = 0; px <= w; px++) {
+			const v = px >= w ? 1 : -1 + 2 * px / (w - 1);
+			const y = mid - span * fieldColor(v, rgb)[0] / RED_MAX;
+			if (px === 0) ctx.moveTo(px, y); else ctx.lineTo(px, y);
+		}
+	}
+	function splitText(s) {
+		if (!(s.rate > 1e-9)) return '';
+		const red = Math.round(100 * s.red / s.rate), blue = Math.round(100 * s.blue / s.rate);
+		return Math.round(100 - red - blue) + ' % pale · ' + red + ' % red · ' + blue + ' % blue';
+	}
+	const _splitUi = { rate: 0, red: 0, pale: 0, blue: 0, area: 0 };
 	// A new seat joins as a human, unless every seat already is one — then it joins as
 	// a bot, so a solo player who removes the default bots still gets an opponent.
 	function nextType() { return Game.roster.some(s => s.type !== 'human') ? 'human' : 'balanced'; }
@@ -516,6 +603,8 @@ const UI = (() => {
 	function update(w) {
 		const roster = Game.roster, n = roster.length;
 		actions(Game.state === 'aim' && !Game.paused && roster[Game.turn] && roster[Game.turn].type === 'human');
+		syncCurve(); // the pay curve's readouts and the plot follow the settings, at readout rate
+		maybeDrawCurve();
 		syncRoster();
 		syncVotes();
 		if (Game.omegaNow !== shownOmega) pullOmega(); // follow the motor during a vote ramp
@@ -525,7 +614,12 @@ const UI = (() => {
 		for (let i = 0; i < w.ownerLosses.length; i++) lost += w.ownerLosses[i];
 		setText('puckCount', 'board ' + w.n + ' · throws ' + w.thrown + ' · black holes ' + lost + ' · ' + n + ' seat' + (n > 1 ? 's' : '') + ' × ' + CFG.ballsPerPlayer);
 		const seat = roster[Game.turn];
-		setText('liveScore', 'on turn: ' + seatName(Game.turn) + ' earns ' + scoreRate(w, Game.turn).toFixed(1) + '/s');
+		// The turn's earning, split by the part of the map it comes from (the paint's
+		// red, pale and blue): seatSplit re-walks the pay pattern once here at readout
+		// rate, so the per-frame paying pass stays single-grid.
+		seatSplit(w, Game.turn, _splitUi);
+		setText('liveScore', 'on turn: ' + seatName(Game.turn) + ' earns ' + _splitUi.rate.toFixed(1) + '/s' +
+			(_splitUi.rate > 1e-9 ? ' — red ' + _splitUi.red.toFixed(1) + ' · pale ' + _splitUi.pale.toFixed(1) + ' · blue ' + _splitUi.blue.toFixed(1) : ''));
 		setText('state', stateText(seat));
 		setText('warpStatus', Game.warpStatus);
 		syncResult();
@@ -538,9 +632,13 @@ const UI = (() => {
 		}
 		if (Game.state !== 'scored') { if (lastText.breakdown !== '') { lastText.breakdown = ''; els.breakdown.innerHTML = ''; } return; }
 		let html = '';
-		for (let i = 0; i < n; i++) html += '<b style="color:' + seatColor(i) + '">' + seatName(i) + '</b> ' +
-			displayScore(CFG, n, roster[i].score) + ' <span class="dim">(' + roster[i].score.toFixed(0) + ' raw)</span>' +
-			(i === Game.winner ? ' ← winner' : '') + '<br>';
+		for (let i = 0; i < n; i++) {
+			seatSplit(w, i, _splitUi);
+			const holds = _splitUi.rate > 1e-9 ? ' <span class="dim">— holds ' + _splitUi.rate.toFixed(1) + '/s (' + splitText(_splitUi) + ')</span>' : '';
+			html += '<b style="color:' + seatColor(i) + '">' + seatName(i) + '</b> ' +
+				displayScore(CFG, n, roster[i].score) + ' <span class="dim">(' + roster[i].score.toFixed(0) + ' raw)</span>' +
+				holds + (i === Game.winner ? ' ← winner' : '') + '<br>';
+		}
 		if (lastText.breakdown !== html) { lastText.breakdown = html; els.breakdown.innerHTML = html; }
 	}
 	// The transport bar stays reachable in every layout, so the two buttons that need a
@@ -560,5 +658,5 @@ const UI = (() => {
 		return opts;
 	}
 	return { bind, update, actions, opts: optsNow, applySetup, applyPreset, changesQuery: liveQuery,
-		refreshEditor() { pullControls(); sync(); markCustom(); } };
+		refreshEditor() { pullControls(); sync(); syncCurve(); markCustom(); } };
 })();

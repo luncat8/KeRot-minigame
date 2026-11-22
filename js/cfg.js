@@ -49,6 +49,12 @@ const CFG = {
 	zoneStyle: 'hatch', holeStyle: 'classic', swapZones: false,
 	zoneCutGap: 0.06, zoneReach: 1, customGeometry: false, scoreScale: 1, // scoreScale: score-map size relative to diskR (1 = 100%)
 	diskSchema: 'classic', // disk paint = score map, a key of DISK_SCHEMAS (js/field.js)
+	// The pay curve (js/field.js fieldColor): payBlue is the paint's red channel at
+	// v = -1 — what the blue part of the disk pays, pale is 245 and the red ceiling is
+	// 255 — and payBend bends the curve between the anchors. It is a rule, not a skin:
+	// the paint is the score map, so reshaping the curve recolours the disk and
+	// rescores it in one move.
+	payBlue: 55, payBend: 1,
 	// Speed rule (radio groups, js/vote.js): who sets ω during a game. 'off' — the panel
 	// slider alone; 'turn' — the seats vote before every turn; 'round' — before every
 	// round. A vote is a change of up to ±voteDeltaMax ('delta') or an exact speed

@@ -28,6 +28,23 @@ rounds the score cards.
 URL keys: `zones=hatch|wavy|rounded|arcs|3-rounded|6-hemi`, `holes=classic|rim|well|triangle`,
 `cards=round`. Validate with `node experiments/zone-shapes.js`.
 
+## Score parts and the pay curve
+
+The disk's paint is its score map, so it has parts with names: **red** (field ≥ 0.5),
+**pale** between, **blue** (≤ −0.5) — what a seat earns is the red channel of that
+paint, and the two things move together. The **pay curve** group in the settings shows
+the curve — the red channel over the field value, drawn on a strip of the paint itself —
+with what each part of the disk is worth on the current pattern (how much of the area
+each side has and what share of the pay it takes). **blue pays** sets the curve's blue
+endpoint (pale 96 % and the red ceiling never move), **curve bend** bends it between
+the anchors: under 1 lifts the mid values toward pale, over 1 presses them toward the
+endpoint. Moving a slider recolours the disk and rescores it in one move; the game does
+not restart, the map is live-switchable like the disk pattern. The live line splits the
+turn seat's earning by part (red / pale / blue), the final breakdown shows what each
+seat holds and from which part, and the curve joins the random shuffle's draw. Link
+keys: `payblue` (0–245), `paybend` (0.25–4). Validate with
+`node experiments/curve.js`.
+
 ## Board editor
 
 **Edit board** pauses the game and loads the editor only on demand. Drag the labelled
